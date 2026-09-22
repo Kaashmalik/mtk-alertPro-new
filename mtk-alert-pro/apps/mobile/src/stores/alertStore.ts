@@ -10,21 +10,34 @@ interface AlertState {
   alerts: Alert[];
   unreadCount: number;
   isLoading: boolean;
+  error: string | null;
 
   fetchAlerts: () => Promise<void>;
+  addAlert: (alert: {
+    cameraId: string;
+    cameraName?: string;
+    type: Alert['type'];
+    confidence: number;
+    timestamp?: Date;
+    isRead?: boolean;
+    snapshotUrl?: string;
+    videoClipUrl?: string;
+  }) => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
   deleteAlert: (id: string) => Promise<void>;
   subscribeToAlerts: () => () => void;
+  clearError: () => void;
 }
 
 export const useAlertStore = create<AlertState>((set, get) => ({
   alerts: [],
   unreadCount: 0,
   isLoading: false,
+  error: null,
 
   fetchAlerts: async () => {
-    set({ isLoading: true });
+    set({ isLoading: true, error: null });
     try {
       const { data, error } = await supabase
         .from('alerts')
@@ -50,11 +63,53 @@ export const useAlertStore = create<AlertState>((set, get) => ({
       set({
         alerts,
         unreadCount: alerts.filter((a) => !a.isRead).length,
+        error: null,
       });
     } catch (error) {
       console.error('Failed to fetch alerts:', error);
+      set({ error: error instanceof Error ? error.message : 'Failed to fetch alerts' });
     } finally {
       set({ isLoading: false });
+    }
+  },
+
+  addAlert: async (newAlertData) => {
+    const alertId = `alert_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`;
+    const newAlert: Alert = {
+      id: alertId,
+      cameraId: newAlertData.cameraId,
+      userId: 'current-user',
+      type: newAlertData.type,
+      confidence: newAlertData.confidence,
+      snapshotUrl: newAlertData.snapshotUrl,
+      videoClipUrl: newAlertData.videoClipUrl,
+      metadata: {},
+      isRead: false,
+      createdAt: newAlertData.timestamp || new Date(),
+    };
+
+    set((state) => ({
+      alerts: [newAlert, ...state.alerts],
+      unreadCount: state.unreadCount + 1,
+    }));
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (user) {
+        newAlert.userId = user.id;
+        await supabase.from('alerts').insert({
+          camera_id: newAlertData.cameraId,
+          user_id: user.id,
+          type: newAlertData.type,
+          confidence: newAlertData.confidence,
+          snapshot_url: newAlertData.snapshotUrl,
+          video_clip_url: newAlertData.videoClipUrl,
+          metadata: {},
+          is_read: false,
+        });
+      }
+    } catch (dbErr) {
+      console.warn('[AlertStore] Supabase alert sync notice:', dbErr);
     }
   },
 
@@ -176,4 +231,6 @@ export const useAlertStore = create<AlertState>((set, get) => ({
       supabase.removeChannel(channel);
     };
   },
+
+  clearError: () => set({ error: null }),
 }));

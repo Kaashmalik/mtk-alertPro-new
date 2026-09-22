@@ -4,6 +4,9 @@
  * @jest-environment node
  */
 
+// Ensure encryption key is present before module import in node environment
+process.env.EXPO_PUBLIC_ENCRYPTION_KEY = 'test-secret-key-32-characters-len!';
+
 import {
   encryptPassword,
   decryptPassword,

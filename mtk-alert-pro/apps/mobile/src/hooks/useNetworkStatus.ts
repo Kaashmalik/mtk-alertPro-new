@@ -87,9 +87,12 @@ function mapNetInfoState(state: NetInfoState): NetworkStatus {
     isWifi: state.type === NetInfoStateType.wifi,
     isCellular: state.type === NetInfoStateType.cellular,
     type: state.type,
-    isExpensive: state.details !== null && 'isConnectionExpensive' in state.details 
-      ? (state.details as { isConnectionExpensive?: boolean }).isConnectionExpensive ?? false
-      : false,
+    isExpensive: Boolean(
+      state.details &&
+      typeof state.details === 'object' &&
+      'isConnectionExpensive' in state.details &&
+      (state.details as { isConnectionExpensive?: boolean }).isConnectionExpensive
+    ),
     isLoading: false,
   };
 }

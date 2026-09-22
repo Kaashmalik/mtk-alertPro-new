@@ -4,6 +4,20 @@
  */
 
 import '@testing-library/jest-native/extend-expect';
+import 'react-native-gesture-handler/jestSetup';
+
+// Silence reanimated warnings/errors in test
+jest.mock('react-native-reanimated', () => {
+  const Reanimated = require('react-native-reanimated/mock');
+  Reanimated.default.call = () => {};
+  return Reanimated;
+});
+
+// Set environment variables for tests
+process.env.EXPO_PUBLIC_ENCRYPTION_KEY = 'test-secret-key-32-characters-len!';
+process.env.EXPO_PUBLIC_SUPABASE_URL = 'https://mock.supabase.co';
+process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'mock-anon-key';
+process.env.EXPO_PUBLIC_APP_ENV = 'test';
 
 // ============================================================================
 // Global Mocks
@@ -32,6 +46,51 @@ jest.mock('expo-secure-store', () => ({
   setItemAsync: jest.fn().mockResolvedValue(undefined),
   deleteItemAsync: jest.fn().mockResolvedValue(undefined),
 }));
+
+// Mock @react-native-async-storage/async-storage
+const mockAsyncStorageStore: Record<string, string> = {};
+beforeEach(() => {
+  for (const key in mockAsyncStorageStore) {
+    delete mockAsyncStorageStore[key];
+  }
+});
+jest.mock('@react-native-async-storage/async-storage', () => {
+  const mockStorage = {
+    getItem: jest.fn((key: string) => Promise.resolve(mockAsyncStorageStore[key] ?? null)),
+    setItem: jest.fn((key: string, value: string) => {
+      mockAsyncStorageStore[key] = value;
+      return Promise.resolve(null);
+    }),
+    removeItem: jest.fn((key: string) => {
+      delete mockAsyncStorageStore[key];
+      return Promise.resolve(null);
+    }),
+    clear: jest.fn(() => {
+      for (const key in mockAsyncStorageStore) {
+        delete mockAsyncStorageStore[key];
+      }
+      return Promise.resolve(null);
+    }),
+    getAllKeys: jest.fn(() => Promise.resolve(Object.keys(mockAsyncStorageStore))),
+    multiGet: jest.fn((keys: string[]) => Promise.resolve(keys.map((k) => [k, mockAsyncStorageStore[k] ?? null]))),
+    multiSet: jest.fn((keyValuePairs: [string, string][]) => {
+      keyValuePairs.forEach(([k, v]) => {
+        mockAsyncStorageStore[k] = v;
+      });
+      return Promise.resolve(null);
+    }),
+    multiRemove: jest.fn((keys: string[]) => {
+      keys.forEach((k) => {
+        delete mockAsyncStorageStore[k];
+      });
+      return Promise.resolve(null);
+    }),
+  };
+  return {
+    ...mockStorage,
+    default: mockStorage,
+  };
+});
 
 // Mock expo-notifications
 jest.mock('expo-notifications', () => ({

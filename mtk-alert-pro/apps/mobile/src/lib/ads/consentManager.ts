@@ -1,5 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import Constants from 'expo-constants';
+import { Platform } from 'react-native';
 
 // Define explicit enum for type safety
 export enum AdsConsentStatus {
@@ -10,16 +11,7 @@ export enum AdsConsentStatus {
 }
 
 // Safe import - wrap in try-catch to prevent Expo Go crashes
-let AdsConsentModule: any = null;
-let AdsConsentDebugGeography: any = null;
-
-try {
-    const consentModule = require('react-native-google-mobile-ads');
-    AdsConsentModule = consentModule.AdsConsent;
-    AdsConsentDebugGeography = consentModule.AdsConsentDebugGeography;
-} catch (e) {
-    console.log('[Consent] Native module not available (Expo Go)');
-}
+import { RNAdsConsent as AdsConsentModule, RNAdsConsentDebugGeography as AdsConsentDebugGeography } from './admob-proxy';
 
 const CONSENT_STATUS_KEY = 'admob-consent-status';
 const CONSENT_TIMESTAMP_KEY = 'admob-consent-timestamp';

@@ -84,15 +84,22 @@ export async function authenticateWithBiometric(
       };
     }
     
+    const isCancel = result.error === 'user_cancel' || 
+                     result.error === 'system_cancel' || 
+                     result.error === 'app_cancel' ||
+                     result.error === 'user_fallback';
+
     return {
       success: false,
-      error: result.error || 'Authentication failed',
+      error: isCancel ? 'User canceled' : (result.error || 'Authentication failed'),
     };
   } catch (error) {
-    console.error('Biometric authentication error:', error);
+    console.warn('Biometric authentication notice:', error);
+    const msg = error instanceof Error ? error.message : 'Authentication failed';
+    const isCancel = msg.toLowerCase().includes('cancel');
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Authentication failed',
+      error: isCancel ? 'User canceled' : msg,
     };
   }
 }

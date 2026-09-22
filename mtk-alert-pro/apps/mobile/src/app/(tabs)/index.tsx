@@ -1,10 +1,11 @@
 /**
  * Home Screen / Dashboard
  * 
- * Main dashboard with quick stats, alerts, and camera status
+ * Main surveillance control center with master defense switch,
+ * live camera grid, recent alerts, and storage playback.
  */
 
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useState } from 'react';
 import {
   View,
   Text,
@@ -22,9 +23,8 @@ import Animated, {
   useSharedValue,
   useAnimatedStyle,
   withSpring,
-  withTiming,
   FadeInDown,
-  FadeInUp
+  FadeInUp,
 } from 'react-native-reanimated';
 import {
   Shield,
@@ -38,19 +38,27 @@ import {
   Users,
   Car,
   Zap,
+  HardDrive,
+  CheckCircle2,
+  Play,
+  Radio,
 } from 'lucide-react-native';
-import { useAuthStore, useCameraStore, useAlertStore, useSettingsStore, useSubscriptionStore, useIsPremium } from '@/stores';
+import * as Haptics from 'expo-haptics';
+import {
+  useAuthStore,
+  useCameraStore,
+  useAlertStore,
+  useSettingsStore,
+  useIsPremium,
+} from '@/stores';
+import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
 import { designSystem } from '@/theme/design-system';
 import { AlertCard } from '@/components/animated';
+import { RecordingsModal } from '@/components/camera/RecordingsModal';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
-// ============================================================================
-// Component
-// ============================================================================
-
 export default function HomeScreen() {
-  // Store selectors
   const user = useAuthStore((state) => state.user);
   const cameras = useCameraStore((state) => state.cameras);
   const fetchCameras = useCameraStore((state) => state.fetchCameras);
@@ -59,9 +67,12 @@ export default function HomeScreen() {
   const unreadCount = useAlertStore((state) => state.unreadCount);
   const fetchAlerts = useAlertStore((state) => state.fetchAlerts);
   const detection = useSettingsStore((state) => state.detection);
-  const setDetection = useSettingsStore((state) => state.setDetection);
-  // const currentTier = useSubscriptionStore((state) => state.currentTier); // Unused
   const isPremium = useIsPremium();
+
+  const { isMonitoring, toggleMasterDetection, activeMonitoringCount } =
+    useDetectionCoordinator();
+
+  const [showRecordingsModal, setShowRecordingsModal] = useState(false);
 
   // Animation values
   const toggleScale = useSharedValue(1);
@@ -83,19 +94,22 @@ export default function HomeScreen() {
   const personAlerts = alerts.filter((a) => a.type === 'person').length;
   const vehicleAlerts = alerts.filter((a) => a.type === 'vehicle').length;
 
-  // Toggle Animation
+  const handleToggleRedAlert = async () => {
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
+    } catch {}
+
+    toggleScale.value = withSpring(0.9, {}, () => {
+      toggleScale.value = withSpring(1);
+    });
+
+    toggleMasterDetection();
+  };
+
   const animatedToggleStyle = useAnimatedStyle(() => ({
     transform: [{ scale: toggleScale.value }],
   }));
 
-  const handleToggleRedAlert = () => {
-    toggleScale.value = withSpring(0.9, {}, () => {
-      toggleScale.value = withSpring(1);
-    });
-    setDetection({ redAlertMode: !detection.redAlertMode });
-  };
-
-  // Get time of day greeting
   const getGreeting = () => {
     const hour = new Date().getHours();
     if (hour < 12) return 'Good Morning';
@@ -120,18 +134,12 @@ export default function HomeScreen() {
         }
       >
         <SafeAreaView edges={['top']}>
-
           {/* Header */}
-          <Animated.View
-            entering={FadeInDown.duration(600)}
-            style={styles.header}
-          >
+          <Animated.View entering={FadeInDown.duration(600)} style={styles.header}>
             <View style={styles.headerLeft}>
               <Text style={styles.greeting}>{getGreeting()}</Text>
               <View style={styles.nameRow}>
-                <Text style={styles.userName}>
-                  {user?.displayName || 'User'}
-                </Text>
+                <Text style={styles.userName}>{user?.displayName || 'Home Security'}</Text>
                 {isPremium && (
                   <View style={styles.premiumBadge}>
                     <Crown size={12} color={designSystem.colors.status.warning} />
@@ -148,61 +156,90 @@ export default function HomeScreen() {
             </TouchableOpacity>
           </Animated.View>
 
-          {/* Red Alert Toggle */}
-          <Animated.View entering={FadeInDown.delay(100).duration(600)}>
+          {/* Master Defense / Red Alert Toggle */}
+          <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.redAlertContainer}>
             <TouchableOpacity
               onPress={handleToggleRedAlert}
-              style={styles.redAlertCard}
+              style={[
+                styles.redAlertCard,
+                detection.redAlertMode && styles.redAlertCardGlow,
+              ]}
               activeOpacity={0.9}
             >
               <LinearGradient
-                colors={detection.redAlertMode
-                  ? [designSystem.colors.status.danger, '#DC2626'] // Red 600
-                  : [designSystem.colors.background.tertiary, designSystem.colors.background.secondary]
+                colors={
+                  detection.redAlertMode
+                    ? ['#DC2626', '#991B1B']
+                    : ['#1E293B', '#0F172A']
                 }
                 start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
+                end={{ x: 1, y: 1 }}
                 style={styles.redAlertGradient}
               >
                 <View style={styles.redAlertContent}>
-                  <View style={[
-                    styles.redAlertIcon,
-                    detection.redAlertMode && styles.redAlertIconActive,
-                  ]}>
+                  <View
+                    style={[
+                      styles.redAlertIcon,
+                      detection.redAlertMode && styles.redAlertIconActive,
+                    ]}
+                  >
                     <Zap
-                      size={24}
-                      color={detection.redAlertMode ? 'white' : designSystem.colors.status.danger}
+                      size={28}
+                      color={detection.redAlertMode ? 'white' : '#EF4444'}
                       fill={detection.redAlertMode ? 'white' : 'transparent'}
                     />
                   </View>
                   <View style={styles.redAlertText}>
-                    <Text style={styles.redAlertTitle}>Red Alert Mode</Text>
+                    <View style={styles.statusBadgeRow}>
+                      <Text style={styles.redAlertTitle}>
+                        {detection.redAlertMode ? 'SYSTEM ARMED' : 'STANDBY MODE'}
+                      </Text>
+                      <View
+                        style={[
+                          styles.liveDotBadge,
+                          detection.redAlertMode && styles.liveDotBadgeActive,
+                        ]}
+                      >
+                        <View
+                          style={[
+                            styles.liveDot,
+                            detection.redAlertMode && styles.liveDotActive,
+                          ]}
+                        />
+                        <Text style={styles.liveDotText}>
+                          {detection.redAlertMode ? 'ACTIVE INFERENCE' : 'OFF'}
+                        </Text>
+                      </View>
+                    </View>
                     <Text style={styles.redAlertSubtitle}>
                       {detection.redAlertMode
-                        ? 'Maximum sensitivity active'
-                        : 'Tap to enable high sensitivity'}
+                        ? `On-device AI actively monitoring ${activeMonitoringCount || activeCameras} cameras`
+                        : 'Tap to arm all cameras with real-time AI detection'}
                     </Text>
                   </View>
                 </View>
-                <View style={[
-                  styles.toggle,
-                  detection.redAlertMode && styles.toggleActive,
-                ]}>
-                  <Animated.View style={[
-                    styles.toggleThumb,
-                    detection.redAlertMode && styles.toggleThumbActive,
-                    animatedToggleStyle
-                  ]} />
+
+                {/* Animated Switch Pill */}
+                <View
+                  style={[
+                    styles.toggle,
+                    detection.redAlertMode && styles.toggleActive,
+                  ]}
+                >
+                  <Animated.View
+                    style={[
+                      styles.toggleThumb,
+                      detection.redAlertMode && styles.toggleThumbActive,
+                      animatedToggleStyle,
+                    ]}
+                  />
                 </View>
               </LinearGradient>
             </TouchableOpacity>
           </Animated.View>
 
-          {/* Quick Stats */}
-          <Animated.View
-            entering={FadeInDown.delay(200).duration(600)}
-            style={styles.statsGrid}
-          >
+          {/* Quick Metrics Grid */}
+          <Animated.View entering={FadeInDown.delay(200).duration(600)} style={styles.statsGrid}>
             <TouchableOpacity
               style={styles.statCard}
               onPress={() => router.push('/(tabs)/cameras')}
@@ -238,7 +275,7 @@ export default function HomeScreen() {
                 <Users size={20} color={designSystem.colors.status.warning} />
               </View>
               <Text style={styles.statValue}>{personAlerts}</Text>
-              <Text style={styles.statLabel}>Person Detected</Text>
+              <Text style={styles.statLabel}>Humans Detected</Text>
             </View>
 
             <View style={styles.statCard}>
@@ -246,78 +283,13 @@ export default function HomeScreen() {
                 <Car size={20} color="#06B6D4" />
               </View>
               <Text style={styles.statValue}>{vehicleAlerts}</Text>
-              <Text style={styles.statLabel}>Vehicle Detected</Text>
+              <Text style={styles.statLabel}>Vehicles Detected</Text>
             </View>
           </Animated.View>
 
-          {/* System Status */}
-          <Animated.View
-            entering={FadeInDown.delay(300).duration(600)}
-            style={styles.systemStatus}
-          >
-            <View style={styles.statusIndicator}>
-              <View style={[
-                styles.statusDot,
-                { backgroundColor: activeCameras > 0 ? designSystem.colors.status.success : designSystem.colors.status.warning }
-              ]} />
-              <View style={styles.statusPulse} />
-            </View>
-            <View style={styles.statusInfo}>
-              <Text style={styles.statusTitle}>System Status</Text>
-              <Text style={styles.statusText}>
-                {activeCameras > 0
-                  ? `${activeCameras} camera${activeCameras > 1 ? 's' : ''} monitoring`
-                  : 'No cameras connected'}
-              </Text>
-            </View>
-            <Activity size={20} color={designSystem.colors.text.muted} />
-          </Animated.View>
-
-          {/* Recent Alerts */}
-          <Animated.View
-            entering={FadeInDown.delay(400).duration(600)}
-            style={styles.section}
-          >
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Recent Alerts</Text>
-              <TouchableOpacity onPress={() => router.push('/(tabs)/alerts')}>
-                <Text style={styles.viewAll}>View All</Text>
-              </TouchableOpacity>
-            </View>
-
-            {recentAlerts.length === 0 ? (
-              <View style={styles.emptyAlerts}>
-                <View style={styles.emptyIconContainer}>
-                  <Shield size={32} color={designSystem.colors.text.muted} />
-                </View>
-                <Text style={styles.emptyTitle}>All Clear</Text>
-                <Text style={styles.emptyText}>
-                  No recent alerts. Your cameras are monitoring.
-                </Text>
-              </View>
-            ) : (
-              recentAlerts.map((alert, index) => (
-                <View key={alert.id} style={index !== recentAlerts.length - 1 ? { marginBottom: designSystem.spacing.sm } : {}}>
-                  <AlertCard
-                    id={alert.id}
-                    type={alert.type as any} // 'person' | 'vehicle' | 'motion'
-                    confidence={0.95} // Mock confidence if not available in summary
-                    timestamp={new Date(alert.createdAt)}
-                    thumbnailUrl={undefined} // Add if available
-                    cameraName={`Camera ${alert.cameraId.slice(0, 4)}`} // Mock name if unavailable
-                    onPress={() => router.push('/(tabs)/alerts')}
-                  />
-                </View>
-              ))
-            )}
-          </Animated.View>
-
-          {/* Quick Actions */}
-          <Animated.View
-            entering={FadeInDown.delay(500).duration(600)}
-            style={styles.section}
-          >
-            <Text style={styles.sectionTitle}>Quick Actions</Text>
+          {/* Quick Actions Bar */}
+          <Animated.View entering={FadeInDown.delay(300).duration(600)} style={styles.section}>
+            <Text style={styles.sectionTitle}>Quick Surveillance Actions</Text>
             <View style={styles.quickActions}>
               <TouchableOpacity
                 style={styles.actionButton}
@@ -341,7 +313,18 @@ export default function HomeScreen() {
                 <View style={[styles.actionIcon, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
                   <Camera size={20} color={designSystem.colors.status.info} />
                 </View>
-                <Text style={styles.actionLabel}>View Cameras</Text>
+                <Text style={styles.actionLabel}>Live Feeds</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={styles.actionButton}
+                onPress={() => setShowRecordingsModal(true)}
+                activeOpacity={0.8}
+              >
+                <View style={[styles.actionIcon, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
+                  <HardDrive size={20} color="#38BDF8" />
+                </View>
+                <Text style={styles.actionLabel}>Clips & Storage</Text>
               </TouchableOpacity>
 
               <TouchableOpacity
@@ -352,25 +335,99 @@ export default function HomeScreen() {
                 <View style={[styles.actionIcon, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
                   <Crown size={20} color={designSystem.colors.status.warning} />
                 </View>
-                <Text style={styles.actionLabel}>
-                  {isPremium ? 'Manage Plan' : 'Upgrade'}
-                </Text>
-              </TouchableOpacity>
-
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => router.push('/help')}
-                activeOpacity={0.8}
-              >
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(16, 185, 129, 0.15)' }]}>
-                  <Shield size={20} color={designSystem.colors.status.success} />
-                </View>
-                <Text style={styles.actionLabel}>Get Help</Text>
+                <Text style={styles.actionLabel}>{isPremium ? 'PRO Active' : 'Upgrade'}</Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
 
-          {/* Upgrade Banner (for free users) */}
+          {/* Active Cameras Live Preview Snippet */}
+          {cameras.length > 0 && (
+            <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.section}>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Connected Cameras</Text>
+                <TouchableOpacity onPress={() => router.push('/(tabs)/cameras')}>
+                  <Text style={styles.viewAll}>View All ({cameras.length})</Text>
+                </TouchableOpacity>
+              </View>
+
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                contentContainerStyle={styles.cameraRowContent}
+              >
+                {cameras.map((cam) => (
+                  <TouchableOpacity
+                    key={cam.id}
+                    style={styles.cameraThumbCard}
+                    onPress={() => router.push(`/cameras/${cam.id}`)}
+                    activeOpacity={0.85}
+                  >
+                    <View style={styles.cameraThumbPlaceholder}>
+                      <Camera size={28} color="#64748B" />
+                      <View style={styles.playOverlayBadge}>
+                        <Play size={14} color="white" fill="white" />
+                      </View>
+                      <View
+                        style={[
+                          styles.camStatusDot,
+                          { backgroundColor: cam.isActive ? '#10B981' : '#EF4444' },
+                        ]}
+                      />
+                    </View>
+                    <View style={styles.cameraThumbInfo}>
+                      <Text style={styles.cameraThumbName} numberOfLines={1}>
+                        {cam.name}
+                      </Text>
+                      <Text style={styles.cameraThumbStatus}>
+                        {cam.isActive ? 'Live Stream' : 'Offline'}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            </Animated.View>
+          )}
+
+          {/* Recent Alerts */}
+          <Animated.View entering={FadeInDown.delay(500).duration(600)} style={styles.section}>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Recent Security Alerts</Text>
+              <TouchableOpacity onPress={() => router.push('/(tabs)/alerts')}>
+                <Text style={styles.viewAll}>View All</Text>
+              </TouchableOpacity>
+            </View>
+
+            {recentAlerts.length === 0 ? (
+              <View style={styles.emptyAlerts}>
+                <View style={styles.emptyIconContainer}>
+                  <Shield size={32} color={designSystem.colors.text.muted} />
+                </View>
+                <Text style={styles.emptyTitle}>Surveillance Perimeter Clear</Text>
+                <Text style={styles.emptyText}>
+                  No threats detected. All cameras are monitoring on-device.
+                </Text>
+              </View>
+            ) : (
+              recentAlerts.map((alert, index) => (
+                <View
+                  key={alert.id}
+                  style={index !== recentAlerts.length - 1 ? { marginBottom: designSystem.spacing.sm } : {}}
+                >
+                  <AlertCard
+                    id={alert.id}
+                    type={alert.type as any}
+                    confidence={0.95}
+                    timestamp={new Date(alert.createdAt)}
+                    thumbnailUrl={undefined}
+                    cameraName={`Camera ${alert.cameraId.slice(0, 4)}`}
+                    onPress={() => router.push('/(tabs)/alerts')}
+                  />
+                </View>
+              ))
+            )}
+          </Animated.View>
+
+          {/* Upgrade Banner for Free Users */}
           {!isPremium && (
             <Animated.View entering={FadeInUp.delay(600).duration(600)}>
               <TouchableOpacity
@@ -379,7 +436,7 @@ export default function HomeScreen() {
                 activeOpacity={0.9}
               >
                 <LinearGradient
-                  colors={['rgba(239, 68, 68, 0.15)', 'rgba(245, 158, 11, 0.1)']}
+                  colors={['rgba(239, 68, 68, 0.2)', 'rgba(245, 158, 11, 0.15)']}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.upgradeGradient}
@@ -387,9 +444,9 @@ export default function HomeScreen() {
                   <View style={styles.upgradeContent}>
                     <Crown size={24} color={designSystem.colors.status.warning} />
                     <View style={styles.upgradeText}>
-                      <Text style={styles.upgradeTitle}>Upgrade to Pro</Text>
+                      <Text style={styles.upgradeTitle}>Upgrade to MTK AlertPro</Text>
                       <Text style={styles.upgradeSubtitle}>
-                        Unlock unlimited cameras & AI features
+                        Unlock Unlimited Cameras, Face Recognition, & Cloud Backup
                       </Text>
                     </View>
                   </View>
@@ -398,22 +455,24 @@ export default function HomeScreen() {
             </Animated.View>
           )}
 
-          {/* Spacer */}
-          <View style={{ height: designSystem.spacing.xxxl }} />
+          <View style={{ height: 40 }} />
         </SafeAreaView>
       </ScrollView>
+
+      {/* Recordings & Storage Modal */}
+      <RecordingsModal
+        visible={showRecordingsModal}
+        onClose={() => setShowRecordingsModal(false)}
+        cameraName="All Cameras"
+      />
     </View>
   );
 }
 
-// ============================================================================
-// Styles
-// ============================================================================
-
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: designSystem.colors.background.primary,
+    backgroundColor: '#0F172A',
   },
   scrollView: {
     flex: 1,
@@ -422,103 +481,150 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: designSystem.spacing.xl,
-    paddingTop: designSystem.spacing.md,
-    paddingBottom: designSystem.spacing.lg,
+    paddingHorizontal: 20,
+    paddingTop: 12,
+    paddingBottom: 16,
   },
   headerLeft: {
     flex: 1,
   },
   greeting: {
-    fontSize: designSystem.typography.size.sm,
-    color: designSystem.colors.text.secondary,
-    marginBottom: designSystem.spacing.xs,
+    fontSize: 13,
+    color: '#94A3B8',
+    marginBottom: 2,
   },
   nameRow: {
     flexDirection: 'row',
     alignItems: 'center',
   },
   userName: {
-    fontSize: designSystem.typography.size.xxl,
+    fontSize: 22,
     fontWeight: '700',
-    color: designSystem.colors.text.primary,
+    color: '#F8FAFC',
   },
   premiumBadge: {
     flexDirection: 'row',
     alignItems: 'center',
     backgroundColor: 'rgba(245, 158, 11, 0.15)',
-    paddingHorizontal: designSystem.spacing.sm,
+    paddingHorizontal: 8,
     paddingVertical: 2,
-    borderRadius: designSystem.layout.radius.full,
-    marginLeft: designSystem.spacing.sm,
-    gap: designSystem.spacing.xs,
+    borderRadius: 6,
+    marginLeft: 10,
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
   },
   premiumText: {
-    fontSize: designSystem.typography.size.xs,
+    fontSize: 11,
     fontWeight: '700',
-    color: designSystem.colors.status.warning,
+    color: '#F59E0B',
+    marginLeft: 4,
   },
   settingsButton: {
-    width: 44,
-    height: 44,
-    backgroundColor: designSystem.colors.background.tertiary,
-    borderRadius: 22,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#1E293B',
     alignItems: 'center',
     justifyContent: 'center',
   },
+  redAlertContainer: {
+    paddingHorizontal: 16,
+    marginBottom: 16,
+  },
   redAlertCard: {
-    marginHorizontal: designSystem.spacing.xl,
-    marginBottom: designSystem.spacing.xl,
-    borderRadius: designSystem.layout.radius.xl,
+    borderRadius: 16,
     overflow: 'hidden',
-    ...designSystem.shadows.md,
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  redAlertCardGlow: {
+    borderColor: '#EF4444',
+    shadowColor: '#EF4444',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 8,
   },
   redAlertGradient: {
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    padding: designSystem.spacing.lg,
+    padding: 18,
   },
   redAlertContent: {
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
+    marginRight: 12,
   },
   redAlertIcon: {
-    width: 48,
-    height: 48,
-    borderRadius: 14,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
     alignItems: 'center',
     justifyContent: 'center',
+    marginRight: 14,
   },
   redAlertIconActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
   },
   redAlertText: {
-    marginLeft: designSystem.spacing.md,
     flex: 1,
   },
+  statusBadgeRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    marginBottom: 4,
+  },
   redAlertTitle: {
-    fontSize: designSystem.typography.size.base,
-    fontWeight: '600',
-    color: designSystem.colors.text.primary,
+    fontSize: 16,
+    fontWeight: '800',
+    color: 'white',
+    letterSpacing: 0.5,
+  },
+  liveDotBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(0,0,0,0.3)',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  liveDotBadgeActive: {
+    backgroundColor: 'rgba(255,255,255,0.2)',
+  },
+  liveDot: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: '#64748B',
+    marginRight: 4,
+  },
+  liveDotActive: {
+    backgroundColor: '#4ADE80',
+  },
+  liveDotText: {
+    color: 'white',
+    fontSize: 9,
+    fontWeight: '700',
   },
   redAlertSubtitle: {
-    fontSize: designSystem.typography.size.sm,
-    color: designSystem.colors.text.secondary,
-    marginTop: 2,
+    fontSize: 12,
+    color: 'rgba(255, 255, 255, 0.85)',
+    lineHeight: 16,
   },
   toggle: {
     width: 52,
     height: 30,
     borderRadius: 15,
-    backgroundColor: designSystem.colors.background.tertiary,
+    backgroundColor: '#334155',
     padding: 3,
     justifyContent: 'center',
   },
   toggleActive: {
-    backgroundColor: 'rgba(255, 255, 255, 0.3)',
+    backgroundColor: '#22C55E',
   },
   toggleThumb: {
     width: 24,
@@ -532,189 +638,202 @@ const styles = StyleSheet.create({
   statsGrid: {
     flexDirection: 'row',
     flexWrap: 'wrap',
-    paddingHorizontal: designSystem.spacing.xl,
-    gap: designSystem.spacing.md,
+    paddingHorizontal: 12,
+    gap: 8,
+    marginBottom: 20,
   },
   statCard: {
-    width: (SCREEN_WIDTH - designSystem.spacing.xl * 2 - designSystem.spacing.md) / 2,
-    backgroundColor: designSystem.colors.background.secondary,
-    borderRadius: designSystem.layout.radius.xl,
-    padding: designSystem.spacing.lg,
+    width: (SCREEN_WIDTH - 40) / 2,
+    backgroundColor: '#1E293B',
+    padding: 14,
+    borderRadius: 14,
+    borderWidth: 1,
+    borderColor: '#334155',
   },
   statIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: 12,
+    width: 38,
+    height: 38,
+    borderRadius: 10,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: designSystem.spacing.md,
+    marginBottom: 10,
   },
   statValue: {
-    fontSize: designSystem.typography.size.xxl, // 3xl in original but xxl is 24, might want display
+    fontSize: 22,
     fontWeight: '700',
-    color: designSystem.colors.text.primary,
+    color: '#F8FAFC',
   },
   statLabel: {
-    fontSize: designSystem.typography.size.sm,
-    color: designSystem.colors.text.secondary,
-    marginTop: designSystem.spacing.xs,
+    fontSize: 12,
+    color: '#94A3B8',
+    marginTop: 2,
   },
   offlineBadge: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginTop: designSystem.spacing.sm,
-    gap: designSystem.spacing.xs,
+    marginTop: 6,
+    gap: 4,
   },
   offlineText: {
-    fontSize: designSystem.typography.size.xs,
-    color: designSystem.colors.status.danger,
-  },
-  systemStatus: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: designSystem.colors.background.secondary,
-    marginHorizontal: designSystem.spacing.xl,
-    marginTop: designSystem.spacing.xl,
-    padding: designSystem.spacing.lg,
-    borderRadius: designSystem.layout.radius.xl,
-  },
-  statusIndicator: {
-    position: 'relative',
-    width: 12,
-    height: 12,
-    marginRight: designSystem.spacing.md,
-  },
-  statusDot: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-  },
-  statusPulse: {
-    position: 'absolute',
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: 'transparent',
-  },
-  statusInfo: {
-    flex: 1,
-  },
-  statusTitle: {
-    fontSize: designSystem.typography.size.sm,
+    fontSize: 10,
+    color: '#EF4444',
     fontWeight: '600',
-    color: designSystem.colors.text.primary,
-  },
-  statusText: {
-    fontSize: designSystem.typography.size.xs,
-    color: designSystem.colors.text.secondary,
-    marginTop: 2,
   },
   section: {
-    marginTop: designSystem.spacing.xl,
-    paddingHorizontal: designSystem.spacing.xl,
+    paddingHorizontal: 16,
+    marginBottom: 24,
   },
   sectionHeader: {
     flexDirection: 'row',
-    alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: designSystem.spacing.md,
+    alignItems: 'center',
+    marginBottom: 12,
   },
   sectionTitle: {
-    fontSize: designSystem.typography.size.lg,
-    fontWeight: '600',
-    color: designSystem.colors.text.primary,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#F8FAFC',
+    marginBottom: 12,
   },
   viewAll: {
-    fontSize: designSystem.typography.size.sm,
-    fontWeight: '500',
-    color: designSystem.colors.primary[500],
-  },
-  emptyAlerts: {
-    backgroundColor: designSystem.colors.background.secondary,
-    borderRadius: designSystem.layout.radius.xl,
-    padding: designSystem.spacing.xxl,
-    alignItems: 'center',
-  },
-  emptyIconContainer: {
-    width: 64,
-    height: 64,
-    borderRadius: 32,
-    backgroundColor: designSystem.colors.background.tertiary,
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: designSystem.spacing.md,
-  },
-  emptyTitle: {
-    fontSize: designSystem.typography.size.base,
+    fontSize: 13,
+    color: '#38BDF8',
     fontWeight: '600',
-    color: designSystem.colors.text.primary,
-    marginBottom: designSystem.spacing.xs,
-  },
-  emptyText: {
-    fontSize: designSystem.typography.size.sm,
-    color: designSystem.colors.text.secondary,
-    textAlign: 'center',
   },
   quickActions: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginTop: designSystem.spacing.sm,
   },
   actionButton: {
     alignItems: 'center',
-    flex: 1,
+    width: (SCREEN_WIDTH - 56) / 4,
   },
   actionGradient: {
-    width: 48,
-    height: 48,
+    width: 52,
+    height: 52,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
-    ...designSystem.shadows.md,
+    marginBottom: 8,
   },
   actionIcon: {
-    width: 48,
-    height: 48,
+    width: 52,
+    height: 52,
     borderRadius: 14,
     alignItems: 'center',
     justifyContent: 'center',
+    marginBottom: 8,
   },
   actionLabel: {
-    fontSize: designSystem.typography.size.xs,
-    color: designSystem.colors.text.secondary,
-    marginTop: designSystem.spacing.sm,
+    fontSize: 11,
+    color: '#94A3B8',
+    fontWeight: '500',
     textAlign: 'center',
   },
-  upgradeBanner: {
-    marginHorizontal: designSystem.spacing.xl,
-    marginTop: designSystem.spacing.xl,
-    borderRadius: designSystem.layout.radius.xl,
+  cameraRowContent: {
+    gap: 12,
+    paddingRight: 16,
+  },
+  cameraThumbCard: {
+    width: 140,
+    backgroundColor: '#1E293B',
+    borderRadius: 12,
     overflow: 'hidden',
     borderWidth: 1,
-    borderColor: 'rgba(239, 68, 68, 0.2)',
+    borderColor: '#334155',
+  },
+  cameraThumbPlaceholder: {
+    height: 85,
+    backgroundColor: '#0F172A',
+    alignItems: 'center',
+    justifyContent: 'center',
+    position: 'relative',
+  },
+  playOverlayBadge: {
+    position: 'absolute',
+    width: 26,
+    height: 26,
+    borderRadius: 13,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  camStatusDot: {
+    position: 'absolute',
+    top: 8,
+    right: 8,
+    width: 8,
+    height: 8,
+    borderRadius: 4,
+  },
+  cameraThumbInfo: {
+    padding: 8,
+  },
+  cameraThumbName: {
+    color: '#F8FAFC',
+    fontSize: 12,
+    fontWeight: '600',
+  },
+  cameraThumbStatus: {
+    color: '#94A3B8',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  emptyAlerts: {
+    backgroundColor: '#1E293B',
+    padding: 24,
+    borderRadius: 14,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
+  emptyIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: 'rgba(51, 65, 85, 0.5)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 12,
+  },
+  emptyTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: '#F8FAFC',
+    marginBottom: 4,
+  },
+  emptyText: {
+    fontSize: 12,
+    color: '#94A3B8',
+    textAlign: 'center',
+    lineHeight: 18,
+  },
+  upgradeBanner: {
+    marginHorizontal: 16,
+    borderRadius: 16,
+    overflow: 'hidden',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.3)',
   },
   upgradeGradient: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    padding: designSystem.spacing.lg,
+    padding: 16,
   },
   upgradeContent: {
     flexDirection: 'row',
     alignItems: 'center',
-    flex: 1,
   },
   upgradeText: {
-    marginLeft: designSystem.spacing.md,
+    marginLeft: 12,
+    flex: 1,
   },
   upgradeTitle: {
-    fontSize: designSystem.typography.size.base,
-    fontWeight: '600',
-    color: designSystem.colors.text.primary,
+    fontSize: 15,
+    fontWeight: '700',
+    color: '#F8FAFC',
   },
   upgradeSubtitle: {
-    fontSize: designSystem.typography.size.sm,
-    color: designSystem.colors.text.secondary,
+    fontSize: 12,
+    color: '#94A3B8',
     marginTop: 2,
   },
 });

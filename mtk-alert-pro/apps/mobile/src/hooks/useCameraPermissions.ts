@@ -10,13 +10,32 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { Platform, Alert, Linking } from 'react-native';
-import {
-  request,
-  PERMISSIONS,
-  RESULTS,
-  check,
-  openSettings,
-} from 'react-native-permissions';
+import type { PermissionStatus as RnPermissionStatus } from 'react-native-permissions';
+
+let request: any;
+let PERMISSIONS: any;
+let RESULTS: any;
+let check: any;
+let openSettings: any;
+
+if (Platform.OS !== 'web') {
+  try {
+    const rnPermissions = require('react-native-permissions');
+    request = rnPermissions.request;
+    PERMISSIONS = rnPermissions.PERMISSIONS;
+    RESULTS = rnPermissions.RESULTS;
+    check = rnPermissions.check;
+    openSettings = rnPermissions.openSettings;
+  } catch (e) {
+    console.log('[Permissions] react-native-permissions not available');
+  }
+} else {
+  RESULTS = { GRANTED: 'granted', DENIED: 'denied', BLOCKED: 'blocked' };
+  PERMISSIONS = { IOS: {}, ANDROID: {} };
+  check = async () => RESULTS.GRANTED;
+  request = async () => RESULTS.GRANTED;
+  openSettings = async () => {};
+}
 import { logError } from '@/lib/utils/errorHandler';
 
 // ============================================================================
@@ -132,7 +151,7 @@ export function useCameraPermissions(): CameraPermissionsState & {
     try {
       setState((prev) => ({ ...prev, isChecking: true }));
 
-      let result: RESULTS;
+      let result: RnPermissionStatus;
 
       if (Platform.OS === 'ios') {
         result = await request(PERMISSIONS.IOS.CAMERA);
@@ -264,8 +283,17 @@ export async function requestCameraPermission(
     if (Platform.OS === 'ios') {
       return (await request(PERMISSIONS.IOS.CAMERA)) === RESULTS.GRANTED;
     } else {
+      // Android requires a rationale object, not a string
+      const rationaleObj = rationale
+        ? {
+            title: 'Camera Permission',
+            message: rationale,
+            buttonPositive: 'OK',
+            buttonNegative: 'Cancel',
+          }
+        : undefined;
       return (
-        (await request(PERMISSIONS.ANDROID.CAMERA, rationale)) ===
+        (await request(PERMISSIONS.ANDROID.CAMERA, rationaleObj)) ===
         RESULTS.GRANTED
       );
     }

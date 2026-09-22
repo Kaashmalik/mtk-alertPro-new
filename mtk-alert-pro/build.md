@@ -183,3 +183,13 @@ module.exports = config;
   "packageManager": "npm@10.8.2"
 }
 ```
+//run cmd 
+term 1 
+cd d:\MalikTech\mtk-alert-pro\server\api; npm run dev
+term 2 
+cd d:\MalikTech\mtk-alert-pro\apps\mobile; npm start
+expo go 
+cd d:\MalikTech\mtk-alert-pro\apps\mobile; npm start
+
+npx tsc --noEmit -p apps/mobile/tsconfig.json
+# Exit code: 0 (no errors)

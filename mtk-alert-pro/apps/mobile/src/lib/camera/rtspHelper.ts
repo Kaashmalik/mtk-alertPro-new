@@ -131,7 +131,13 @@ export const CAMERA_BRANDS: CameraBrand[] = [
 ];
 
 /**
- * Generate RTSP URL from template
+ * Generate an RTSP URL from a brand template.
+ *
+ * 🔒 Security: this NEVER embeds username/password into the returned URL.
+ * Credentials live only in the (encrypted) camera auth fields and are supplied
+ * separately at connection time — the `{user}`/`{pass}` template placeholders
+ * are dropped entirely. The `username`/`password` options are accepted only for
+ * call-site compatibility and are deliberately ignored.
  */
 export function generateRtspUrl(
   brandId: string,
@@ -147,33 +153,39 @@ export function generateRtspUrl(
   const brand = CAMERA_BRANDS.find((b) => b.id === brandId);
   if (!brand) return '';
 
-  const {
-    port = brand.rtspPort,
-    username = brand.defaultUser,
-    password = brand.defaultPass,
-    channel = 1,
-    useSubStream = false,
-  } = options;
+  const { port = brand.rtspPort, channel = 1, useSubStream = false } = options;
 
   const template = useSubStream ? brand.subStream : brand.mainStream;
 
-  // Build URL with or without credentials
-  let url = template
+  return template
+    .replace('{user}:{pass}@', '')
+    .replace('{user}@', '')
     .replace('{ip}', ip)
     .replace('{port}', String(port))
-    .replace('{channel}', String(channel));
+    .replace('{channel}', String(channel))
+    .replace(/\{user\}|\{pass\}/g, '');
+}
 
-  // Handle credentials
-  if (username && password) {
-    url = url.replace('{user}', encodeURIComponent(username));
-    url = url.replace('{pass}', encodeURIComponent(password));
-  } else if (username) {
-    url = url.replace('{user}:{pass}@', `${encodeURIComponent(username)}@`);
-  } else {
-    url = url.replace('{user}:{pass}@', '');
-  }
+/**
+ * Strip any `user[:password]@` prefix from a stream URL's authority.
+ *
+ * Credential-bearing URL strings must never be stored or displayed: plaintext
+ * credentials belong only in the encrypted username/password columns and are
+ * supplied separately at connection time. Run on every ingress path (DB rows,
+ * AsyncStorage cache, offline queue) so legacy data self-heals.
+ */
+export function sanitizeRtspUrl(url: string): string {
+  if (!url || typeof url !== 'string') return url;
+  return url.replace(/^(rtsp|rtsps|http|https):\/\/(?:[^@/]*@)+/, '$1://');
+}
 
-  return url;
+/**
+ * Mask the userinfo portion of a stream URL for display.
+ * The rendered value never leaks raw credentials.
+ */
+export function maskRtspUrl(url: string): string {
+  if (!url || typeof url !== 'string') return url;
+  return url.replace(/^(rtsp|rtsps|http|https):\/\/(?:[^@/]*@)+/, '$1://***@');
 }
 
 /**

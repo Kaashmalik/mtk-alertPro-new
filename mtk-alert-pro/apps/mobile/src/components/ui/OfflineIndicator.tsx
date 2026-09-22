@@ -12,6 +12,7 @@ import {
   Animated,
   TouchableOpacity,
   Dimensions,
+  Platform,
 } from 'react-native';
 import { WifiOff, RefreshCw, Wifi, AlertTriangle } from 'lucide-react-native';
 import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
@@ -52,6 +53,8 @@ export function OfflineIndicator({
   const [isVisible, setIsVisible] = useState(false);
 
   const isOffline = !isConnected;
+
+  // Note: isInternetReachable removed as it's not available in NetworkStatus type
 
   useEffect(() => {
     if (isOffline) {
@@ -450,7 +453,4 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
-
-// Platform import needed for shadow
-import { Platform } from 'react-native';
 

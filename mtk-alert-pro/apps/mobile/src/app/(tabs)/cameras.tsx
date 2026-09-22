@@ -14,6 +14,7 @@ import {
   StyleSheet,
   StatusBar,
   Dimensions,
+  ActivityIndicator,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -37,14 +38,37 @@ const { width: SCREEN_WIDTH } = Dimensions.get('window');
 // Component
 // ============================================================================
 
+import { HardDrive } from 'lucide-react-native';
+import { RecordingsModal } from '@/components/camera/RecordingsModal';
+
 export default function CamerasScreen() {
-  const { cameras, fetchCameras, isLoading } = useCameraStore();
+  const {
+    cameras,
+    fetchCameras,
+    hydrateFromCache,
+    isLoading,
+    isHydrated,
+    isOffline,
+    offlineQueueError,
+    cameraHealth,
+  } = useCameraStore();
   const { canAddCamera, getRemainingCameras } = useSubscriptionStore();
   const isPremium = useIsPremium();
+  const [showRecordingsModal, setShowRecordingsModal] = useState(false);
 
   useEffect(() => {
-    fetchCameras();
-  }, []);
+    // Stale-while-revalidate: paint cache first, then hit the network
+    let cancelled = false;
+    (async () => {
+      await hydrateFromCache();
+      if (!cancelled) {
+        await fetchCameras();
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [hydrateFromCache, fetchCameras]);
 
   const handleAddCamera = () => {
     if (!canAddCamera()) {
@@ -59,12 +83,15 @@ export default function CamerasScreen() {
   }, [fetchCameras]);
 
   const renderCamera = ({ item, index }: { item: CameraType; index: number }) => {
+    // Live heartbeat status first; fall back to last-known isActive flag
+    const status = cameraHealth[item.id]?.status ?? (item.isActive ? 'online' : 'offline');
     return (
       <Animated.View entering={FadeInDown.delay(index * 100).duration(500)}>
         <CameraCard
           id={item.id}
           name={item.name}
           thumbnailUrl={item.thumbnailUrl}
+          status={status}
           isOnline={item.isActive}
           hasAlert={false} // Todo: Integrate with alert store for realtime status
           onPress={(id) => router.push(`/cameras/${id}`)}
@@ -92,19 +119,35 @@ export default function CamerasScreen() {
             </Text>
           </View>
 
-          <TouchableOpacity
-            onPress={handleAddCamera}
-            style={styles.addButton}
-            activeOpacity={0.8}
-          >
-            <LinearGradient
-              colors={[designSystem.colors.primary[500], designSystem.colors.primary[600]]}
-              style={styles.addButtonGradient}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+            <TouchableOpacity
+              onPress={() => setShowRecordingsModal(true)}
+              style={styles.storageButton}
+              activeOpacity={0.8}
             >
-              <Plus size={22} color="white" />
-            </LinearGradient>
-          </TouchableOpacity>
+              <HardDrive size={20} color="#38BDF8" />
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={handleAddCamera}
+              style={styles.addButton}
+              activeOpacity={0.8}
+            >
+              <LinearGradient
+                colors={[designSystem.colors.primary[500], designSystem.colors.primary[600]]}
+                style={styles.addButtonGradient}
+              >
+                <Plus size={22} color="white" />
+              </LinearGradient>
+            </TouchableOpacity>
+          </View>
         </Animated.View>
+
+        <RecordingsModal
+          visible={showRecordingsModal}
+          onClose={() => setShowRecordingsModal(false)}
+          cameraName="All Cameras"
+        />
 
         {/* Camera Limit Warning */}
         {!isPremium && remainingCameras !== Infinity && (
@@ -123,7 +166,15 @@ export default function CamerasScreen() {
           </Animated.View>
         )}
 
-        {cameras.length === 0 ? (
+        {/* Cold-start: nothing cached and still fetching — show spinner, not empty state */}
+        {!isHydrated || (isLoading && cameras.length === 0 && isHydrated) ? (
+          <View style={styles.loadingState}>
+            <ActivityIndicator size="large" color={designSystem.colors.primary[500]} />
+            <Text style={styles.loadingText}>
+              {cameras.length === 0 && !isHydrated ? 'Loading cameras…' : 'Syncing cameras…'}
+            </Text>
+          </View>
+        ) : cameras.length === 0 ? (
           <View style={styles.emptyState}>
             <Animated.View entering={FadeInDown.delay(300)} style={styles.emptyIcon}>
               <Camera size={48} color={designSystem.colors.text.muted} />
@@ -158,21 +209,40 @@ export default function CamerasScreen() {
             </TouchableOpacity>
           </View>
         ) : (
-          <FlatList
-            data={cameras}
-            renderItem={renderCamera}
-            keyExtractor={(item) => item.id}
-            contentContainerStyle={styles.listContent}
-            showsVerticalScrollIndicator={false}
-            refreshControl={
-              <RefreshControl
-                refreshing={isLoading}
-                onRefresh={onRefresh}
-                tintColor={designSystem.colors.primary[500]}
-                colors={[designSystem.colors.primary[500]]}
-              />
-            }
-          />
+          <>
+            {isOffline && (
+              <View style={styles.offlineBanner}>
+                <AlertCircle size={14} color={designSystem.colors.status.warning} />
+                <Text style={styles.offlineText}>
+                  Offline — showing saved cameras
+                </Text>
+              </View>
+            )}
+            {/* A queued change failed repeatedly — surface it instead of hiding it */}
+            {offlineQueueError && (
+              <View style={styles.syncErrorBanner}>
+                <AlertCircle size={14} color={designSystem.colors.status.danger} />
+                <Text style={styles.syncErrorText}>
+                  Sync issue: {offlineQueueError}
+                </Text>
+              </View>
+            )}
+            <FlatList
+              data={cameras}
+              renderItem={renderCamera}
+              keyExtractor={(item) => item.id}
+              contentContainerStyle={styles.listContent}
+              showsVerticalScrollIndicator={false}
+              refreshControl={
+                <RefreshControl
+                  refreshing={isLoading}
+                  onRefresh={onRefresh}
+                  tintColor={designSystem.colors.primary[500]}
+                  colors={[designSystem.colors.primary[500]]}
+                />
+              }
+            />
+          </>
         )}
         <AdBanner />
       </SafeAreaView>
@@ -213,6 +283,16 @@ const styles = StyleSheet.create({
     color: designSystem.colors.text.secondary,
     marginTop: designSystem.spacing.xs,
   },
+  storageButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#1E293B',
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderWidth: 1,
+    borderColor: '#334155',
+  },
   addButton: {
     borderRadius: 22,
     overflow: 'hidden',
@@ -248,6 +328,48 @@ const styles = StyleSheet.create({
   listContent: {
     paddingHorizontal: designSystem.spacing.xl,
     paddingBottom: designSystem.spacing.xxxl,
+  },
+  loadingState: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: designSystem.spacing.md,
+  },
+  loadingText: {
+    fontSize: designSystem.typography.size.base,
+    color: designSystem.colors.text.secondary,
+  },
+  offlineBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingHorizontal: designSystem.spacing.md,
+    paddingVertical: designSystem.spacing.xs,
+    borderRadius: designSystem.layout.radius.full,
+    marginBottom: designSystem.spacing.md,
+    gap: designSystem.spacing.xs,
+  },
+  offlineText: {
+    fontSize: designSystem.typography.size.xs,
+    color: designSystem.colors.status.warning,
+    fontWeight: '500',
+  },
+  syncErrorBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    alignSelf: 'center',
+    backgroundColor: 'rgba(239, 68, 68, 0.15)',
+    paddingHorizontal: designSystem.spacing.md,
+    paddingVertical: designSystem.spacing.xs,
+    borderRadius: designSystem.layout.radius.full,
+    marginBottom: designSystem.spacing.md,
+    gap: designSystem.spacing.xs,
+  },
+  syncErrorText: {
+    fontSize: designSystem.typography.size.xs,
+    color: designSystem.colors.status.danger,
+    fontWeight: '500',
   },
   emptyState: {
     flex: 1,

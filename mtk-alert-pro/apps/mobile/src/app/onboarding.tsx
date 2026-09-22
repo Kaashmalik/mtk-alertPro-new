@@ -43,7 +43,7 @@ interface OnboardingSlide {
   title: string;
   description: string;
   icon: React.ReactNode;
-  gradient: string[];
+  gradient: readonly [string, string, ...string[]];
 }
 
 const slides: OnboardingSlide[] = [
@@ -52,35 +52,35 @@ const slides: OnboardingSlide[] = [
     title: 'Welcome to MTK AlertPro',
     description: 'AI-powered security monitoring for your home and business. Get instant alerts when motion is detected.',
     icon: <Shield size={64} color="white" />,
-    gradient: [palette.red[500], palette.red[600]],
+    gradient: [palette.red[500], palette.red[600]] as [string, string],
   },
   {
     id: '2',
     title: 'Connect Your Cameras',
     description: 'Add any IP camera with RTSP support. View live streams from anywhere in the world.',
     icon: <Camera size={64} color="white" />,
-    gradient: [palette.cyan[500], palette.cyan[600]],
+    gradient: [palette.cyan[500], palette.cyan[600]] as [string, string],
   },
   {
     id: '3',
     title: 'Smart Detection',
     description: 'AI detects people, vehicles, and faces. Reduce false alarms from pets and moving trees.',
     icon: <Users size={64} color="white" />,
-    gradient: [palette.violet[500], palette.violet[600]],
+    gradient: [palette.violet[500], palette.violet[600]] as [string, string],
   },
   {
     id: '4',
     title: 'Instant Alerts',
     description: 'Get push notifications with snapshots when activity is detected. Never miss an important moment.',
     icon: <Bell size={64} color="white" />,
-    gradient: [palette.amber[500], palette.amber[600]],
+    gradient: [palette.amber[500], palette.amber[600]] as [string, string],
   },
   {
     id: '5',
     title: 'Red Alert Mode',
     description: 'Maximum security when you need it. Sound alarms and get priority alerts instantly.',
     icon: <Zap size={64} color="white" />,
-    gradient: [palette.red[600], palette.red[700]],
+    gradient: [palette.red[600], palette.red[700]] as [string, string],
   },
 ];
 
@@ -117,7 +117,7 @@ export default function OnboardingScreen() {
     return (
       <View style={styles.slide}>
         <LinearGradient
-          colors={item.gradient as [string, string, ...string[]]}
+          colors={item.gradient}
           style={styles.iconContainer}
         >
           {item.icon}

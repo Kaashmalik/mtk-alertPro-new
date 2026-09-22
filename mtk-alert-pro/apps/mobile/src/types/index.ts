@@ -30,6 +30,7 @@ export interface DetectionSettings {
   // Sensitivity threshold (0.0 - 1.0)
   // Higher = fewer false positives but may miss some detections
   sensitivity: number;
+  cooldownSeconds?: number;
   // Notification settings per camera
   notificationsEnabled: boolean;
   alarmEnabled: boolean;

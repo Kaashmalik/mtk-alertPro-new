@@ -63,14 +63,16 @@ export function Skeleton({
     outputRange: [0.3, 0.7],
   });
 
+  const widthValue = typeof width === 'number' ? width : parseFloat(String(width)) || 0;
+
   return (
     <Animated.View
       style={[
         styles.skeleton,
         {
-          width: width as number,
-          height,
-          borderRadius: radius,
+          width: widthValue as number,
+          height: height as number,
+          borderRadius: radius as number,
           opacity,
         },
         style,

@@ -31,8 +31,7 @@
       "extends": "base",
       "distribution": "internal",
       "android": {
-        "buildType": "apk",
-        "kotlinVersion": "1.9.24"
+        "buildType": "apk"
       },
       "env": {
         "EXPO_PUBLIC_APP_ENV": "staging"

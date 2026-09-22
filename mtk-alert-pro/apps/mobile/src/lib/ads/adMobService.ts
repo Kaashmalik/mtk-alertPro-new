@@ -8,17 +8,9 @@ import type {
     AdEventType
 } from 'react-native-google-mobile-ads';
 
-// Lazy load the module safely
-let mobileAds: any = null;
-let MaxAdContentRating: any = null;
+import { RNMobileAds, RNMaxAdContentRating as MaxAdContentRating } from './admob-proxy';
 
-try {
-    const mobileAdsModule = require('react-native-google-mobile-ads');
-    mobileAds = mobileAdsModule.default;
-    MaxAdContentRating = mobileAdsModule.MaxAdContentRating;
-} catch (error) {
-    console.log('[AdMob] Native module not available (Expo Go)');
-}
+const mobileAds = RNMobileAds ? () => RNMobileAds : null;
 
 // Ad Unit IDs Configuration
 // IMPORTANT: Replace these with your actual AdMob Ad Unit IDs from console.firebase.google.com

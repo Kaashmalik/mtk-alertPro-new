@@ -14,14 +14,14 @@ import { ArrowLeft, Save } from 'lucide-react-native';
 import { useAutomationStore, useCameraStore } from '@/stores';
 import { designSystem } from '@/theme/design-system';
 import { TimePicker } from '@/components/automation/TimePicker';
-import type { CreateAutomationInput, RecurrencePattern, DayOfWeek } from '@/types/automation';
+import type { CreateAutomationInput, RecurrencePattern, DayOfWeek, CameraAutomation } from '@/types/automation';
 
 export default function CreateAutomationScreen() {
     const { id } = useLocalSearchParams<{ id?: string }>();
     const { cameras } = useCameraStore();
     const { automations, createAutomation, updateAutomation } = useAutomationStore();
 
-    const existingAutomation = id ? automations.find((a: any) => a.id === id) : null;
+    const existingAutomation = id ? automations.find((a: CameraAutomation) => a.id === id) ?? null : null;
 
     const [name, setName] = useState(existingAutomation?.name || '');
     const [cameraId, setCameraId] = useState(existingAutomation?.cameraId || cameras[0]?.id || '');

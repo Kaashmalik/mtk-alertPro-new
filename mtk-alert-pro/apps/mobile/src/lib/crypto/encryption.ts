@@ -8,11 +8,16 @@
 import CryptoJS from 'crypto-js';
 
 // Encryption key from environment - MUST be set in production
-const ENCRYPTION_KEY = process.env.EXPO_PUBLIC_ENCRYPTION_KEY || '';
+const ENCRYPTION_KEY =
+  process.env.EXPO_PUBLIC_ENCRYPTION_KEY ||
+  process.env.ENCRYPTION_KEY ||
+  (typeof __DEV__ !== 'undefined' && __DEV__
+    ? 'mtk-alertpro-dev-encryption-key-32chars!'
+    : '');
 
 // CRITICAL: Validate encryption key on module load - fail fast if missing
 if (!ENCRYPTION_KEY) {
-  if (__DEV__) {
+  if (typeof __DEV__ !== 'undefined' && __DEV__) {
     console.error(
       '[Encryption] CRITICAL: EXPO_PUBLIC_ENCRYPTION_KEY is not set. ' +
       'Application cannot start without encryption key. ' +

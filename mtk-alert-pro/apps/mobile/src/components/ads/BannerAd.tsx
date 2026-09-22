@@ -1,25 +1,11 @@
 import React from 'react';
-import { StyleSheet, View } from 'react-native';
+import { StyleSheet, View, Platform } from 'react-native';
 import { adMobService } from '@/lib/ads/adMobService';
 
-// Safe import - wrap in try-catch to prevent Expo Go crashes
-let BannerAd: any = null;
-let BannerAdSize: any = null;
-let TestIds: any = null;
-
-try {
-    const admobModule = require('react-native-google-mobile-ads');
-    BannerAd = admobModule.BannerAd;
-    BannerAdSize = admobModule.BannerAdSize;
-    TestIds = admobModule.TestIds;
-} catch (e) {
-    console.log('[BannerAd] Native module not available');
-    // Create mock
-    BannerAdSize = { ANCHORED_ADAPTIVE_BANNER: 'ANCHORED_ADAPTIVE_BANNER' };
-}
+import { RNBannerAd as BannerAd, RNBannerAdSize as BannerAdSize, RNTestIds as TestIds } from '../../lib/ads/admob-proxy';
 
 interface BannerAdProps {
-    size?: typeof BannerAdSize;
+    size?: string;
     style?: any;
 }
 

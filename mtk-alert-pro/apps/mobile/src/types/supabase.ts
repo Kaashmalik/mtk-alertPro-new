@@ -337,6 +337,72 @@ export type Database = {
                 }
                 Relationships: []
             }
+            camera_automations: {
+                Row: {
+                    action: string
+                    camera_id: string
+                    created_at: string | null
+                    days_of_week: number[] | null
+                    enabled: boolean | null
+                    end_time: string
+                    id: string
+                    is_currently_active: boolean | null
+                    last_triggered_at: string | null
+                    name: string
+                    recurring: string
+                    start_time: string
+                    updated_at: string | null
+                    user_id: string
+                }
+                Insert: {
+                    action?: string
+                    camera_id: string
+                    created_at?: string | null
+                    days_of_week?: number[] | null
+                    enabled?: boolean | null
+                    end_time: string
+                    id?: string
+                    is_currently_active?: boolean | null
+                    last_triggered_at?: string | null
+                    name: string
+                    recurring: string
+                    start_time: string
+                    updated_at?: string | null
+                    user_id: string
+                }
+                Update: {
+                    action?: string
+                    camera_id?: string
+                    created_at?: string | null
+                    days_of_week?: number[] | null
+                    enabled?: boolean | null
+                    end_time?: string
+                    id?: string
+                    is_currently_active?: boolean | null
+                    last_triggered_at?: string | null
+                    name?: string
+                    recurring?: string
+                    start_time?: string
+                    updated_at?: string | null
+                    user_id?: string
+                }
+                Relationships: [
+                    {
+                        foreignKeyName: "camera_automations_camera_id_fkey"
+                        columns: ["camera_id"]
+                        isOneToOne: false
+                        referencedRelation: "cameras"
+                        referencedColumns: ["id"]
+                    },
+                    {
+                        foreignKeyName: "camera_automations_user_id_fkey"
+                        columns: ["user_id"]
+                        isOneToOne: false
+                        referencedRelation: "profiles"
+                        referencedColumns: ["id"]
+                    },
+                ]
+            }
         }
         Views: {
             [_ in never]: never

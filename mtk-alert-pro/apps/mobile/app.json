@@ -1,7 +1,7 @@
 {
   "expo": {
     "name": "MTK AlertPro",
-    "slug": "mtk-alert-pro",
+    "slug": "mtk-alertpro-2024",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -9,26 +9,45 @@
     "userInterfaceStyle": "automatic",
     "newArchEnabled": false,
     "splash": {
-      "image": "./assets/splash-icon.png",
-      "resizeMode": "contain",
-      "backgroundColor": "#1E293B"
+      "image": "./assets/splash.jpg",
+      "resizeMode": "cover",
+      "backgroundColor": "#0F172A"
     },
     "ios": {
       "supportsTablet": false,
-      "bundleIdentifier": "com.mtk.alertpro"
+      "bundleIdentifier": "com.mtk.alertpro",
+      "infoPlist": {
+        "NSUserTrackingUsageDescription": "This app uses your advertising ID to show you relevant ads and improve your experience. You can opt out anytime in Settings.",
+        "SKAdNetworkItems": [
+          {
+            "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork"
+          }
+        ]
+      }
     },
     "android": {
       "package": "com.mtk.alertpro",
+      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1E293B"
       },
       "permissions": [
         "INTERNET",
-        "CAMERA",
         "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "READ_MEDIA_IMAGES",
+        "READ_MEDIA_VIDEO",
+        "WAKE_LOCK",
         "FOREGROUND_SERVICE",
-        "RECEIVE_BOOT_COMPLETED"
+        "ACCESS_NETWORK_STATE",
+        "ACCESS_WIFI_STATE",
+        "android.permission.USE_BIOMETRIC",
+        "android.permission.USE_FINGERPRINT"
       ]
     },
     "web": {
@@ -36,8 +55,28 @@
       "favicon": "./assets/favicon.png"
     },
     "plugins": [
+      [
+        "expo-build-properties",
+        {
+          "ios": {
+            "useFrameworks": "static"
+          },
+          "android": {
+            "kotlinVersion": "1.9.24",
+            "compileSdkVersion": 35,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 24
+          }
+        }
+      ],
       "expo-router",
       "expo-secure-store",
+      [
+        "expo-local-authentication",
+        {
+          "faceIDPermission": "Allow $(PRODUCT_NAME) to use Face ID for authentication"
+        }
+      ],
       [
         "expo-notifications",
         {
@@ -48,9 +87,24 @@
       [
         "expo-splash-screen",
         {
-          "backgroundColor": "#1E293B",
-          "image": "./assets/splash-icon.png",
-          "imageWidth": 200
+          "backgroundColor": "#0F172A",
+          "image": "./assets/splash.jpg",
+          "imageWidth": 300
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Allow MTK AlertPro to save screenshots and recordings to your photo library.",
+          "savePhotosPermission": "Allow MTK AlertPro to save security footage to your gallery."
+        }
+      ],
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511",
+          "userTrackingPermission": "This app uses your advertising ID to show you relevant ads. You can opt out in settings."
         }
       ]
     ],
@@ -58,11 +112,15 @@
       "typedRoutes": true
     },
     "extra": {
-      "router": {},
-      "eas": {
-        "projectId": "54ccc5ce-f5ca-47b9-9f5c-695336d17418"
-      }
+      "router": {
+        "origin": false
+      },
+      "supabaseUrl": "https://your-project.supabase.co",
+      "supabaseAnonKey": "your-anon-key",
+      "firebaseProjectId": "your-firebase-project-id",
+      "revenuecatApiKey": "your-revenuecat-key",
+      "sentryDsn": "your-sentry-dsn",
+      "encryptionKey": "your-unique-encryption-key-here"
     }
   }
 }
-

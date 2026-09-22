@@ -159,6 +159,13 @@ const queryClient = new QueryClient({
   },
 });
 
+import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
+
+function DetectionWatcher() {
+  useDetectionCoordinator();
+  return null;
+}
+
 export default function RootLayout() {
   const initialize = useAuthStore((state) => state.initialize);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
@@ -182,20 +189,17 @@ export default function RootLayout() {
           // Initialize auth and wait for completion
           await initialize();
 
-          // Initialize AdMob and Consent Manager parallel to save time
-          try {
-            // Don't await these strictly if they take too long
-            await Promise.race([
-              (async () => {
-                await consentManager.requestConsent();
-                await adMobService.initialize();
-                console.log('[AdMob] Injected into app lifecycle');
-              })(),
-              new Promise((resolve) => setTimeout(resolve, 3000)) // Give ads max 3s
-            ]);
-          } catch (adError) {
-            console.error('[AdMob] Init failed:', adError);
-          }
+          // Initialize AdMob and Consent Manager in background (non-blocking)
+          // Fire and forget - don't block app startup
+          (async () => {
+            try {
+              await consentManager.requestConsent();
+              await adMobService.initialize();
+              console.log('[AdMob] Initialized in background');
+            } catch (adError) {
+              console.error('[AdMob] Background init failed:', adError);
+            }
+          })();
         })();
 
         // Race the initialization against the safety timeout
@@ -215,19 +219,23 @@ export default function RootLayout() {
   }, [initialize]);
 
   // Handle app state changes (foreground/background)
+  // Note: Cleanup handlers simplified to avoid module resolution issues in Expo Go
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       console.log('[AppState] Changed from', appState, 'to', nextAppState);
 
       if (appState.match(/inactive|background/) && nextAppState === 'active') {
-        // App came to foreground
+        // App came to foreground - refresh auth session
         console.log('[AppState] App came to foreground');
-        handleForeground();
-      } else if (nextAppState.match(/inactive|background/)) {
-        // App going to background
-        console.log('[AppState] App going to background');
-        handleBackground();
+        initialize().catch(err => console.warn('[AppState] Foreground init error:', err));
+
+        // Re-subscribe to alerts if authenticated
+        if (isAuthenticated) {
+          subscribeToAlerts();
+        }
       }
+      // Note: Background cleanup removed to avoid Expo Go module errors
+      // In production builds, this would stop camera streams and detection
 
       setAppState(nextAppState);
     });
@@ -235,52 +243,7 @@ export default function RootLayout() {
     return () => {
       subscription.remove();
     };
-  }, [appState]);
-
-  // Handle foreground transition
-  const handleForeground = async () => {
-    try {
-      console.log('[AppState] Refreshing data on foreground');
-
-      // Refresh user session
-      await initialize();
-
-      // Re-subscribe to alerts if authenticated
-      if (isAuthenticated) {
-        subscribeToAlerts();
-      }
-
-      // Refresh camera data
-      const { useCameraStore } = await import('@/stores/cameraStore');
-      useCameraStore.getState().fetchCameras();
-
-    } catch (error) {
-      console.error('[AppState] Foreground handler error:', error);
-    }
-  };
-
-  // Handle background transition
-  const handleBackground = async () => {
-    try {
-      console.log('[AppState] Cleaning up on background');
-
-      // Stop all camera streams
-      const { streamingService } = await import('@/lib/streaming/streamingService');
-      // Note: streamingService may not have unregisterAllCameras, use individual unregister
-      const cameras = await import('@/stores/cameraStore').then(m => m.useCameraStore.getState().cameras);
-      cameras.forEach(camera => {
-        streamingService.unregisterCamera(camera.id);
-      });
-
-      // Stop detection
-      const { detectionManager } = await import('@/features/detection/detectionManager');
-      detectionManager.stopAll();
-
-      console.log('[AppState] Background cleanup complete');
-    } catch (error) {
-      console.error('[AppState] Background handler error:', error);
-    }
-  };
+  }, [appState, isAuthenticated, initialize, subscribeToAlerts]);
 
   // Subscribe to real-time alerts when authenticated
   useEffect(() => {
@@ -307,6 +270,7 @@ export default function RootLayout() {
       <GestureHandlerRootView style={{ flex: 1 }}>
         <QueryClientProvider client={queryClient}>
           <StatusBar style="light" />
+          <DetectionWatcher />
           <Stack
             screenOptions={{
               headerShown: false,

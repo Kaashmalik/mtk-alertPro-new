@@ -90,6 +90,28 @@ describe('CameraStreamPlayer', () => {
       expect(toJSON()).toBeTruthy();
     });
 
+    it('masks credentials in the idle URL display', async () => {
+      const { getByText } = render(
+        <CameraStreamPlayer
+          cameraId="c1"
+          rtspUrl="rtsp://admin:secret@192.168.1.50:554/stream"
+          userId="u1"
+          autoPlay={false}
+        />
+      );
+
+      // The player passes through 'connecting' first, then settles to idle
+      const urlText = await waitFor(
+        () => getByText(/rtsp:\/\//) as unknown as { props: { children: string } }
+      );
+      const rendered = String(urlText.props.children);
+      expect(rendered).toContain('192.168.1.50:554/stream');
+      // Raw credentials must never reach the rendered output
+      expect(rendered).not.toContain('secret');
+      expect(rendered).not.toContain('admin');
+      expect(rendered).not.toContain('admin:secret@');
+    });
+
     it('should show connecting state initially when autoPlay is true', () => {
       // Make registration take time
       (streamingService.registerCamera as jest.Mock).mockImplementation(

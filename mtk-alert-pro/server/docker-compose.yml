@@ -1,0 +1,71 @@
+###############################################
+# MTK AlertPro - Media Server Docker Setup
+# This handles RTSP to HLS/WebRTC conversion
+###############################################
+
+version: '3.8'
+
+services:
+  # MediaMTX - RTSP to HLS/WebRTC converter
+  mediamtx:
+    image: bluenviron/mediamtx:latest-ffmpeg
+    container_name: mtk-media-server
+    restart: unless-stopped
+    ports:
+      - "8554:8554"   # RTSP server
+      - "1935:1935"   # RTMP server
+      - "8888:8888"   # HLS server
+      - "8889:8889"   # WebRTC server
+      - "9997:9997"   # API
+      - "9998:9998"   # Metrics (Prometheus)
+    volumes:
+      - ./mediamtx.yml:/mediamtx.yml:ro
+      - ./recordings:/recordings
+      - ./snapshots:/snapshots
+    environment:
+      - MTX_PROTOCOLS=tcp,udp
+    networks:
+      - mtk-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:9997/v3/paths/list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # API Server - Camera management & authentication
+  api:
+    build:
+      context: ./api
+      dockerfile: Dockerfile
+    container_name: mtk-api
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=production
+      - PORT=3001
+      - MEDIAMTX_API_URL=http://mediamtx:9997
+      - MEDIAMTX_HLS_URL=http://mediamtx:8888
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_KEY=${SUPABASE_SERVICE_KEY}
+      - CORS_ORIGIN=${CORS_ORIGIN:-*}
+    depends_on:
+      mediamtx:
+        condition: service_healthy
+    networks:
+      - mtk-network
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:3001/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+networks:
+  mtk-network:
+    driver: bridge
+
+volumes:
+  recordings:
+  snapshots:
+

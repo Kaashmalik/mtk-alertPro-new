@@ -1,19 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
+import { Platform } from 'react-native';
 import { adMobService } from '@/lib/ads/adMobService';
 
-// Safe import - wrap in try-catch to prevent Expo Go crashes
-let InterstitialAd: any = null;
-let AdEventType: any = null;
-let TestIds: any = null;
-
-try {
-    const admobModule = require('react-native-google-mobile-ads');
-    InterstitialAd = admobModule.InterstitialAd;
-    AdEventType = admobModule.AdEventType;
-    TestIds = admobModule.TestIds;
-} catch (e) {
-    console.log('[InterstitialAd] Native module not available');
-}
+import { RNInterstitialAd as InterstitialAd, RNAdEventType as AdEventType, RNTestIds as TestIds } from '../../lib/ads/admob-proxy';
 
 /**
  * Interstitial Ad Hook

@@ -43,6 +43,8 @@ pnpm run verify-assets
 ```bash
 # See splash screen
 pnpm dev
+local test 
+cd "d:\MalikTech\mtk-alert-pro\apps\mobile" && npx expo start --tunnel
 
 # Build APK with app icon
 eas build -p android --profile preview

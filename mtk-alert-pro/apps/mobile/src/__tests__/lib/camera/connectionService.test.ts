@@ -45,11 +45,51 @@ describe('Connection Service', () => {
       expect(result.success).toBe(true);
     });
 
+    it('should return failure for invalid stream URL format', async () => {
+      const result = await testCameraConnection('not-a-valid-url');
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid stream URL');
+    });
+
     it('should return failure for invalid RTSP URL format', async () => {
-      const result = await testCameraConnection('http://invalid-url');
+      const result = await testCameraConnection('rtsp://');
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid RTSP URL');
+    });
+
+    it('should probe HTTP/MJPEG URLs directly', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        headers: { get: () => 'multipart/x-mixed-replace' },
+      });
+
+      const result = await testCameraConnection('http://192.168.1.100/videostream.cgi');
+
+      expect(result.success).toBe(true);
+      expect(global.fetch).toHaveBeenCalledWith(
+        'http://192.168.1.100/videostream.cgi',
+        expect.objectContaining({ method: 'GET' })
+      );
+    });
+
+    it('should treat 401 on HTTP stream URL as reachable', async () => {
+      (global.fetch as jest.Mock).mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        headers: { get: () => null },
+      });
+
+      const result = await testCameraConnection('http://192.168.1.100/snapshot.jpg');
+      expect(result.success).toBe(true);
+    });
+
+    it('should reject malformed HTTP stream URLs', async () => {
+      const result = await testCameraConnection('http://');
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('Invalid HTTP stream URL');
     });
 
     it('should return failure for invalid IP address', async () => {
@@ -131,10 +171,6 @@ describe('Connection Service', () => {
       expect(result.success).toBe(true);
     });
   });
-
-  // =========================================================================
-  // testConnectionViaMediaServer
-  // =========================================================================
   describe('testConnectionViaMediaServer', () => {
     it('should return success when media server confirms connection', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({
@@ -225,6 +261,82 @@ describe('Connection Service', () => {
       // Just verify it was set up correctly
       expect(onStatusChange).toBeDefined();
       cleanup();
+    });
+
+    it('reports online on the first successful heartbeat', async () => {
+      jest.useFakeTimers();
+      try {
+        (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+        const updates: Array<{ id: string; status: string }> = [];
+
+        const cleanup = createHealthMonitor(
+          [{ id: 'cam-1', rtspUrl: 'rtsp://192.168.1.100:554/stream' }],
+          (id, health) => updates.push({ id, status: health.status }),
+          30000,
+        );
+
+        await jest.advanceTimersByTimeAsync(0);
+        expect(updates).toEqual([{ id: 'cam-1', status: 'online' }]);
+        cleanup();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('transitions unknown → reconnecting → offline after sustained failures', async () => {
+      jest.useFakeTimers();
+      try {
+        (global.fetch as jest.Mock).mockRejectedValue(new Error('down'));
+        const updates: string[] = [];
+
+        const cleanup = createHealthMonitor(
+          [{ id: 'cam-1', rtspUrl: 'rtsp://192.168.1.100:554/stream' }],
+          (_id, health) => updates.push(health.status),
+          30000,
+        );
+
+        // Initial probe: failure #1 → reconnecting
+        await jest.advanceTimersByTimeAsync(0);
+        expect(updates).toEqual(['reconnecting']);
+
+        // Probe #2: failure #2 → still reconnecting (no status change, no notify)
+        await jest.advanceTimersByTimeAsync(30000);
+        expect(updates).toEqual(['reconnecting']);
+
+        // Probe #3: failure #3 → offline
+        await jest.advanceTimersByTimeAsync(30000);
+        expect(updates).toEqual(['reconnecting', 'offline']);
+
+        cleanup();
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it('recovers from reconnecting back to online on success', async () => {
+      jest.useFakeTimers();
+      try {
+        (global.fetch as jest.Mock)
+          .mockRejectedValueOnce(new Error('down'))
+          .mockResolvedValue({ ok: true, status: 200 });
+        const updates: string[] = [];
+
+        const cleanup = createHealthMonitor(
+          [{ id: 'cam-1', rtspUrl: 'rtsp://192.168.1.100:554/stream' }],
+          (_id, health) => updates.push(health.status),
+          30000,
+        );
+
+        await jest.advanceTimersByTimeAsync(0);
+        expect(updates).toEqual(['reconnecting']);
+
+        await jest.advanceTimersByTimeAsync(30000);
+        expect(updates).toEqual(['reconnecting', 'online']);
+
+        cleanup();
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 

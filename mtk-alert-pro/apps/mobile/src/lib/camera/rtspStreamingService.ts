@@ -3,31 +3,45 @@
  *
  * Features:
  * - Real RTSP connection and streaming
- * - Connection retry with exponential backoff
+ * - Bounded automatic reconnection with jittered exponential backoff
+ * - Explicit connection state machine (idle/connecting/connected/reconnecting/offline)
  * - Stream health monitoring
  * - Frame extraction for ML detection
  * - Timeout and error handling
  */
 
-import { useRef, useCallback, useEffect } from 'react';
-import { Alert, Platform } from 'react-native';
+import { useRef, useCallback, useEffect, useState } from 'react';
 import { logError } from '@/lib/utils/errorHandler';
+import { parseRtspUrl, sanitizeRtspUrl } from './rtspHelper';
 import type { Camera } from '@/types';
 
 // ============================================================================
 // Types
 // ============================================================================
 
+/** Lifecycle state of a stream connection */
+export type ConnectionState =
+  | 'idle'
+  | 'connecting'
+  | 'connected'
+  | 'reconnecting'
+  | 'offline';
+
 export interface StreamConfig {
   url: string;
   username?: string;
   password?: string;
   timeoutMs: number;
+  /** Max retry attempts before giving up (bounded — no infinite spam) */
   maxRetries: number;
+  /** Base delay for exponential backoff (doubles each attempt) */
   reconnectIntervalMs: number;
+  /** Upper bound for a single backoff delay */
+  maxReconnectDelayMs: number;
 }
 
 export interface StreamStatus {
+  state: ConnectionState;
   isConnected: boolean;
   isStreaming: boolean;
   quality: 'excellent' | 'good' | 'fair' | 'poor' | 'disconnected';
@@ -38,6 +52,8 @@ export interface StreamStatus {
   codec: string;
   error: string | null;
   lastConnected: Date | null;
+  /** Retry attempts consumed so far in the current reconnect cycle */
+  reconnectAttempts: number;
 }
 
 export interface StreamFrame {
@@ -54,9 +70,54 @@ export interface StreamFrame {
 
 const DEFAULT_CONFIG: Partial<StreamConfig> = {
   timeoutMs: 10000,
-  maxRetries: 3,
-  reconnectIntervalMs: 5000,
+  // 6 retries at 2s base → 2,4,8,16,30,30s (jittered) ≈ ~90s window, then stop
+  maxRetries: 6,
+  reconnectIntervalMs: 2000,
+  maxReconnectDelayMs: 30000,
 };
+
+// ============================================================================
+// Pure helpers (exported for tests)
+// ============================================================================
+
+/**
+ * Build the FFmpeg argv for RTSP → HLS conversion.
+ *
+ * 🔒 Security: credentials are NEVER embedded into the input URL. All callers
+ * pass the credential-free stored `rtsp_url` (sanitized again defensively
+ * here); username/password travel separately via the media server
+ * (`connectViaMediaServer` JSON body), never inside a URL string.
+ *
+ * Pure so tests can lock the flag/value layout: the input URL must sit at the
+ * value after `-i` (index 3), never overwrite the `-i` flag itself.
+ */
+export function buildFfmpegHlsCommand(opts: {
+  url: string;
+  username?: string;
+  password?: string;
+  outputPath: string;
+  segmentPattern: string;
+}): string[] {
+  const { url, outputPath, segmentPattern } = opts;
+  const inputUrl = sanitizeRtspUrl(url);
+
+  return [
+    '-rtsp_transport', 'tcp',
+    '-i', inputUrl,
+    '-c:v', 'libx264',
+    '-preset', 'ultrafast',
+    '-tune', 'zerolatency',
+    '-c:a', 'aac',
+    '-b:v', '2000k',
+    '-maxrate', '2000k',
+    '-bufsize', '4000k',
+    '-f', 'hls',
+    '-hls_time', '2',
+    '-hls_list_size', '3',
+    '-hls_segment_filename', segmentPattern,
+    outputPath,
+  ];
+}
 
 // ============================================================================
 // RTSP Streaming Service
@@ -65,6 +126,7 @@ const DEFAULT_CONFIG: Partial<StreamConfig> = {
 export class RTSPStreamingService {
   private ws: WebSocket | null = null;
   private status: StreamStatus = {
+    state: 'idle',
     isConnected: false,
     isStreaming: false,
     quality: 'disconnected',
@@ -75,11 +137,14 @@ export class RTSPStreamingService {
     codec: '',
     error: null,
     lastConnected: null,
+    reconnectAttempts: 0,
   };
 
   private config: StreamConfig;
   private reconnectAttempts = 0;
   private reconnectTimer: NodeJS.Timeout | null = null;
+  private isConnecting = false;
+  private isManuallyDisconnected = false;
   private statusListeners: Array<(status: StreamStatus) => void> = [];
   private frameListeners: Array<(frame: StreamFrame) => void> = [];
 
@@ -89,46 +154,73 @@ export class RTSPStreamingService {
 
   /**
    * 🔒 RTSP: Connect to RTSP stream
+   *
+   * Safe to call at any time:
+   * - No-ops while a connect is already in flight or already connected
+   * - Resets the backoff counter only on manual connects, never mid-retry
    */
   async connect(): Promise<StreamStatus> {
+    if (this.isConnecting) {
+      return { ...this.status };
+    }
+    if (this.status.state === 'connected' && this.status.isConnected) {
+      return { ...this.status };
+    }
+
+    // 🔒 SECURITY: malformed URLs are a config error — fail fast, never retry
+    if (!this.validateRtspUrl()) {
+      this.status.state = 'offline';
+      this.status.error = 'Invalid RTSP URL format';
+      this.status.isConnected = false;
+      this.status.isStreaming = false;
+      this.status.quality = 'disconnected';
+      this.status.reconnectAttempts = 0;
+      this.notifyStatusChange();
+      return { ...this.status };
+    }
+
+    this.isConnecting = true;
+    this.isManuallyDisconnected = false;
+    this.clearReconnectTimer();
+
     try {
       console.log(
         '[RTSP] Connecting to:',
         this.config.url.replace(/\/\/.*@/, '//***:***@'),
       );
 
-      // Reset state
-      this.reconnectAttempts = 0;
-      this.clearReconnectTimer();
-
-      // 🔒 SECURITY: Validate URL format
-      if (!this.validateRtspUrl()) {
-        throw new Error('Invalid RTSP URL format');
-      }
+      this.status.state =
+        this.reconnectAttempts > 0 ? 'reconnecting' : 'connecting';
+      this.status.error = null;
+      this.status.reconnectAttempts = this.reconnectAttempts;
+      this.notifyStatusChange();
 
       // Connect to real RTSP stream
       const connectionResult = await this.connectToRTSPStream();
 
-      if (connectionResult.success) {
-        this.status = {
-          isConnected: true,
-          isStreaming: true,
-          quality: connectionResult.quality || 'good',
-          bitrate: connectionResult.bitrate || 2000000,
-          fps: connectionResult.fps || 30,
-          width: connectionResult.width || 1920,
-          height: connectionResult.height || 1080,
-          codec: connectionResult.codec || 'H264',
-          error: null,
-          lastConnected: new Date(),
-        };
-
-        console.log('[RTSP] Connected successfully:', this.status);
-        this.notifyStatusChange();
-        this.startHealthMonitoring();
-      } else {
+      if (!connectionResult.success) {
         throw new Error(connectionResult.error || 'Connection failed');
       }
+
+      // Success → reset the backoff cycle
+      this.reconnectAttempts = 0;
+      this.status = {
+        state: 'connected',
+        isConnected: true,
+        isStreaming: true,
+        quality: connectionResult.quality || 'good',
+        bitrate: connectionResult.bitrate || 2000000,
+        fps: connectionResult.fps || 30,
+        width: connectionResult.width || 1920,
+        height: connectionResult.height || 1080,
+        codec: connectionResult.codec || 'H264',
+        error: null,
+        lastConnected: new Date(),
+        reconnectAttempts: 0,
+      };
+
+      console.log('[RTSP] Connected successfully');
+      this.notifyStatusChange();
 
       return { ...this.status };
     } catch (error) {
@@ -140,22 +232,36 @@ export class RTSPStreamingService {
       this.status.isConnected = false;
       this.status.isStreaming = false;
       this.status.quality = 'disconnected';
+      this.status.reconnectAttempts = this.reconnectAttempts;
 
-      this.notifyStatusChange();
-
-      // 🔒 RETRY: Schedule reconnection attempt
+      // 🔒 RETRY: bounded exponential backoff (or terminal 'offline' if exhausted)
       this.scheduleReconnect();
 
       return { ...this.status };
+    } finally {
+      this.isConnecting = false;
     }
   }
 
   /**
-   * 🔒 RTSP: Disconnect from stream
+   * 🔒 RTSP: Manually retry the connection right now
+   * Resets the backoff counter (used by UI "Retry" and heartbeat recovery).
+   */
+  async retry(): Promise<StreamStatus> {
+    this.reconnectAttempts = 0;
+    this.status.reconnectAttempts = 0;
+    this.isManuallyDisconnected = false;
+    this.clearReconnectTimer();
+    return this.connect();
+  }
+
+  /**
+   * 🔒 RTSP: Disconnect from stream and cancel any pending reconnects
    */
   disconnect(): void {
     console.log('[RTSP] Disconnecting...');
 
+    this.isManuallyDisconnected = true;
     this.clearReconnectTimer();
 
     if (this.ws) {
@@ -163,12 +269,15 @@ export class RTSPStreamingService {
       this.ws = null;
     }
 
+    this.reconnectAttempts = 0;
     this.status = {
       ...this.status,
+      state: 'idle',
       isConnected: false,
       isStreaming: false,
       quality: 'disconnected',
       error: null,
+      reconnectAttempts: 0,
     };
 
     this.notifyStatusChange();
@@ -217,11 +326,10 @@ export class RTSPStreamingService {
 
   /**
    * 🔒 SECURITY: Validate RTSP URL format
+   * Accepts both hostnames and raw IP hosts (e.g. rtsp://192.168.1.100/...)
    */
   private validateRtspUrl(): boolean {
-    const rtspRegex =
-      /^rtsp:\/\/(?:\S+(?::\S*)?@)?(?:[a-zA-Z0-9\-]+\.)+[a-zA-Z]{2,}(?::\d+)?(?:\/.*)?$/;
-    return rtspRegex.test(this.config.url);
+    return parseRtspUrl(this.config.url) !== null;
   }
 
   /**
@@ -338,38 +446,18 @@ export class RTSPStreamingService {
       const RNFFmpeg = require('react-native-ffmpeg').default;
       const FileSystem = require('expo-file-system').default;
 
-      // Parse RTSP URL
-      const url = this.config.url;
-      const username = this.config.username || '';
-      const password = this.config.password || '';
-
       // Build FFmpeg command for RTSP to HLS conversion
       const timestamp = Date.now();
       const outputPath = `${FileSystem.cacheDirectory}stream_${timestamp}.m3u8`;
       const segmentPattern = `${FileSystem.cacheDirectory}segment_${timestamp}_%03d.ts`;
 
-      const ffmpegCommand = [
-        '-rtsp_transport', 'tcp', // Use TCP for more reliable streaming
-        '-i', url,
-        '-c:v', 'libx264', // Video codec
-        '-preset', 'ultrafast', // Fast encoding
-        '-tune', 'zerolatency', // Low latency
-        '-c:a', 'aac', // Audio codec
-        '-b:v', '2000k', // Video bitrate
-        '-maxrate', '2000k',
-        '-bufsize', '4000k',
-        '-f', 'hls', // HLS format
-        '-hls_time', '2', // Segment duration
-        '-hls_list_size', '3', // Number of segments in playlist
-        '-hls_segment_filename', segmentPattern,
-        outputPath
-      ];
-
-      // Add authentication if provided
-      if (username && password) {
-        const authUrl = url.replace('rtsp://', `rtsp://${username}:${password}@`);
-        ffmpegCommand[2] = authUrl;
-      }
+      const ffmpegCommand = buildFfmpegHlsCommand({
+        url: this.config.url,
+        username: this.config.username,
+        password: this.config.password,
+        outputPath,
+        segmentPattern,
+      });
 
       // Execute FFmpeg
       const sessionId = await RNFFmpeg.executeWithArguments(ffmpegCommand);
@@ -407,25 +495,46 @@ export class RTSPStreamingService {
   }
 
   /**
-   * 🔒 RTSP: Schedule reconnection with exponential backoff
+   * 🔒 RTSP: Schedule reconnection with bounded exponential backoff + jitter
+   *
+   * Delay = min(base * 2^attempts, maxDelay) ± 20% jitter.
+   * After `maxRetries` attempts the service enters terminal 'offline' state
+   * instead of retrying forever — recovery then happens via retry()/remount.
    */
   private scheduleReconnect(): void {
-    if (this.reconnectAttempts >= this.config.maxRetries) {
-      console.log('[RTSP] Max reconnection attempts reached');
+    if (this.isManuallyDisconnected) {
+      this.status.state = 'offline';
+      this.notifyStatusChange();
       return;
     }
 
-    const delay = Math.min(
-      this.config.reconnectIntervalMs * Math.pow(2, this.reconnectAttempts),
-      30000, // Max 30 seconds
-    );
+    if (this.reconnectAttempts >= this.config.maxRetries) {
+      console.log(
+        `[RTSP] Max reconnection attempts reached (${this.config.maxRetries}) — giving up until manual retry`,
+      );
+      this.status.state = 'offline';
+      this.status.error = `Connection lost — gave up after ${this.config.maxRetries} retry attempts`;
+      this.status.reconnectAttempts = this.reconnectAttempts;
+      this.notifyStatusChange();
+      return;
+    }
+
+    const exponential = this.config.reconnectIntervalMs * Math.pow(2, this.reconnectAttempts);
+    const capped = Math.min(exponential, this.config.maxReconnectDelayMs);
+    // Equal jitter (80–120%) so multiple clients don't retry in lockstep
+    const delay = Math.round(capped * (0.8 + Math.random() * 0.4));
+
+    this.reconnectAttempts++;
+    this.status.state = 'reconnecting';
+    this.status.reconnectAttempts = this.reconnectAttempts;
+    this.notifyStatusChange();
 
     console.log(
-      `[RTSP] Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts + 1})`,
+      `[RTSP] Scheduling reconnect in ${delay}ms (attempt ${this.reconnectAttempts}/${this.config.maxRetries})`,
     );
 
     this.reconnectTimer = setTimeout(() => {
-      this.reconnectAttempts++;
+      this.reconnectTimer = null;
       this.connect();
     }, delay);
   }
@@ -504,35 +613,6 @@ export class RTSPStreamingService {
   }
 
   /**
-   * 🔒 RTSP: Start stream health monitoring
-   */
-  private startHealthMonitoring(): void {
-    // Simulate health monitoring
-    const healthCheck = () => {
-      if (!this.status.isConnected) return;
-
-      // Random quality degradation for simulation
-      if (Math.random() > 0.9) {
-        const qualities: StreamStatus['quality'][] = [
-          'excellent',
-          'good',
-          'fair',
-          'poor',
-        ];
-        const currentIndex = qualities.indexOf(this.status.quality);
-        const newQuality =
-          qualities[Math.min(currentIndex + 1, qualities.length - 1)];
-
-        this.status.quality = newQuality;
-        this.notifyStatusChange();
-      }
-    };
-
-    // Check health every 5 seconds
-    setInterval(healthCheck, 5000);
-  }
-
-  /**
    * 🔒 RTSP: Notify status change to all listeners
    */
   private notifyStatusChange(): void {
@@ -597,6 +677,7 @@ export class RTSPStreamingService {
 export function useRTSPStreaming(camera: Camera) {
   const serviceRef = useRef<RTSPStreamingService | null>(null);
   const [status, setStatus] = useState<StreamStatus>({
+    state: 'idle',
     isConnected: false,
     isStreaming: false,
     quality: 'disconnected',
@@ -607,6 +688,7 @@ export function useRTSPStreaming(camera: Camera) {
     codec: '',
     error: null,
     lastConnected: null,
+    reconnectAttempts: 0,
   });
 
   useEffect(() => {
@@ -624,8 +706,9 @@ export function useRTSPStreaming(camera: Camera) {
       username: camera.username,
       password: camera.password,
       timeoutMs: 10000,
-      maxRetries: 3,
-      reconnectIntervalMs: 5000,
+      maxRetries: 6,
+      reconnectIntervalMs: 2000,
+      maxReconnectDelayMs: 30000,
     };
 
     serviceRef.current = new RTSPStreamingService(config);
@@ -652,6 +735,12 @@ export function useRTSPStreaming(camera: Camera) {
     }
   }, []);
 
+  const retry = useCallback(async () => {
+    if (serviceRef.current) {
+      await serviceRef.current.retry();
+    }
+  }, []);
+
   const disconnect = useCallback(() => {
     if (serviceRef.current) {
       serviceRef.current.disconnect();
@@ -668,6 +757,7 @@ export function useRTSPStreaming(camera: Camera) {
   return {
     ...status,
     connect,
+    retry,
     disconnect,
     extractFrame,
   };

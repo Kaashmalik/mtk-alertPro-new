@@ -6,6 +6,7 @@
  */
 
 import { parseRtspUrl } from './rtspHelper';
+import { detectStreamProtocol, parseHttpStreamUrl } from './protocol';
 
 /**
  * Result of a camera connection test
@@ -34,17 +35,30 @@ export interface ConnectionTestResult {
 export interface CameraHealth {
   /** Camera ID */
   cameraId: string;
-  /** Whether the camera is online */
+  /** Live connection status for UI display */
+  status: CameraConnectionStatus;
+  /** Whether the camera is online (derived from status) */
   isOnline: boolean;
   /** Average latency over recent tests */
   avgLatency: number;
   /** Last successful connection time */
   lastOnline?: Date;
+  /** Last heartbeat check time */
+  lastChecked?: Date;
   /** Number of consecutive failures */
   failureCount: number;
   /** Last test result */
   lastTest: ConnectionTestResult;
 }
+
+/**
+ * Live connection status of a camera
+ * - unknown: no heartbeat result yet (cold start)
+ * - online: last heartbeat succeeded
+ * - reconnecting: transient failures, heartbeat still retrying
+ * - offline: sustained failures past the offline threshold
+ */
+export type CameraConnectionStatus = 'online' | 'offline' | 'reconnecting' | 'unknown';
 
 /**
  * Configuration for connection testing
@@ -80,14 +94,64 @@ const DEFAULT_CONFIG: ConnectionTestConfig = {
  * ```
  */
 export async function testCameraConnection(
-  rtspUrl: string,
+  streamUrl: string,
   config: Partial<ConnectionTestConfig> = {}
 ): Promise<ConnectionTestResult> {
   const { timeoutMs, retryCount, retryDelayMs } = { ...DEFAULT_CONFIG, ...config };
   const startTime = Date.now();
+  const protocol = detectStreamProtocol(streamUrl);
+
+  // --- HTTP / MJPEG / snapshot URL: probe the URL itself ---
+  if (protocol === 'http' || protocol === 'mjpeg' || protocol === 'hls') {
+    const parsedHttp = parseHttpStreamUrl(streamUrl);
+    if (!parsedHttp) {
+      return {
+        success: false,
+        error: 'Invalid HTTP stream URL. Expected: http(s)://[user:pass@]host[:port]/path',
+        timestamp: new Date(),
+      };
+    }
+
+    let lastError: string | undefined;
+    for (let attempt = 0; attempt <= retryCount; attempt++) {
+      if (attempt > 0) {
+        await delay(retryDelayMs * attempt);
+      }
+      try {
+        const result = await performHttpStreamTest(streamUrl, timeoutMs);
+        if (result.success) {
+          return {
+            ...result,
+            latency: Date.now() - startTime,
+            timestamp: new Date(),
+          };
+        }
+        lastError = result.error;
+      } catch (error) {
+        lastError = error instanceof Error ? error.message : 'Connection test failed';
+      }
+    }
+
+    return {
+      success: false,
+      error: lastError || 'Connection test failed after all retries',
+      latency: Date.now() - startTime,
+      timestamp: new Date(),
+    };
+  }
+
+  // --- RTSP URL: parse then probe camera HTTP interface ---
+  if (protocol !== 'rtsp') {
+    return {
+      success: false,
+      error:
+        'Invalid stream URL. Expected rtsp://[user:pass@]ip[:port]/path or http(s):// URL',
+      timestamp: new Date(),
+    };
+  }
 
   // Parse the RTSP URL to extract IP
-  const parsed = parseRtspUrl(rtspUrl);
+  const parsed = parseRtspUrl(streamUrl);
   if (!parsed) {
     return {
       success: false,
@@ -114,7 +178,7 @@ export async function testCameraConnection(
 
     try {
       const result = await performConnectionTest(parsed.ip, parsed.port, timeoutMs);
-      
+
       if (result.success) {
         return {
           ...result,
@@ -122,7 +186,7 @@ export async function testCameraConnection(
           timestamp: new Date(),
         };
       }
-      
+
       lastError = result.error;
     } catch (error) {
       lastError = error instanceof Error ? error.message : 'Connection test failed';
@@ -135,6 +199,83 @@ export async function testCameraConnection(
     latency: Date.now() - startTime,
     timestamp: new Date(),
   };
+}
+
+/**
+ * Probe an HTTP/MJPEG/snapshot URL directly.
+ * Resolves once response headers arrive, then cancels the body
+ * (MJPEG responses are an endless multipart stream).
+ */
+async function performHttpStreamTest(
+  url: string,
+  timeoutMs: number
+): Promise<Omit<ConnectionTestResult, 'timestamp'>> {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      signal: controller.signal,
+      cache: 'no-store',
+    });
+
+    clearTimeout(timeoutId);
+    // Cancel body download (MJPEG streams never end)
+    try {
+      controller.abort();
+    } catch {
+      // ignore - body cancel is best-effort
+    }
+
+    // Reachable status codes: OK, auth required, method not allowed on HEAD-like endpoints
+    if (
+      response.ok ||
+      response.status === 401 ||
+      response.status === 403 ||
+      response.status === 405 ||
+      response.status === 501
+    ) {
+      return { success: true };
+    }
+
+    return {
+      success: false,
+      error: `Camera responded with status ${response.status}`,
+    };
+  } catch (error) {
+    clearTimeout(timeoutId);
+
+    if (error instanceof Error) {
+      if (error.name === 'AbortError') {
+        // Abort after headers is normal for MJPEG — treated as success above.
+        // Reaching here means headers never arrived.
+        return {
+          success: false,
+          error: 'Connection timed out - camera not responding',
+        };
+      }
+
+      const message = error.message.toLowerCase();
+      if (message.includes('network') || message.includes('failed to fetch')) {
+        return {
+          success: false,
+          error: 'Network error - check if camera is on the same network',
+        };
+      }
+      if (message.includes('refused')) {
+        return {
+          success: false,
+          error: 'Connection refused - camera may be using different port',
+        };
+      }
+    }
+
+    return {
+      success: false,
+      error: 'Unable to reach camera - verify URL and network',
+    };
+  }
 }
 
 /**
@@ -163,8 +304,15 @@ async function performConnectionTest(
     clearTimeout(timeoutId);
 
     // 401/403 means camera is reachable but requires auth
-    // This is still a successful connection test
-    if (response.ok || response.status === 401 || response.status === 403) {
+    // 405/501 means camera rejected HEAD but is reachable (common on IP cams)
+    // These are still successful connection tests
+    if (
+      response.ok ||
+      response.status === 401 ||
+      response.status === 403 ||
+      response.status === 405 ||
+      response.status === 501
+    ) {
       // Additional check: Try to get stream info from media server if available
       try {
         const MEDIA_SERVER_URL = process.env.EXPO_PUBLIC_MEDIA_SERVER_URL;
@@ -290,9 +438,27 @@ export async function testConnectionViaMediaServer(
   }
 }
 
+/** Consecutive failures before a camera is reported as offline */
+const OFFLINE_FAILURE_THRESHOLD = 3;
+
+/** Heartbeat probe settings: fast, no retries — the monitor cadence is the retry */
+const HEARTBEAT_TEST_CONFIG: Partial<ConnectionTestConfig> = {
+  timeoutMs: 3000,
+  retryCount: 0,
+};
+
 /**
- * Create a health monitor for multiple cameras
- * 
+ * Create a per-camera heartbeat monitor
+ *
+ * Every `intervalMs` all cameras are probed in parallel. Status transitions:
+ *   unknown ──success──▶ online
+ *   unknown/online ──failure──▶ reconnecting (failures 1..N-1)
+ *   reconnecting ──failure──▶ offline (N consecutive failures, N = threshold)
+ *   offline/reconnecting ──success──▶ online
+ *
+ * `onStatusChange` fires only when a camera's status actually changes
+ * (including the first result after 'unknown').
+ *
  * @param cameras - Array of cameras to monitor
  * @param onStatusChange - Callback when a camera's status changes
  * @param intervalMs - Check interval in milliseconds
@@ -305,55 +471,81 @@ export function createHealthMonitor(
 ): () => void {
   const healthMap = new Map<string, CameraHealth>();
   let isRunning = true;
+  let inFlight = false;
 
-  // Initialize health records
+  // Initialize health records — status stays 'unknown' until the first probe
   cameras.forEach(camera => {
     healthMap.set(camera.id, {
       cameraId: camera.id,
-      isOnline: true, // Assume online initially
+      status: 'unknown',
+      isOnline: false,
       avgLatency: 0,
       failureCount: 0,
       lastTest: {
-        success: true,
+        success: false,
         timestamp: new Date(),
       },
     });
   });
 
-  const checkAll = async () => {
-    if (!isRunning) return;
+  const checkCamera = async (camera: { id: string; rtspUrl: string }): Promise<void> => {
+    try {
+      const result = await testCameraConnection(camera.rtspUrl, HEARTBEAT_TEST_CONFIG);
 
-    for (const camera of cameras) {
-      if (!isRunning) break;
+      if (!isRunning) return;
+      const current = healthMap.get(camera.id);
+      if (!current) return;
 
-      const result = await testCameraConnection(camera.rtspUrl);
-      const currentHealth = healthMap.get(camera.id)!;
+      const previousStatus = current.status;
+      let status: CameraConnectionStatus;
+      if (result.success) {
+        status = 'online';
+      } else {
+        const failures = current.failureCount + 1;
+        status = failures >= OFFLINE_FAILURE_THRESHOLD ? 'offline' : 'reconnecting';
+      }
 
-      const wasOnline = currentHealth.isOnline;
       const newHealth: CameraHealth = {
         cameraId: camera.id,
-        isOnline: result.success,
-        avgLatency: result.latency 
-          ? (currentHealth.avgLatency + result.latency) / 2 
-          : currentHealth.avgLatency,
-        lastOnline: result.success ? new Date() : currentHealth.lastOnline,
-        failureCount: result.success ? 0 : currentHealth.failureCount + 1,
+        status,
+        isOnline: status === 'online',
+        avgLatency: result.latency
+          ? current.avgLatency
+            ? (current.avgLatency + result.latency) / 2
+            : result.latency
+          : current.avgLatency,
+        lastOnline: result.success ? new Date() : current.lastOnline,
+        lastChecked: new Date(),
+        failureCount: result.success ? 0 : current.failureCount + 1,
         lastTest: result,
       };
 
       healthMap.set(camera.id, newHealth);
 
-      // Notify on status change
-      if (wasOnline !== newHealth.isOnline) {
+      // Notify on every status transition (including first result after 'unknown')
+      if (previousStatus !== status) {
         onStatusChange(camera.id, newHealth);
       }
+    } catch (error) {
+      // A heartbeat must never crash the monitoring interval
+      console.warn('[HealthMonitor] Probe error for camera', camera.id, error);
     }
   };
 
-  // Initial check
+  const checkAll = async () => {
+    if (!isRunning || inFlight) return; // skip overlapping cycles
+    inFlight = true;
+    try {
+      await Promise.all(cameras.map(checkCamera));
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  // Initial check — resolves 'unknown' to a real status right away
   checkAll();
 
-  // Periodic checks
+  // Periodic heartbeat checks
   const intervalId = setInterval(checkAll, intervalMs);
 
   // Return cleanup function

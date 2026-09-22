@@ -1,0 +1,38 @@
+﻿env: load .env
+env: export EXPO_PUBLIC_SUPABASE_URL EXPO_PUBLIC_SUPABASE_ANON_KEY EXPO_PUBLIC_FIREBASE_PROJECT_ID EXPO_PUBLIC_REVENUECAT_API_KEY EXPO_PUBLIC_SENTRY_DSN EXPO_PUBLIC_POSTHOG_KEY EXPO_PUBLIC_ENCRYPTION_KEY EXPO_PUBLIC_APP_ENV
+Running 17 checks on your project...
+Networking has been disabled
+11/17 checks passed. 6 checks failed. Possible issues detected:
+Use the --verbose flag to see more details about passed checks.
+
+Γ£û Check for common project setup issues
+The .expo directory is not ignored by Git. It contains machine-specific device history and development server settings and should not be committed.
+Advice:
+Add ".expo/" to your .gitignore to avoid committing local Expo state.
+
+Γ£û Check Expo config (app.json/ app.config.js) schema
+Γ£û Check that native modules use compatible support package versions for installed Expo SDK
+Γ£û Check for app config fields that may not be synced in a non-CNG project
+This project contains native project folders but also has native configuration properties in app.json, indicating it is configured to use Prebuild. When the android/ios folders are present, EAS Build will not sync the following properties: orientation, icon, scheme, userInterfaceStyle, splash, ios, android, plugins, androidStatusBar. 
+
+
+Γ£û Validate packages against React Native Directory package metadata
+The following issues were found when validating your dependencies against React Native Directory:
+  Unmaintained: crypto-js, expo-av
+  No metadata available: @tensorflow/tfjs, @tensorflow/tfjs-react-native
+Advice:
+Use libraries that are actively maintained and support the New Architecture. Find alternative libraries with https://reactnative.directory.
+Add packages to expo.doctor.reactNativeDirectoryCheck.exclude in package.json to selectively skip validations, if the warning is not relevant.
+Update React Native Directory to include metadata for unknown packages. Alternatively, set expo.doctor.reactNativeDirectoryCheck.listUnknownPackages in package.json to false to skip warnings about packages with no metadata, if the warning is not relevant.
+
+Γ£û Check that packages match versions required by installed Expo SDK
+The following packages should be updated for best compatibility with the installed expo version:
+  expo@52.0.47 - expected version: ~52.0.48
+  expo-gl@14.0.2 - expected version: ~15.0.5
+  expo-router@4.0.21 - expected version: ~4.0.22
+Your project may not work correctly until you install the expected versions of the packages.
+Found outdated dependencies
+Advice:
+Use 'npx expo install --check' to review and upgrade your dependencies.
+To ignore specific packages, add them to "expo.install.exclude" in package.json. Learn more: https://expo.fyi/dependency-validation
+

@@ -1,0 +1,38 @@
+# Exclude everything except apps/mobile
+node_modules/
+**/node_modules/
+
+# Other apps and packages
+packages/
+apps/web/
+apps/backend/
+apps/detection-worker/
+
+# Root-level directories
+docs/
+pruned/
+.git/
+.github/
+
+# Lock files
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+*.lock
+
+# Logs and caches
+*.log
+.expo/
+.expo-shared/
+.cache/
+.turbo/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keep only apps/mobile (handled by its own .easignore)

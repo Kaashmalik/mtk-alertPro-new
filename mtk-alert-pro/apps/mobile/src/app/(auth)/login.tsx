@@ -111,13 +111,13 @@ export default function LoginScreen() {
         }
       } else if (result.error) {
         if (!result.error.toLowerCase().includes('cancel') &&
-          !result.error.toLowerCase().includes('user fallback')) {
+            !result.error.toLowerCase().includes('fallback') &&
+            !result.error.toLowerCase().includes('not available')) {
           setError(result.error);
         }
       }
     } catch (err: any) {
-      console.error('Biometric login error:', err);
-      setError('Biometric login failed');
+      console.warn('Biometric login skipped:', err);
     } finally {
       setBiometricLoading(false);
     }

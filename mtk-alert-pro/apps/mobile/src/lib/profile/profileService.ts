@@ -6,6 +6,7 @@
  */
 
 import { supabase } from '@/lib/supabase/client';
+import { useAuthStore } from '@/stores/authStore';
 import { logError } from '@/lib/utils/errorHandler';
 
 // ============================================================================
@@ -215,8 +216,9 @@ export async function deleteAccount(): Promise<boolean> {
         }
 
         // Note: Actual user deletion requires admin API
-        // For now, sign out the user
-        await supabase.auth.signOut();
+        // Sign out through the auth store so the shared-device cleanup runs
+        // (auth state + camera cache wiped) — not just the remote session.
+        await useAuthStore.getState().signOut();
 
         console.log('[ProfileService] Account deletion initiated');
         return true;

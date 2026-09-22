@@ -120,7 +120,7 @@ class DetectionManager {
    */
   async startMonitoring(camera: Camera): Promise<void> {
     // Check if detection is enabled for this camera
-    if (!camera.detectionSettings.person && !camera.detectionSettings.vehicle) {
+    if (!camera.detectionSettings.person && !camera.detectionSettings.vehicle && !camera.detectionSettings.face) {
       console.log(`[DetectionManager] Camera ${camera.name} has no detection enabled, skipping`);
       return;
     }
@@ -199,6 +199,9 @@ class DetectionManager {
           return false;
         }
         if (detection.type === 'vehicle' && !camera.detectionSettings.vehicle) {
+          return false;
+        }
+        if (detection.type === 'face' && !camera.detectionSettings.face) {
           return false;
         }
 

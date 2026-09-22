@@ -5,22 +5,33 @@ import Animated, {
     useSharedValue,
     withSpring,
     withTiming,
-    interpolate,
-    Extrapolation,
+    withRepeat,
+    cancelAnimation,
     FadeIn
 } from 'react-native-reanimated';
-import { Camera, AlertCircle, WifiOff } from 'lucide-react-native';
+import { Camera, AlertCircle, WifiOff, RefreshCw } from 'lucide-react-native';
 import { designSystem } from '@/theme/design-system';
+import type { CameraConnectionStatus } from '@/lib/camera/connectionService';
 
 interface CameraCardProps {
     id: string;
     name: string;
     thumbnailUrl?: string;
-    isOnline: boolean;
+    /** Live heartbeat status — takes precedence over isOnline */
+    status?: CameraConnectionStatus;
+    /** Legacy fallback when no heartbeat status is available yet */
+    isOnline?: boolean;
     hasAlert: boolean;
     onPress: (id: string) => void;
     style?: any;
 }
+
+const STATUS_LABEL: Record<CameraConnectionStatus, string> = {
+    online: 'LIVE',
+    reconnecting: 'RECONNECTING',
+    offline: 'OFFLINE',
+    unknown: 'CHECKING…',
+};
 
 const AnimatedTouchable = Animated.createAnimatedComponent(TouchableOpacity);
 
@@ -28,6 +39,7 @@ export const CameraCard: React.FC<CameraCardProps> = ({
     id,
     name,
     thumbnailUrl,
+    status,
     isOnline,
     hasAlert,
     onPress,
@@ -35,14 +47,36 @@ export const CameraCard: React.FC<CameraCardProps> = ({
 }) => {
     const scale = useSharedValue(1);
     const opacity = useSharedValue(0);
+    const dotOpacity = useSharedValue(1);
+
+    const resolvedStatus: CameraConnectionStatus =
+        status ?? (isOnline ? 'online' : 'offline');
 
     React.useEffect(() => {
         opacity.value = withTiming(1, { duration: 500 });
     }, []);
 
+    // Pulse the status dot while actively reconnecting
+    React.useEffect(() => {
+        if (resolvedStatus === 'reconnecting') {
+            dotOpacity.value = withRepeat(
+                withTiming(0.25, { duration: 700 }),
+                -1,
+                true
+            );
+        } else {
+            cancelAnimation(dotOpacity);
+            dotOpacity.value = withTiming(1, { duration: 200 });
+        }
+    }, [resolvedStatus]);
+
     const animatedStyle = useAnimatedStyle(() => ({
         opacity: opacity.value,
         transform: [{ scale: scale.value }],
+    }));
+
+    const dotAnimatedStyle = useAnimatedStyle(() => ({
+        opacity: dotOpacity.value,
     }));
 
     const handlePressIn = () => {
@@ -52,6 +86,22 @@ export const CameraCard: React.FC<CameraCardProps> = ({
     const handlePressOut = () => {
         scale.value = withSpring(1, designSystem.animations.spring.stiff);
     };
+
+    const statusStyle =
+        resolvedStatus === 'online'
+            ? styles.statusOnline
+            : resolvedStatus === 'reconnecting'
+                ? styles.statusReconnecting
+                : styles.statusOffline;
+
+    const dotStyle =
+        resolvedStatus === 'online'
+            ? styles.dotOnline
+            : resolvedStatus === 'reconnecting'
+                ? styles.dotReconnecting
+                : resolvedStatus === 'unknown'
+                    ? styles.dotUnknown
+                    : styles.dotOffline;
 
     return (
         <AnimatedTouchable
@@ -63,15 +113,9 @@ export const CameraCard: React.FC<CameraCardProps> = ({
         >
             <View style={styles.contentContainer}>
                 {/* Status Badge */}
-                <View style={[
-                    styles.statusBadge,
-                    isOnline ? styles.statusOnline : styles.statusOffline
-                ]}>
-                    <View style={[
-                        styles.statusDot,
-                        isOnline ? styles.dotOnline : styles.dotOffline
-                    ]} />
-                    <Text style={styles.statusText}>{isOnline ? 'LIVE' : 'OFFLINE'}</Text>
+                <View style={[styles.statusBadge, statusStyle]}>
+                    <Animated.View style={[styles.statusDot, dotStyle, dotAnimatedStyle]} />
+                    <Text style={styles.statusText}>{STATUS_LABEL[resolvedStatus]}</Text>
                 </View>
 
                 {/* Thumbnail or Placeholder */}
@@ -87,11 +131,17 @@ export const CameraCard: React.FC<CameraCardProps> = ({
                     </View>
                 )}
 
-                {/* Connection Error Overlay */}
-                {!isOnline && (
+                {/* Connection overlay: lost vs. actively reconnecting */}
+                {resolvedStatus === 'offline' && (
                     <View style={styles.offlineOverlay}>
                         <WifiOff size={32} color={designSystem.colors.text.secondary} />
                         <Text style={styles.offlineText}>Connection Lost</Text>
+                    </View>
+                )}
+                {resolvedStatus === 'reconnecting' && (
+                    <View style={styles.offlineOverlay}>
+                        <RefreshCw size={32} color={designSystem.colors.status.warning} />
+                        <Text style={styles.reconnectingText}>Reconnecting…</Text>
                     </View>
                 )}
 
@@ -173,6 +223,9 @@ const styles = StyleSheet.create({
     statusOnline: {
         borderColor: 'rgba(16, 185, 129, 0.3)',
     },
+    statusReconnecting: {
+        borderColor: 'rgba(245, 158, 11, 0.5)',
+    },
     statusOffline: {
         borderColor: 'rgba(100, 116, 139, 0.3)',
     },
@@ -185,6 +238,12 @@ const styles = StyleSheet.create({
     dotOnline: {
         backgroundColor: designSystem.colors.status.success,
         ...designSystem.shadows.glow.primary,
+    },
+    dotReconnecting: {
+        backgroundColor: designSystem.colors.status.warning,
+    },
+    dotUnknown: {
+        backgroundColor: designSystem.colors.text.muted,
     },
     dotOffline: {
         backgroundColor: designSystem.colors.status.inactive,
@@ -204,6 +263,12 @@ const styles = StyleSheet.create({
     },
     offlineText: {
         color: designSystem.colors.text.secondary,
+        fontSize: designSystem.typography.size.sm,
+        fontWeight: '600',
+        marginTop: designSystem.spacing.xs,
+    },
+    reconnectingText: {
+        color: designSystem.colors.status.warning,
         fontSize: designSystem.typography.size.sm,
         fontWeight: '600',
         marginTop: designSystem.spacing.xs,

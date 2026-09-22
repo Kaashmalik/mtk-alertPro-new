@@ -10,7 +10,17 @@ import { View, Alert, Platform } from 'react-native';
 import * as MediaLibrary from 'expo-media-library';
 import * as Sharing from 'expo-sharing';
 import * as FileSystem from 'expo-file-system';
-import { captureRef } from 'react-native-view-shot';
+let captureRef: any;
+if (Platform.OS !== 'web') {
+    try {
+        const viewShot = require('react-native-view-shot');
+        captureRef = viewShot.captureRef;
+    } catch (e) {
+        console.log('[CameraMedia] react-native-view-shot not available');
+    }
+} else {
+    captureRef = async () => 'data:image/jpeg;base64,mock';
+}
 
 // ============================================================================
 // Types

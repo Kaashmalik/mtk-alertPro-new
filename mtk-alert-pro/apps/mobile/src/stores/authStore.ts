@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { useCameraStore } from './cameraStore';
 import type { User } from '@/types';
 
 interface AuthState {
@@ -19,6 +20,19 @@ interface AuthState {
   refreshUser: () => Promise<void>;
   clearError: () => void;
 }
+
+const isPlaceholderConfig = () => {
+  return !isSupabaseConfigured || 
+         supabase.supabaseUrl?.includes('your-project') ||
+         supabase.supabaseUrl?.includes('example.com');
+};
+
+const withTimeout = <T>(promise: Promise<T>, ms: number = 8000, message: string = 'Request timed out'): Promise<T> => {
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms))
+  ]);
+};
 
 export const useAuthStore = create<AuthState>()(
   persist(
@@ -112,10 +126,18 @@ export const useAuthStore = create<AuthState>()(
       signInWithEmail: async (email, password) => {
         set({ isLoading: true, error: null });
         try {
-          const { data, error } = await supabase.auth.signInWithPassword({
-            email,
-            password,
-          });
+          if (isPlaceholderConfig()) {
+            throw new Error('Please configure a valid Supabase URL to sign in.');
+          }
+
+          const { data, error } = await withTimeout(
+            supabase.auth.signInWithPassword({
+              email,
+              password,
+            }),
+            8000,
+            'Login timed out. Check your internet connection or Supabase configuration.'
+          );
 
           if (error) {
             // Handle specific error cases
@@ -124,6 +146,9 @@ export const useAuthStore = create<AuthState>()(
             }
             if (error.message.includes('Email not confirmed')) {
               throw new Error('Please verify your email before signing in');
+            }
+            if (error.message.includes('FetchError') || error.message.includes('Network request failed')) {
+              throw new Error('Network error. Unable to reach the server.');
             }
             throw error;
           }
@@ -145,15 +170,23 @@ export const useAuthStore = create<AuthState>()(
       signUpWithEmail: async (email, password, displayName) => {
         set({ isLoading: true, error: null });
         try {
-          const { data, error } = await supabase.auth.signUp({
-            email,
-            password,
-            options: {
-              data: {
-                display_name: displayName || email.split('@')[0],
+          if (isPlaceholderConfig()) {
+            throw new Error('Please configure a valid Supabase URL to register.');
+          }
+
+          const { data, error } = await withTimeout(
+            supabase.auth.signUp({
+              email,
+              password,
+              options: {
+                data: {
+                  display_name: displayName || email.split('@')[0],
+                },
               },
-            },
-          });
+            }),
+            8000,
+            'Registration timed out. Check your internet connection or Supabase configuration.'
+          );
 
           if (error) throw error;
 
@@ -196,6 +229,15 @@ export const useAuthStore = create<AuthState>()(
           await AsyncStorage.removeItem('biometric-user-email');
         } catch (error) {
           console.error('Storage cleanup error:', error);
+        }
+
+        // 🔒 Wipe the camera cache (list, RTSP URLs, health, offline queue,
+        // in-memory state) so the next user on this device can never hydrate
+        // the signed-out user's cameras from AsyncStorage or store state.
+        try {
+          await useCameraStore.getState().clearCache();
+        } catch (error) {
+          console.error('Camera cache cleanup error:', error);
         }
 
         // Always clear local state
@@ -291,6 +333,14 @@ export const useAuthStore = create<AuthState>()(
               }
             } else if (event === 'SIGNED_OUT') {
               console.log('[AuthStore] User signed out');
+              // Wipe camera cache/state on ANY supabase-driven sign-out
+              // (session expiry, account deletion, remote sign-out) so no
+              // leftover data survives for the next user on this device.
+              try {
+                await useCameraStore.getState().clearCache();
+              } catch (error) {
+                console.error('Camera cache cleanup error:', error);
+              }
               set({
                 user: null,
                 isAuthenticated: false,
