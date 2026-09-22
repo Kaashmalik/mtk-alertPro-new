@@ -489,5 +489,3 @@ You've successfully launched MTK AlertPro. Now focus on:
 Remember: **Ship fast, iterate faster!**
 
 ---
-
-*Built with ❤️ by MTK CODEX*
