@@ -1,5 +1,4 @@
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+-- UUID generation uses core gen_random_uuid() (PostgreSQL 13+), no extension needed.
 
 -- Profiles table (extends auth.users)
 CREATE TABLE public.profiles (
@@ -16,7 +15,7 @@ CREATE TABLE public.profiles (
 
 -- Cameras table
 CREATE TABLE public.cameras (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   rtsp_url TEXT NOT NULL,
@@ -31,7 +30,7 @@ CREATE TABLE public.cameras (
 
 -- Alerts table
 CREATE TABLE public.alerts (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   camera_id UUID NOT NULL REFERENCES public.cameras(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   type TEXT NOT NULL CHECK (type IN ('person', 'vehicle', 'face', 'motion')),
@@ -45,7 +44,7 @@ CREATE TABLE public.alerts (
 
 -- Detection zones table (for Pro tier)
 CREATE TABLE public.detection_zones (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   camera_id UUID NOT NULL REFERENCES public.cameras(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
   polygon JSONB NOT NULL,

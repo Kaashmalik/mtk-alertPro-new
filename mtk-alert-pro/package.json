@@ -18,7 +18,7 @@
     "supabase:start": "supabase start",
     "supabase:stop": "supabase stop",
     "supabase:reset": "supabase db reset",
-    "supabase:generate": "supabase gen types typescript --local > packages/shared/src/database.types.ts",
+    "supabase:generate": "supabase gen types typescript --linked > packages/shared/src/database.types.ts",
     "prepare": "husky"
   },
   "devDependencies": {

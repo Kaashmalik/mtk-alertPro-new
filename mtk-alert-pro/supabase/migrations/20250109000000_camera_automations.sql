@@ -5,7 +5,7 @@
 
 -- Create camera_automations table
 CREATE TABLE IF NOT EXISTS public.camera_automations (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   camera_id UUID NOT NULL REFERENCES public.cameras(id) ON DELETE CASCADE,
   user_id UUID NOT NULL REFERENCES public.profiles(id) ON DELETE CASCADE,
   name TEXT NOT NULL,
