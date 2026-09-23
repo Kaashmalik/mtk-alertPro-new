@@ -55,6 +55,12 @@ import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
 import { designSystem } from '@/theme/design-system';
 import { AlertCard } from '@/components/animated';
 import { RecordingsModal } from '@/components/camera/RecordingsModal';
+import { LiveCameraGrid } from '@/components/camera/LiveCameraGrid';
+import {
+  refreshMediaEdgeHealth,
+  subscribeMediaEdgeStatus,
+  type MediaEdgeStatus,
+} from '@/lib/streaming/mediaServerHealth';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
 
@@ -69,10 +75,16 @@ export default function HomeScreen() {
   const detection = useSettingsStore((state) => state.detection);
   const isPremium = useIsPremium();
 
-  const { isMonitoring, toggleMasterDetection, activeMonitoringCount } =
-    useDetectionCoordinator();
+  const {
+    isMonitoring,
+    toggleMasterDetection,
+    toggleArmed,
+    armed,
+    activeMonitoringCount,
+  } = useDetectionCoordinator();
 
   const [showRecordingsModal, setShowRecordingsModal] = useState(false);
+  const [mediaStatus, setMediaStatus] = useState<MediaEdgeStatus>('unknown');
 
   // Animation values
   const toggleScale = useSharedValue(1);
@@ -80,6 +92,9 @@ export default function HomeScreen() {
   useEffect(() => {
     fetchCameras();
     fetchAlerts();
+    const unsub = subscribeMediaEdgeStatus(setMediaStatus);
+    void refreshMediaEdgeHealth();
+    return unsub;
   }, []);
 
   const onRefresh = useCallback(() => {
@@ -103,7 +118,18 @@ export default function HomeScreen() {
       toggleScale.value = withSpring(1);
     });
 
+    // Master arm + red alert together for the primary CTA
+    if (!(armed ?? true)) {
+      toggleArmed();
+    }
     toggleMasterDetection();
+  };
+
+  const handleToggleArm = async () => {
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+    } catch {}
+    toggleArmed();
   };
 
   const animatedToggleStyle = useAnimatedStyle(() => ({
@@ -158,6 +184,36 @@ export default function HomeScreen() {
 
           {/* Master Defense / Red Alert Toggle */}
           <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.redAlertContainer}>
+            {mediaStatus === 'offline' && (
+              <TouchableOpacity
+                style={styles.mediaBanner}
+                onPress={() => void refreshMediaEdgeHealth()}
+              >
+                <WifiOff size={16} color={designSystem.colors.status.warning} />
+                <Text style={styles.mediaBannerText}>
+                  Media server offline — RTSP live & AI snapshots unavailable. Tap to retry.
+                </Text>
+              </TouchableOpacity>
+            )}
+
+            <View style={styles.armRow}>
+              <TouchableOpacity
+                style={[
+                  styles.armChip,
+                  (armed ?? true) ? styles.armChipOn : styles.armChipOff,
+                ]}
+                onPress={handleToggleArm}
+              >
+                <Shield
+                  size={16}
+                  color={(armed ?? true) ? '#22C55E' : designSystem.colors.text.muted}
+                />
+                <Text style={styles.armChipText}>
+                  {(armed ?? true) ? 'ARMED' : 'DISARMED'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
             <TouchableOpacity
               onPress={handleToggleRedAlert}
               style={[
@@ -340,51 +396,16 @@ export default function HomeScreen() {
             </View>
           </Animated.View>
 
-          {/* Active Cameras Live Preview Snippet */}
-          {cameras.length > 0 && (
+          {/* Live mosaic */}
+          {cameras.length > 0 && user?.id && (
             <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.section}>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Connected Cameras</Text>
+                <Text style={styles.sectionTitle}>Live Mosaic</Text>
                 <TouchableOpacity onPress={() => router.push('/(tabs)/cameras')}>
                   <Text style={styles.viewAll}>View All ({cameras.length})</Text>
                 </TouchableOpacity>
               </View>
-
-              <ScrollView
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                contentContainerStyle={styles.cameraRowContent}
-              >
-                {cameras.map((cam) => (
-                  <TouchableOpacity
-                    key={cam.id}
-                    style={styles.cameraThumbCard}
-                    onPress={() => router.push(`/cameras/${cam.id}`)}
-                    activeOpacity={0.85}
-                  >
-                    <View style={styles.cameraThumbPlaceholder}>
-                      <Camera size={28} color="#64748B" />
-                      <View style={styles.playOverlayBadge}>
-                        <Play size={14} color="white" fill="white" />
-                      </View>
-                      <View
-                        style={[
-                          styles.camStatusDot,
-                          { backgroundColor: cam.isActive ? '#10B981' : '#EF4444' },
-                        ]}
-                      />
-                    </View>
-                    <View style={styles.cameraThumbInfo}>
-                      <Text style={styles.cameraThumbName} numberOfLines={1}>
-                        {cam.name}
-                      </Text>
-                      <Text style={styles.cameraThumbStatus}>
-                        {cam.isActive ? 'Live Stream' : 'Offline'}
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
-              </ScrollView>
+              <LiveCameraGrid cameras={cameras} userId={user.id} maxTiles={4} />
             </Animated.View>
           )}
 
@@ -408,7 +429,9 @@ export default function HomeScreen() {
                 </Text>
               </View>
             ) : (
-              recentAlerts.map((alert, index) => (
+              recentAlerts.map((alert, index) => {
+                const cam = cameras.find((c) => c.id === alert.cameraId);
+                return (
                 <View
                   key={alert.id}
                   style={index !== recentAlerts.length - 1 ? { marginBottom: designSystem.spacing.sm } : {}}
@@ -416,14 +439,15 @@ export default function HomeScreen() {
                   <AlertCard
                     id={alert.id}
                     type={alert.type as any}
-                    confidence={0.95}
+                    confidence={alert.confidence}
                     timestamp={new Date(alert.createdAt)}
-                    thumbnailUrl={undefined}
-                    cameraName={`Camera ${alert.cameraId.slice(0, 4)}`}
+                    thumbnailUrl={alert.snapshotUrl}
+                    cameraName={cam?.name || 'Camera'}
                     onPress={() => router.push('/(tabs)/alerts')}
                   />
                 </View>
-              ))
+              );
+              })
             )}
           </Animated.View>
 
@@ -473,6 +497,49 @@ const styles = StyleSheet.create({
   container: {
     flex: 1,
     backgroundColor: '#0F172A',
+  },
+  mediaBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  mediaBannerText: {
+    flex: 1,
+    color: '#FBBF24',
+    fontSize: 12,
+    lineHeight: 16,
+  },
+  armRow: {
+    marginBottom: 10,
+  },
+  armChip: {
+    alignSelf: 'flex-start',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 999,
+    borderWidth: 1,
+  },
+  armChipOn: {
+    backgroundColor: 'rgba(34, 197, 94, 0.15)',
+    borderColor: 'rgba(34, 197, 94, 0.4)',
+  },
+  armChipOff: {
+    backgroundColor: 'rgba(100, 116, 139, 0.2)',
+    borderColor: 'rgba(100, 116, 139, 0.35)',
+  },
+  armChipText: {
+    color: '#E2E8F0',
+    fontSize: 12,
+    fontWeight: '700',
+    letterSpacing: 0.5,
   },
   scrollView: {
     flex: 1,

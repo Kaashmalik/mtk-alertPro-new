@@ -5,7 +5,7 @@
  * @module features/detection/frameCaptureService
  */
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { streamingService } from '@/lib/streaming/streamingService';
 import { logError } from '@/lib/utils/errorHandler';
 

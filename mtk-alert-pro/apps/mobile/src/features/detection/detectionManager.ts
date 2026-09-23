@@ -8,10 +8,17 @@
 import { detectionService } from './detectionService';
 import { frameCaptureService } from './frameCaptureService';
 import { handleDetectionAlarm } from './detectionAlarmIntegration';
+import { detectMotionBetweenFrames } from './motionDetector';
+import { isDetectionInZones } from './zoneFilter';
+import { markLocalAlert } from './alertDedup';
+import { shouldAlert } from './sceneProfiles';
 import { supabase } from '@/lib/supabase/client';
 import { logError } from '@/lib/utils/errorHandler';
 import { sendLocalNotification } from '@/lib/notifications/service';
 import { reviewManager } from '@/lib/reviews/reviewManager';
+import { trackEvent, AnalyticsEvents } from '@/lib/analytics/events';
+import { useSettingsStore } from '@/stores/settingsStore';
+import * as FileSystem from 'expo-file-system/legacy';
 import type { DetectionResult, Camera } from '@/types';
 
 // ============================================================================
@@ -27,7 +34,7 @@ export interface DetectionEvent {
   /** Camera name for display */
   cameraName: string;
   /** Type of detection */
-  type: 'person' | 'vehicle' | 'face' | 'unknown';
+  type: 'person' | 'vehicle' | 'face' | 'unknown' | 'motion' | 'animal';
   /** Detection confidence (0-1) */
   confidence: number;
   /** When the detection occurred */
@@ -57,6 +64,8 @@ export interface DetectionManagerConfig {
   enableAlarm: boolean;
   /** Whether to send notifications */
   enableNotifications: boolean;
+  /** Pixel-diff motion when AI returns empty */
+  enableMotionFallback: boolean;
 }
 
 // ============================================================================
@@ -69,6 +78,7 @@ const DEFAULT_CONFIG: DetectionManagerConfig = {
   minConfidence: 0.65,         // 65% confidence threshold (optimized)
   enableAlarm: true,
   enableNotifications: true,
+  enableMotionFallback: true,
 };
 
 // ============================================================================
@@ -83,6 +93,7 @@ class DetectionManager {
   private config: DetectionManagerConfig;
   private activeCameras: Map<string, Camera> = new Map();
   private lastAlertTime: Map<string, number> = new Map();
+  private prevFrames: Map<string, string> = new Map();
   private isRunning = false;
   private eventHandlers: Set<(event: DetectionEvent) => void> = new Set();
   private alertCreateQueue: DetectionEvent[] = [];
@@ -119,10 +130,24 @@ class DetectionManager {
    * @param camera - Camera to monitor
    */
   async startMonitoring(camera: Camera): Promise<void> {
-    // Check if detection is enabled for this camera
-    if (!camera.detectionSettings.person && !camera.detectionSettings.vehicle && !camera.detectionSettings.face) {
-      console.log(`[DetectionManager] Camera ${camera.name} has no detection enabled, skipping`);
+    const armed = useSettingsStore.getState().detection.armed ?? true;
+    if (!armed) {
+      console.log('[DetectionManager] System disarmed — skip monitoring');
       return;
+    }
+
+    // Check if detection is enabled for this camera
+    if (
+      !camera.detectionSettings.person &&
+      !camera.detectionSettings.vehicle &&
+      !camera.detectionSettings.face &&
+      !camera.detectionSettings.animal &&
+      camera.detectionSettings.motion === false
+    ) {
+      if (!this.config.enableMotionFallback || camera.detectionSettings.motion === false) {
+        console.log(`[DetectionManager] Camera ${camera.name} has no detection enabled, skipping`);
+        return;
+      }
     }
 
     // Check if already monitoring
@@ -177,6 +202,7 @@ class DetectionManager {
     frameCaptureService.stopAllCaptures();
     this.activeCameras.clear();
     this.lastAlertTime.clear();
+    this.prevFrames.clear();
     this.isRunning = false;
   }
 
@@ -188,34 +214,59 @@ class DetectionManager {
     framePath: string,
     timestamp: Date
   ): Promise<void> {
+    if (!(useSettingsStore.getState().detection.armed ?? true)) {
+      return;
+    }
+
     try {
-      // Run AI detection
-      const detections = await detectionService.detect(framePath);
+      let detections = await detectionService.detect(framePath);
 
-      // Filter detections based on camera settings
-      const validDetections = detections.filter(detection => {
-        // Check if this detection type is enabled
-        if (detection.type === 'person' && !camera.detectionSettings.person) {
-          return false;
-        }
-        if (detection.type === 'vehicle' && !camera.detectionSettings.vehicle) {
-          return false;
-        }
-        if (detection.type === 'face' && !camera.detectionSettings.face) {
-          return false;
-        }
+      detections = detections.filter((d) =>
+        isDetectionInZones(d.boundingBox, camera.detectionSettings.zones)
+      );
 
-        // Check confidence threshold
+      const validDetections = detections.filter((detection) => {
         const threshold = camera.detectionSettings.sensitivity || this.config.minConfidence;
-        return detection.confidence >= threshold;
+        if (detection.confidence < threshold) {
+          return false;
+        }
+        // Scene profile / type allow-list (farm suppresses animals, shop focuses on people, etc.)
+        return shouldAlert(detection, camera.detectionSettings);
       });
 
-      // Process each valid detection
+      if (validDetections.length === 0 && this.config.enableMotionFallback) {
+        // Respect scene motion toggle (home/farm/shop suppress loose motion)
+        if (camera.detectionSettings.motion === false) {
+          this.prevFrames.set(camera.id, framePath);
+          return;
+        }
+
+        const prev = this.prevFrames.get(camera.id) || null;
+        const motion = await detectMotionBetweenFrames(prev, framePath);
+        this.prevFrames.set(camera.id, framePath);
+        if (
+          motion.motion &&
+          shouldAlert({ type: 'motion' }, camera.detectionSettings)
+        ) {
+          await this.handleDetection(
+            camera,
+            { type: 'unknown', confidence: motion.score },
+            framePath,
+            timestamp,
+            'motion'
+          );
+        } else if (prev && prev !== framePath) {
+          await frameCaptureService.deleteFrame(prev).catch(() => {});
+        }
+        return;
+      }
+
+      this.prevFrames.set(camera.id, framePath);
+
       for (const detection of validDetections) {
         await this.handleDetection(camera, detection, framePath, timestamp);
       }
 
-      // Clean up frame file after processing (unless needed for alert)
       if (validDetections.length === 0) {
         await frameCaptureService.deleteFrame(framePath);
       }
@@ -232,39 +283,48 @@ class DetectionManager {
     camera: Camera,
     detection: DetectionResult,
     snapshotPath: string,
-    timestamp: Date
+    timestamp: Date,
+    forceType?: 'motion'
   ): Promise<void> {
-    // Create cooldown key (camera + detection type)
-    const cooldownKey = `${camera.id}_${detection.type}`;
+    const eventType = forceType || detection.type;
+    const cooldownKey = `${camera.id}_${eventType}`;
     const now = Date.now();
     const lastAlert = this.lastAlertTime.get(cooldownKey) || 0;
 
-    // Check cooldown
-    if (now - lastAlert < this.config.cooldownMs) {
-      console.log(`[DetectionManager] Cooldown active for ${camera.name} - ${detection.type}`);
+    const redAlert = useSettingsStore.getState().detection.redAlertMode;
+    const settingsCooldown = (camera.detectionSettings.cooldownSeconds || 30) * 1000;
+    const cooldown = redAlert
+      ? Math.min(settingsCooldown, this.config.cooldownMs, 10000)
+      : Math.min(settingsCooldown, this.config.cooldownMs * 2);
+
+    if (now - lastAlert < cooldown) {
+      console.log(`[DetectionManager] Cooldown active for ${camera.name} - ${eventType}`);
       return;
     }
 
-    // Update last alert time
     this.lastAlertTime.set(cooldownKey, now);
+    markLocalAlert(camera.id, eventType === 'unknown' ? 'motion' : String(eventType));
 
-    console.log(`[DetectionManager] Detection: ${detection.type} (${Math.round(detection.confidence * 100)}%) on ${camera.name}`);
+    console.log(`[DetectionManager] Detection: ${eventType} (${Math.round(detection.confidence * 100)}%) on ${camera.name}`);
 
-    // Create detection event
     const event: DetectionEvent = {
       cameraId: camera.id,
       cameraName: camera.name,
-      type: detection.type,
+      type: (eventType === 'unknown' ? 'motion' : eventType) as DetectionEvent['type'],
       confidence: detection.confidence,
       timestamp,
       snapshotPath,
       boundingBox: detection.boundingBox,
     };
 
-    // Trigger happy moment for ASO review
+    trackEvent(AnalyticsEvents.DETECT_HIT, {
+      cameraId: camera.id,
+      type: event.type,
+      confidence: detection.confidence,
+    });
+
     reviewManager.onHappyMoment('alert-detected');
 
-    // Notify event handlers
     this.eventHandlers.forEach(handler => {
       try {
         handler(event);
@@ -273,24 +333,38 @@ class DetectionManager {
       }
     });
 
-    // Trigger alarm using integrated system (respects red alert mode and settings)
-    if (camera.detectionSettings.alarmEnabled) {
+    if (camera.detectionSettings.alarmEnabled !== false) {
       try {
-        await handleDetectionAlarm([detection], camera.id);
+        await handleDetectionAlarm(
+          forceType === 'motion'
+            ? [{ type: 'person', confidence: Math.max(0.6, detection.confidence) }]
+            : [detection],
+          camera.id
+        );
+        trackEvent(AnalyticsEvents.ALARM_PLAY, { cameraId: camera.id, type: event.type });
       } catch (error) {
         console.error('[DetectionManager] Alarm integration error:', error);
       }
     }
 
-    // Send notification if enabled
-    if (this.config.enableNotifications && camera.detectionSettings.notificationsEnabled) {
+    if (this.config.enableNotifications && camera.detectionSettings.notificationsEnabled !== false) {
       try {
+        const label =
+          event.type === 'person'
+            ? 'Person'
+            : event.type === 'vehicle'
+              ? 'Vehicle'
+              : event.type === 'face'
+                ? 'Face'
+                : event.type === 'animal'
+                  ? 'Animal'
+                  : 'Motion';
         await sendLocalNotification({
-          title: `${detection.type === 'person' ? '👤' : '🚗'} ${detection.type === 'person' ? 'Person' : 'Vehicle'} Detected`,
+          title: `${label} Detected`,
           body: `${camera.name} - ${Math.round(detection.confidence * 100)}% confidence`,
           data: {
             cameraId: camera.id,
-            detectionType: detection.type,
+            detectionType: event.type,
           },
         });
       } catch (error) {
@@ -298,7 +372,6 @@ class DetectionManager {
       }
     }
 
-    // Queue alert creation in database
     this.queueAlertCreation(event, camera.userId);
   }
 
@@ -310,6 +383,44 @@ class DetectionManager {
 
     if (!this.isProcessingQueue) {
       this.processAlertQueue(userId);
+    }
+  }
+
+  private async uploadSnapshot(
+    localPath: string,
+    userId: string,
+    cameraId: string
+  ): Promise<string | null> {
+    try {
+      const info = await FileSystem.getInfoAsync(localPath);
+      if (!info.exists) return null;
+
+      const storagePath = `${userId}/${cameraId}/${Date.now()}.jpg`;
+      const base64 = await FileSystem.readAsStringAsync(localPath, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const binary = atob(base64);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+
+      const { error } = await supabase.storage
+        .from('alert-snapshots')
+        .upload(storagePath, bytes.buffer, {
+          contentType: 'image/jpeg',
+          upsert: false,
+        });
+
+      if (error) {
+        console.warn('[DetectionManager] Snapshot upload failed:', error.message);
+        return null;
+      }
+
+      const { data } = supabase.storage.from('alert-snapshots').getPublicUrl(storagePath);
+      return data.publicUrl;
+    } catch (e) {
+      console.warn('[DetectionManager] Snapshot upload error:', e);
+      return null;
     }
   }
 
@@ -326,15 +437,19 @@ class DetectionManager {
       if (!event) continue;
 
       try {
-        // TODO: Upload snapshot to Supabase Storage
-        // const snapshotUrl = await uploadSnapshot(event.snapshotPath, userId);
+        let snapshotUrl: string | undefined;
+        if (event.snapshotPath) {
+          snapshotUrl =
+            (await this.uploadSnapshot(event.snapshotPath, userId, event.cameraId)) ||
+            undefined;
+        }
 
         const { error } = await supabase.from('alerts').insert({
           camera_id: event.cameraId,
           user_id: userId,
-          type: event.type,
+          type: event.type === 'unknown' ? 'motion' : event.type,
           confidence: event.confidence,
-          // snapshot_url: snapshotUrl,
+          snapshot_url: snapshotUrl,
           metadata: {
             boundingBox: event.boundingBox,
             processedAt: event.timestamp.toISOString(),
@@ -355,64 +470,38 @@ class DetectionManager {
 
   /**
    * Register a callback for detection events
-   * 
-   * @param handler - Callback function
-   * @returns Unsubscribe function
    */
   onDetection(handler: (event: DetectionEvent) => void): () => void {
     this.eventHandlers.add(handler);
-
     return () => {
       this.eventHandlers.delete(handler);
     };
   }
 
-  /**
-   * Update manager configuration
-   */
   updateConfig(config: Partial<DetectionManagerConfig>): void {
     this.config = { ...this.config, ...config };
-    console.log('[DetectionManager] Configuration updated');
   }
 
-  /**
-   * Get current configuration
-   */
   getConfig(): DetectionManagerConfig {
     return { ...this.config };
   }
 
-  /**
-   * Check if manager is currently monitoring
-   */
   isMonitoring(): boolean {
     return this.isRunning;
   }
 
-  /**
-   * Get count of monitored cameras
-   */
   getMonitoredCameraCount(): number {
     return this.activeCameras.size;
   }
 
-  /**
-   * Get list of monitored camera IDs
-   */
   getMonitoredCameraIds(): string[] {
     return Array.from(this.activeCameras.keys());
   }
 
-  /**
-   * Check if detection service is ready
-   */
   isDetectionReady(): boolean {
     return detectionService.isInitialized();
   }
 
-  /**
-   * Get detection performance metrics
-   */
   getMetrics(): {
     monitoredCameras: number;
     isProcessing: boolean;
@@ -425,29 +514,14 @@ class DetectionManager {
     };
   }
 
-  /**
-   * Dispose of manager resources
-   */
   async dispose(): Promise<void> {
-    console.log('[DetectionManager] Disposing...');
-
-    // Stop all monitoring
     this.stopAll();
-
-    // Clear handlers
     this.eventHandlers.clear();
-
-    // Dispose services
     frameCaptureService.dispose();
     await detectionService.dispose();
-
-    console.log('[DetectionManager] Disposed');
   }
 }
 
-// Export singleton instance
 export const detectionManager = new DetectionManager();
-
-// Export class for testing
 export { DetectionManager };
 

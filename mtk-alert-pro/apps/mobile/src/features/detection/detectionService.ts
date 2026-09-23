@@ -14,9 +14,12 @@ if (Platform.OS !== 'web') {
         console.log('[DetectionService] tfjs-react-native not available');
     }
 }
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { logError } from '@/lib/utils/errorHandler';
 import type { DetectionResult } from '@/types';
+import { COCO_DETECTION_CLASSES, mapCocoClassToDetectionType } from './cocoClasses';
+
+export { mapCocoClassToDetectionType };
 
 const DETECTION_CONFIG = {
   inputSize: 320,
@@ -26,19 +29,11 @@ const DETECTION_CONFIG = {
     person: 0.6,
     vehicle: 0.65,
     face: 0.6,
+    animal: 0.55,
   },
 } as const;
 
-const DETECTION_CLASSES: Record<number, 'person' | 'vehicle'> = {
-  0: 'person',
-  1: 'person',
-  2: 'vehicle',
-  3: 'vehicle',
-  5: 'vehicle',
-  7: 'vehicle',
-  6: 'vehicle',
-  8: 'vehicle',
-};
+const DETECTION_CLASSES = COCO_DETECTION_CLASSES;
 
 class DetectionService {
   private model: tf.GraphModel | null = null;

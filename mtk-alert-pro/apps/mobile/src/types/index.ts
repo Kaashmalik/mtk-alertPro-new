@@ -22,19 +22,32 @@ export interface Camera {
   updatedAt: Date;
 }
 
+export type SceneProfileId =
+  | 'home'
+  | 'farm'
+  | 'shop'
+  | 'parking'
+  | 'warehouse'
+  | 'construction'
+  | 'school'
+  | 'custom';
+
+export type DetectionType = 'person' | 'vehicle' | 'face' | 'animal' | 'motion' | 'unknown';
+
 export interface DetectionSettings {
-  // Detection types - only person and vehicle trigger alerts
+  /** Scene preset controlling alert rules (farm ignores animals, shop focuses on people, etc.) */
+  sceneProfile?: SceneProfileId;
   person: boolean;
   vehicle: boolean;
   face?: boolean;
-  // Sensitivity threshold (0.0 - 1.0)
-  // Higher = fewer false positives but may miss some detections
+  /** When true, animal detections can alert; farm presets set this false */
+  animal?: boolean;
+  /** When false, motion-fallback alerts are suppressed for this camera */
+  motion?: boolean;
   sensitivity: number;
   cooldownSeconds?: number;
-  // Notification settings per camera
   notificationsEnabled: boolean;
   alarmEnabled: boolean;
-  // Detection zones
   zones?: DetectionZone[];
 }
 
@@ -49,7 +62,7 @@ export interface Alert {
   id: string;
   cameraId: string;
   userId: string;
-  type: 'person' | 'vehicle' | 'face' | 'motion';
+  type: 'person' | 'vehicle' | 'face' | 'motion' | 'animal';
   confidence: number;
   thumbnailUrl?: string;
   snapshotUrl?: string;
@@ -77,6 +90,8 @@ export interface AppSettings {
   detection: {
     redAlertMode: boolean;
     cooldownSeconds: number;
+    /** Master arm — when false, detection/alarms are gated off */
+    armed: boolean;
   };
   display: {
     theme: 'light' | 'dark' | 'system';
@@ -90,7 +105,7 @@ export interface AppSettings {
 }
 
 export interface DetectionResult {
-  type: 'person' | 'vehicle' | 'face' | 'unknown';
+  type: 'person' | 'vehicle' | 'face' | 'animal' | 'unknown';
   confidence: number;
   boundingBox?: {
     x: number;

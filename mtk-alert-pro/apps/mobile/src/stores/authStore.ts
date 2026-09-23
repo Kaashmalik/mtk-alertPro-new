@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
+import { supabase, isSupabaseConfigured, supabaseUrl } from '@/lib/supabase/client';
 import { useCameraStore } from './cameraStore';
 import type { User } from '@/types';
 
@@ -22,9 +22,10 @@ interface AuthState {
 }
 
 const isPlaceholderConfig = () => {
+  const url = (supabase as unknown as { supabaseUrl?: string }).supabaseUrl ?? supabaseUrl;
   return !isSupabaseConfigured || 
-         supabase.supabaseUrl?.includes('your-project') ||
-         supabase.supabaseUrl?.includes('example.com');
+         url?.includes('your-project') ||
+         url?.includes('example.com');
 };
 
 const withTimeout = <T>(promise: Promise<T>, ms: number = 8000, message: string = 'Request timed out'): Promise<T> => {

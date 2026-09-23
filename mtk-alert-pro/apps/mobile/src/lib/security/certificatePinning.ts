@@ -40,14 +40,27 @@ const PINNED_CERTIFICATES: PinnedCertificate[] = [
   {
     domain: 'supabase.co',
     sha256Hashes: [
-      // TODO: Replace with actual SHA256 hashes from your certificates
-      // Get these with: openssl s_client -showcerts -connect your-project.supabase.co:443 </dev/null 2>/dev/null | openssl x509 -pubkey -noout -fingerprint -sha256 -
-      'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=', // Primary cert hash
-      'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=', // Backup cert hash
-    ],
-    isProduction: true,
+      // Override via EXPO_PUBLIC_SUPABASE_CERT_PIN / EXPO_PUBLIC_SUPABASE_CERT_PIN_BACKUP
+      process.env.EXPO_PUBLIC_SUPABASE_CERT_PIN ||
+        'AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=',
+      process.env.EXPO_PUBLIC_SUPABASE_CERT_PIN_BACKUP ||
+        'BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB=',
+    ].filter(Boolean) as string[],
+    isProduction: process.env.EXPO_PUBLIC_APP_ENV === 'production',
   },
 ];
+
+/**
+ * Returns whether pinning should be enforced (production + real pins configured)
+ */
+export function isPinningEnforced(): boolean {
+  const pin = process.env.EXPO_PUBLIC_SUPABASE_CERT_PIN;
+  return (
+    process.env.EXPO_PUBLIC_APP_ENV === 'production' &&
+    !!pin &&
+    !pin.startsWith('AAA')
+  );
+}
 
 // ============================================================================
 // Certificate Pinning Service

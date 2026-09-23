@@ -1,44 +1,49 @@
 import { View, Text, StyleSheet, Linking, TouchableOpacity } from 'react-native';
-import { AlertCircle, ExternalLink } from 'lucide-react-native';
+import { AlertCircle, ExternalLink, Server } from 'lucide-react-native';
 import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
+import { getMediaServerEnvHint } from '@/lib/streaming/mediaServerHealth';
 
+/**
+ * Honest media-edge setup card (no fake stream claims)
+ */
 export function CameraStreamInfo() {
   const openGuide = () => {
-    Linking.openURL('https://github.com/your-repo/docs/camera-streaming');
+    Linking.openURL(
+      'https://github.com/Kaashmalik/mtk-alert-pro/blob/main/server/README.md'
+    );
   };
 
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <AlertCircle size={20} color={colors.status.warning} />
-        <Text style={styles.title}>RTSP Streaming Setup Required</Text>
+        <Server size={20} color={colors.status.warning} />
+        <Text style={styles.title}>Media Edge Required for RTSP</Text>
       </View>
-      
+
       <Text style={styles.description}>
-        To view live camera streams, you need to set up an RTSP-to-HLS conversion service. This is required because:
+        Live RTSP, AI snapshots, and cloud clips need the MediaMTX + API edge.
+        HTTP/MJPEG cameras can preview without it.
       </Text>
 
-      <View style={styles.bulletList}>
-        <Text style={styles.bullet}>• Mobile browsers don't support RTSP directly</Text>
-        <Text style={styles.bullet}>• HLS provides better mobile compatibility</Text>
-        <Text style={styles.bullet}>• Reduces bandwidth usage with adaptive streaming</Text>
-      </View>
+      <Text style={styles.envHint}>{getMediaServerEnvHint()}</Text>
 
-      <View style={styles.setupCard}>
-        <Text style={styles.setupTitle}>Quick Setup Options:</Text>
-        <Text style={styles.setupItem}>1. Use FFmpeg on your server</Text>
-        <Text style={styles.setupItem}>2. Deploy a cloud streaming service</Text>
-        <Text style={styles.setupItem}>3. Use Frigate/Scrypted for NVR</Text>
+      <View style={styles.bulletList}>
+        <Text style={styles.bullet}>• Start: server MediaMTX + `pnpm --filter @mtk/api dev`</Text>
+        <Text style={styles.bullet}>• Set EXPO_PUBLIC_MEDIA_SERVER_URL to your LAN IP:3001</Text>
+        <Text style={styles.bullet}>• Prefer WebRTC when available; app plays HLS via expo-av</Text>
       </View>
 
       <TouchableOpacity style={styles.guideButton} onPress={openGuide}>
-        <Text style={styles.guideText}>View Setup Guide</Text>
+        <Text style={styles.guideText}>Open server setup guide</Text>
         <ExternalLink size={16} color={colors.brand.accent} />
       </TouchableOpacity>
 
-      <Text style={styles.note}>
-        💡 For now, alerts and recordings will work without live streaming. You'll receive notifications when motion is detected.
-      </Text>
+      <View style={styles.noteRow}>
+        <AlertCircle size={14} color={colors.text.muted} />
+        <Text style={styles.note}>
+          The app never shows a sample video. You will see a clear offline or server-unavailable state instead.
+        </Text>
+      </View>
     </View>
   );
 }
@@ -67,7 +72,13 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.text.secondary,
     lineHeight: 20,
+    marginBottom: spacing.sm,
+  },
+  envHint: {
+    fontSize: fontSize.xs,
+    color: colors.text.muted,
     marginBottom: spacing.md,
+    fontFamily: 'monospace',
   },
   bulletList: {
     marginBottom: spacing.md,
@@ -76,23 +87,6 @@ const styles = StyleSheet.create({
     fontSize: fontSize.sm,
     color: colors.text.secondary,
     marginBottom: spacing.xs,
-  },
-  setupCard: {
-    backgroundColor: colors.bg.tertiary,
-    borderRadius: borderRadius.md,
-    padding: spacing.md,
-    marginBottom: spacing.md,
-  },
-  setupTitle: {
-    fontSize: fontSize.sm,
-    fontWeight: '600',
-    color: colors.text.primary,
-    marginBottom: spacing.sm,
-  },
-  setupItem: {
-    fontSize: fontSize.sm,
-    color: colors.text.secondary,
-    marginBottom: 4,
   },
   guideButton: {
     flexDirection: 'row',
@@ -107,10 +101,15 @@ const styles = StyleSheet.create({
     color: colors.brand.accent,
     marginRight: spacing.xs,
   },
+  noteRow: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
   note: {
+    flex: 1,
     fontSize: fontSize.xs,
     color: colors.text.muted,
-    fontStyle: 'italic',
-    textAlign: 'center',
+    lineHeight: 16,
   },
 });

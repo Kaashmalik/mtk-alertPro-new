@@ -25,13 +25,14 @@ import {
   CheckCircle2,
   XCircle,
   Plug,
+  QrCode,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button, Input } from '@/components/ui';
-import { useCameraStore } from '@/stores';
+import { useCameraStore, useIsPremium } from '@/stores';
 import { designSystem } from '@/theme/design-system';
 import {
   CAMERA_BRANDS,
@@ -48,6 +49,10 @@ import {
   testCameraConnection,
   type ConnectionTestResult,
 } from '@/lib/camera/connectionService';
+import { QrCameraScanner, type QrScanResult } from '@/components/camera/QrCameraScanner';
+import { SceneProfilePicker } from '@/components/camera/SceneProfilePicker';
+import { applySceneProfile } from '@/features/detection/sceneProfiles';
+import type { SceneProfileId } from '@/types';
 
 const cameraSchema = z.object({
   name: z.string().min(1, 'Camera name is required'),
@@ -106,6 +111,7 @@ function phaseLabel(phase: DiscoveryProgress['phase']): string {
 
 export default function AddCameraScreen() {
   const addCamera = useCameraStore((state) => state.addCamera);
+  const isPremium = useIsPremium();
   const [isLoading, setIsLoading] = useState(false);
   const [selectedBrand, setSelectedBrand] = useState<string>('hikvision');
   const [ipAddress, setIpAddress] = useState('');
@@ -115,6 +121,8 @@ export default function AddCameraScreen() {
   const [discovery, setDiscovery] = useState<DiscoveryState>(INITIAL_DISCOVERY);
   const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
   const [isTesting, setIsTesting] = useState(false);
+  const [showQrScanner, setShowQrScanner] = useState(false);
+  const [sceneProfile, setSceneProfile] = useState<SceneProfileId>('home');
   const discoveryAbortRef = useRef<AbortController | null>(null);
 
   const {
@@ -291,20 +299,14 @@ export default function AddCameraScreen() {
   };
 
   const saveCamera = async (data: CameraForm) => {
+    const detectionSettings = applySceneProfile(sceneProfile);
     await addCamera({
       name: data.name,
       rtspUrl: data.rtspUrl,
       username: data.username,
       password: data.password,
       isActive: true,
-      detectionSettings: {
-        person: true,
-        vehicle: true,
-        face: false,
-        sensitivity: 0.7,
-        notificationsEnabled: true,
-        alarmEnabled: true,
-      },
+      detectionSettings,
     });
     Alert.alert('Success', 'Camera added successfully!', [
       { text: 'OK', onPress: () => router.back() },
@@ -320,6 +322,32 @@ export default function AddCameraScreen() {
         )
       : 0;
 
+  const applyQrResult = useCallback(
+    (result: QrScanResult) => {
+      if (result.rtspUrl) {
+        setValue('rtspUrl', result.rtspUrl);
+        const parsed = parseRtspUrl(result.rtspUrl);
+        if (parsed?.ip) setIpAddress(parsed.ip);
+        if (parsed?.username) setValue('username', parsed.username);
+        if (parsed?.password) setValue('password', parsed.password);
+      } else if (result.ip) {
+        setIpAddress(result.ip);
+      }
+      if (result.brand) {
+        const brand = CAMERA_BRANDS.find(
+          (b) => b.id === result.brand?.toLowerCase() || b.name.toLowerCase() === result.brand?.toLowerCase()
+        );
+        if (brand) setSelectedBrand(brand.id);
+      }
+      if (result.model || result.serialNumber) {
+        setValue('name', result.model || result.serialNumber || 'Scanned Camera');
+      } else if (!watch('name')) {
+        setValue('name', 'Scanned Camera');
+      }
+    },
+    [setValue, watch]
+  );
+
   return (
     <>
       <Stack.Screen
@@ -333,7 +361,18 @@ export default function AddCameraScreen() {
               <ArrowLeft size={24} color={designSystem.colors.text.primary} />
             </TouchableOpacity>
           ),
+          headerRight: () => (
+            <TouchableOpacity onPress={() => setShowQrScanner(true)} style={{ marginRight: 8 }}>
+              <QrCode size={22} color={designSystem.colors.text.primary} />
+            </TouchableOpacity>
+          ),
         }}
+      />
+
+      <QrCameraScanner
+        visible={showQrScanner}
+        onClose={() => setShowQrScanner(false)}
+        onScan={applyQrResult}
       />
 
       <SafeAreaView style={styles.container} edges={['bottom']}>
@@ -349,31 +388,42 @@ export default function AddCameraScreen() {
               <View style={styles.discoveryHeaderText}>
                 <Text style={styles.discoveryTitle}>Find Cameras</Text>
                 <Text style={styles.discoveryDesc}>
-                  Scan your Wi-Fi network for ONVIF cameras
+                  Scan your Wi-Fi network for ONVIF cameras, or use the QR icon
                 </Text>
               </View>
             </View>
 
-            {discovery.status !== 'scanning' ? (
-              <Button
-                variant="secondary"
-                size="sm"
-                onPress={startDiscovery}
-                style={styles.discoveryButton}
-              >
-                <Search size={16} color={designSystem.colors.text.primary} />
-                <Text style={styles.discoveryButtonText}> Scan Network</Text>
-              </Button>
-            ) : (
+            <View style={{ flexDirection: 'row', gap: 8, marginBottom: 8 }}>
+              {discovery.status !== 'scanning' ? (
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  onPress={startDiscovery}
+                  style={[styles.discoveryButton, { flex: 1 }]}
+                >
+                  <Search size={16} color={designSystem.colors.text.primary} />
+                  <Text style={styles.discoveryButtonText}> Scan Network</Text>
+                </Button>
+              ) : (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onPress={cancelDiscovery}
+                  style={[styles.discoveryButton, { flex: 1 }]}
+                >
+                  Cancel Scan
+                </Button>
+              )}
               <Button
                 variant="outline"
                 size="sm"
-                onPress={cancelDiscovery}
+                onPress={() => setShowQrScanner(true)}
                 style={styles.discoveryButton}
               >
-                Cancel Scan
+                <QrCode size={16} color={designSystem.colors.text.primary} />
+                <Text style={styles.discoveryButtonText}> QR</Text>
               </Button>
-            )}
+            </View>
 
             {isScanning && discovery.progress && (
               <View style={styles.progressSection}>
@@ -454,6 +504,25 @@ export default function AddCameraScreen() {
                 Enter your camera's IP address and we'll generate the RTSP URL
               </Text>
             </View>
+          </Animated.View>
+
+          {/* Where is this camera? */}
+          <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.urlBuilder}>
+            <SceneProfilePicker
+              selected={sceneProfile}
+              canUseAdvanced={isPremium}
+              onSelect={setSceneProfile}
+              onLocked={() => {
+                Alert.alert(
+                  'Pro Scene Modes',
+                  'Parking, Warehouse, Construction, and School profiles require Pro.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Upgrade', onPress: () => router.push('/subscription') },
+                  ]
+                );
+              }}
+            />
           </Animated.View>
 
           {/* Smart URL Builder */}

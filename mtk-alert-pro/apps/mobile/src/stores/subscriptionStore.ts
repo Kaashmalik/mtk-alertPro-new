@@ -35,6 +35,7 @@ export interface PlanLimits {
   hasAIDetection: boolean;
   hasFaceRecognition: boolean;
   hasCustomZones: boolean;
+  hasAdvancedSceneProfiles: boolean;
   hasPrioritySupport: boolean;
   hasAPIAccess: boolean;
   streamQuality: 'sd' | 'hd' | '4k';
@@ -88,6 +89,7 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     features: [
       '2 Cameras Maximum',
       'Person & Vehicle Detection',
+      'Home, Farm & Shop scene modes',
       '7-Day Alert History',
       'Email Notifications',
       'Standard Quality Streams',
@@ -100,6 +102,7 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       hasAIDetection: true,
       hasFaceRecognition: false,
       hasCustomZones: false,
+      hasAdvancedSceneProfiles: false,
       hasPrioritySupport: false,
       hasAPIAccess: false,
       streamQuality: 'sd',
@@ -116,6 +119,7 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       'Unlimited Cameras',
       'AI Face Recognition',
       'Person & Vehicle Detection',
+      'All scene modes (Parking, Warehouse, School…)',
       '30-Day Alert History',
       'Push + Email Notifications',
       'HD/4K Stream Quality',
@@ -131,6 +135,7 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       hasAIDetection: true,
       hasFaceRecognition: true,
       hasCustomZones: true,
+      hasAdvancedSceneProfiles: true,
       hasPrioritySupport: true,
       hasAPIAccess: false,
       streamQuality: 'hd',
@@ -147,6 +152,7 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       'Advanced AI Analytics',
       'Face Recognition Database',
       'People Counting',
+      'All scene detection profiles',
       'Unlimited Alert History',
       'Multi-User Management',
       'Unlimited Cloud Storage',
@@ -162,6 +168,7 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       hasAIDetection: true,
       hasFaceRecognition: true,
       hasCustomZones: true,
+      hasAdvancedSceneProfiles: true,
       hasPrioritySupport: true,
       hasAPIAccess: true,
       streamQuality: '4k',

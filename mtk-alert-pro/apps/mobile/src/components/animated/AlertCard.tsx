@@ -5,13 +5,12 @@ import Animated, {
     useSharedValue,
     withSpring,
     withTiming,
-    useAnimatedGestureHandler,
     runOnJS,
     SlideInRight,
     SlideOutRight,
     Layout
 } from 'react-native-reanimated';
-import { PanGestureHandler } from 'react-native-gesture-handler';
+import { Gesture, GestureDetector } from 'react-native-gesture-handler';
 import { Clock, AlertTriangle, ChevronRight } from 'lucide-react-native';
 import { designSystem } from '@/theme/design-system';
 
@@ -42,7 +41,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
     onDismiss,
 }) => {
     const translateX = useSharedValue(0);
-    const itemHeight = useSharedValue(80); // Estimate
+    const startX = useSharedValue(0);
 
     const iconMap = {
         person: '👤',
@@ -51,28 +50,27 @@ export const AlertCard: React.FC<AlertCardProps> = ({
         face: '🔍',
     };
 
-    const gestureHandler = useAnimatedGestureHandler({
-        onStart: (_, ctx: any) => {
-            ctx.startX = translateX.value;
-        },
-        onActive: (event, ctx) => {
-            // Only allow swiping left
+    const gesture = Gesture.Pan()
+        .activeOffsetX([-10, 10])
+        .onStart(() => {
+            startX.value = translateX.value;
+        })
+        .onUpdate((event) => {
             if (event.translationX < 0) {
-                translateX.value = ctx.startX + event.translationX;
+                translateX.value = startX.value + event.translationX;
             }
-        },
-        onEnd: (event) => {
+        })
+        .onEnd((event) => {
             if (event.translationX < -SWIPE_THRESHOLD) {
-                translateX.value = withTiming(-SCREEN_WIDTH, {}, () => {
-                    if (onDismiss) {
+                translateX.value = withTiming(-SCREEN_WIDTH, {}, (finished) => {
+                    if (finished && onDismiss) {
                         runOnJS(onDismiss)(id);
                     }
                 });
             } else {
                 translateX.value = withSpring(0);
             }
-        },
-    });
+        });
 
     const animatedStyle = useAnimatedStyle(() => ({
         transform: [{ translateX: translateX.value }],
@@ -95,7 +93,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
                 </View>
             </View>
 
-            <PanGestureHandler onGestureEvent={gestureHandler} activeOffsetX={[-10, 10]}>
+            <GestureDetector gesture={gesture}>
                 <Animated.View style={[styles.container, isRead && styles.containerRead, animatedStyle]}>
                     <TouchableOpacity
                         activeOpacity={0.7}
@@ -136,7 +134,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
                         <ChevronRight size={20} color={designSystem.colors.text.muted} />
                     </TouchableOpacity>
                 </Animated.View>
-            </PanGestureHandler>
+            </GestureDetector>
         </Animated.View>
     );
 };

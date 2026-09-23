@@ -26,7 +26,7 @@ import {
   AlertCircle,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useCameraStore, useSubscriptionStore, useIsPremium } from '@/stores';
+import { useCameraStore, useSubscriptionStore, useIsPremium, useAlertStore } from '@/stores';
 import { designSystem } from '@/theme/design-system';
 import { CameraCard } from '@/components/animated';
 import { AdBanner } from '@/components/ads/BannerAd';
@@ -54,6 +54,7 @@ export default function CamerasScreen() {
   } = useCameraStore();
   const { canAddCamera, getRemainingCameras } = useSubscriptionStore();
   const isPremium = useIsPremium();
+  const alerts = useAlertStore((s) => s.alerts);
   const [showRecordingsModal, setShowRecordingsModal] = useState(false);
 
   useEffect(() => {
@@ -85,6 +86,9 @@ export default function CamerasScreen() {
   const renderCamera = ({ item, index }: { item: CameraType; index: number }) => {
     // Live heartbeat status first; fall back to last-known isActive flag
     const status = cameraHealth[item.id]?.status ?? (item.isActive ? 'online' : 'offline');
+    const hasAlert = alerts.some(
+      (a) => a.cameraId === item.id && !a.isRead
+    );
     return (
       <Animated.View entering={FadeInDown.delay(index * 100).duration(500)}>
         <CameraCard
@@ -93,7 +97,7 @@ export default function CamerasScreen() {
           thumbnailUrl={item.thumbnailUrl}
           status={status}
           isOnline={item.isActive}
-          hasAlert={false} // Todo: Integrate with alert store for realtime status
+          hasAlert={hasAlert}
           onPress={(id) => router.push(`/cameras/${id}`)}
         />
       </Animated.View>

@@ -5,7 +5,7 @@
  * @module lib/recording/recordingService
  */
 
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import { supabase } from '@/lib/supabase/client';
 import { logError } from '@/lib/utils/errorHandler';
 
@@ -249,36 +249,43 @@ class RecordingService {
     );
 
     try {
-      // Download recording from server
-      const downloadUrl = `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/download`;
-      const localPath = `${RECORDINGS_DIR}${recording.id}.mp4`;
-
-      const downloadResult = await FileSystem.downloadAsync(
-        downloadUrl,
-        localPath
+      // Resolve download metadata (JSON), then fetch the actual media file
+      const metaRes = await fetch(
+        `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/download`
       );
-
-      if (downloadResult.status === 200) {
-        recording.localPath = downloadResult.uri;
-        
-        // Get file size
-        const fileInfo = await FileSystem.getInfoAsync(localPath);
-        if (fileInfo.exists && fileInfo.size) {
-          recording.fileSize = fileInfo.size;
-        }
-
-        recording.status = 'completed';
-        console.log(`[RecordingService] Recording completed: ${recording.id}`);
-
-        // Auto upload if enabled
-        if (autoUpload) {
-          this.uploadRecording(recording).catch(error => {
-            console.error('[RecordingService] Auto upload failed:', error);
-          });
-        }
-      } else {
+      if (!metaRes.ok) {
         recording.status = 'failed';
-        recording.error = 'Failed to download recording';
+        recording.error = 'No recording available on media server';
+      } else {
+        const meta = await metaRes.json();
+        const fileUrl = meta.absoluteUrl
+          || (meta.downloadUrl?.startsWith('http')
+            ? meta.downloadUrl
+            : `${MEDIA_SERVER_URL}${meta.downloadUrl}`);
+        const localPath = `${RECORDINGS_DIR}${recording.id}.mp4`;
+
+        const downloadResult = await FileSystem.downloadAsync(fileUrl, localPath);
+
+        if (downloadResult.status === 200) {
+          recording.localPath = downloadResult.uri;
+
+          const fileInfo = await FileSystem.getInfoAsync(localPath);
+          if (fileInfo.exists && fileInfo.size) {
+            recording.fileSize = fileInfo.size;
+          }
+
+          recording.status = 'completed';
+          console.log(`[RecordingService] Recording completed: ${recording.id}`);
+
+          if (autoUpload) {
+            this.uploadRecording(recording).catch((error) => {
+              console.error('[RecordingService] Auto upload failed:', error);
+            });
+          }
+        } else {
+          recording.status = 'failed';
+          recording.error = 'Failed to download recording file';
+        }
       }
     } catch (error) {
       console.error('[RecordingService] Complete recording failed:', error);

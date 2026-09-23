@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase/client';
 import { alarmService } from '@/lib/audio/alarmService';
 import { useSettingsStore } from './settingsStore';
 import { useCameraStore } from './cameraStore';
+import { wasLocalAlertRecent } from '@/features/detection/alertDedup';
 import type { Alert } from '@/types';
 
 interface AlertState {
@@ -22,6 +23,8 @@ interface AlertState {
     isRead?: boolean;
     snapshotUrl?: string;
     videoClipUrl?: string;
+    /** When true, only update local UI (manager already wrote DB) */
+    skipPersist?: boolean;
   }) => Promise<void>;
   markAsRead: (id: string) => Promise<void>;
   markAllAsRead: () => Promise<void>;
@@ -94,6 +97,9 @@ export const useAlertStore = create<AlertState>((set, get) => ({
     }));
 
     try {
+      if (newAlertData.skipPersist) {
+        return;
+      }
       const { data: { user } } = await supabase.auth.getUser();
       if (user) {
         newAlert.userId = user.id;
@@ -180,32 +186,45 @@ export const useAlertStore = create<AlertState>((set, get) => ({
             createdAt: new Date(payload.new.created_at),
           };
 
-          // Update state
-          set({
-            alerts: [newAlert, ...get().alerts],
-            unreadCount: get().unreadCount + 1,
-          });
+          const localRecent = wasLocalAlertRecent(newAlert.cameraId, newAlert.type);
+
+          if (!localRecent) {
+            set({
+              alerts: [newAlert, ...get().alerts.filter((a) => a.id !== newAlert.id)],
+              unreadCount: get().unreadCount + 1,
+            });
+          } else {
+            // Replace optimistic local row with server id when possible
+            set({
+              alerts: get().alerts.map((a) =>
+                a.cameraId === newAlert.cameraId &&
+                a.type === newAlert.type &&
+                Math.abs(a.createdAt.getTime() - newAlert.createdAt.getTime()) < 15000
+                  ? { ...newAlert }
+                  : a
+              ),
+            });
+            return;
+          }
+
+          // Skip if system disarmed
+          if (useSettingsStore.getState().detection.armed === false) {
+            return;
+          }
 
           // Get settings and camera info
           const settings = useSettingsStore.getState().notifications;
           const cameras = useCameraStore.getState().cameras;
           const camera = cameras.find(c => c.id === newAlert.cameraId);
 
-          // Check if this alert type should trigger alarm (person or vehicle only)
           const isValidAlertType = newAlert.type === 'person' || newAlert.type === 'vehicle';
-          
-          // Check camera-level settings
           const cameraAllowsAlarm = camera?.detectionSettings?.alarmEnabled ?? true;
           const cameraAllowsNotification = camera?.detectionSettings?.notificationsEnabled ?? true;
-
-          // Check detection type matches camera settings
-          const detectionTypeEnabled = 
+          const detectionTypeEnabled =
             (newAlert.type === 'person' && camera?.detectionSettings?.person) ||
             (newAlert.type === 'vehicle' && camera?.detectionSettings?.vehicle);
 
-          // Only trigger for valid detection types that are enabled
           if (isValidAlertType && detectionTypeEnabled) {
-            // Play sound if enabled
             if (settings.sound && cameraAllowsAlarm) {
               try {
                 await alarmService.playAlarm(settings.alarmSound, {
@@ -218,7 +237,6 @@ export const useAlertStore = create<AlertState>((set, get) => ({
               }
             }
 
-            // Vibrate if enabled
             if (settings.vibration && cameraAllowsNotification) {
               Vibration.vibrate([0, 500, 200, 500, 200, 500]);
             }

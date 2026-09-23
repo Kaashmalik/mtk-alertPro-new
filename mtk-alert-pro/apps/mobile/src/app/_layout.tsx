@@ -1,5 +1,11 @@
 import { useEffect, useState, Component, type ReactNode, type ErrorInfo } from 'react';
-import { AppState, AppStateStatus, Alert, Clipboard } from 'react-native';
+import { AppState, AppStateStatus, Alert, Clipboard, LogBox } from 'react-native';
+
+// Ignore specific warnings that are expected in Expo Go
+LogBox.ignoreLogs([
+  'expo-notifications: Android Push notifications',
+  '[expo-notifications]',
+]);
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { View, ActivityIndicator, Text, StyleSheet, TouchableOpacity } from 'react-native';
@@ -160,9 +166,27 @@ const queryClient = new QueryClient({
 });
 
 import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
+import { useAutomationStore } from '@/stores/automationStore';
+import { refreshMediaEdgeHealth } from '@/lib/streaming/mediaServerHealth';
 
 function DetectionWatcher() {
   useDetectionCoordinator();
+  return null;
+}
+
+function AutomationWatcher() {
+  const fetchAutomations = useAutomationStore((s) => s.fetchAutomations);
+  const checkAutomations = useAutomationStore((s) => s.checkAutomations);
+
+  useEffect(() => {
+    void fetchAutomations();
+    const id = setInterval(() => {
+      void checkAutomations();
+    }, 60_000);
+    void checkAutomations();
+    return () => clearInterval(id);
+  }, [fetchAutomations, checkAutomations]);
+
   return null;
 }
 
@@ -188,6 +212,9 @@ export default function RootLayout() {
         const initPromise = (async () => {
           // Initialize auth and wait for completion
           await initialize();
+
+          // Probe media edge in background
+          void refreshMediaEdgeHealth();
 
           // Initialize AdMob and Consent Manager in background (non-blocking)
           // Fire and forget - don't block app startup
@@ -271,6 +298,7 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <StatusBar style="light" />
           <DetectionWatcher />
+          <AutomationWatcher />
           <Stack
             screenOptions={{
               headerShown: false,

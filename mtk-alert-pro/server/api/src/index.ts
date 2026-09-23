@@ -12,6 +12,9 @@ import rateLimit from 'express-rate-limit';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import axios, { AxiosInstance } from 'axios';
 import { v4 as uuidv4 } from 'uuid';
+import { spawn } from 'child_process';
+import fs from 'fs';
+import path from 'path';
 import 'dotenv/config';
 
 // ============================================================================
@@ -21,7 +24,18 @@ import 'dotenv/config';
 const PORT = parseInt(process.env.PORT || '3001', 10);
 const MEDIAMTX_API_URL = process.env.MEDIAMTX_API_URL || 'http://localhost:9997';
 const MEDIAMTX_HLS_URL = process.env.MEDIAMTX_HLS_URL || 'http://localhost:8888';
+const MEDIAMTX_RTSP_URL = process.env.MEDIAMTX_RTSP_URL || 'rtsp://localhost:8554';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
+const SNAPSHOTS_DIR = process.env.SNAPSHOTS_DIR || path.join(process.cwd(), 'snapshots');
+const RECORDINGS_DIR = process.env.RECORDINGS_DIR || path.join(process.cwd(), 'recordings');
+const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
+
+// Ensure media directories exist
+for (const dir of [SNAPSHOTS_DIR, RECORDINGS_DIR]) {
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
+}
 
 // Validate required environment variables
 const requiredEnvVars = ['SUPABASE_URL', 'SUPABASE_SERVICE_KEY'];
@@ -145,10 +159,94 @@ async function validateCameraOwnership(
   return !error && !!data;
 }
 
+/**
+ * Capture one JPEG frame from an RTSP/HLS source via FFmpeg
+ */
+function captureFrameWithFfmpeg(
+  sourceUrl: string,
+  outputPath: string,
+  timeoutMs = 15000
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const args = [
+      '-y',
+      '-rtsp_transport', 'tcp',
+      '-i', sourceUrl,
+      '-frames:v', '1',
+      '-q:v', '2',
+      outputPath,
+    ];
+
+    const proc = spawn(FFMPEG_PATH, args, { windowsHide: true });
+    let stderr = '';
+    const timer = setTimeout(() => {
+      proc.kill('SIGKILL');
+      reject(new Error('FFmpeg snapshot timed out'));
+    }, timeoutMs);
+
+    proc.stderr.on('data', (chunk) => {
+      stderr += chunk.toString();
+    });
+
+    proc.on('error', (err) => {
+      clearTimeout(timer);
+      reject(err);
+    });
+
+    proc.on('close', (code) => {
+      clearTimeout(timer);
+      if (code === 0 && fs.existsSync(outputPath)) {
+        resolve();
+      } else {
+        reject(new Error(`FFmpeg exited ${code}: ${stderr.slice(-500)}`));
+      }
+    });
+  });
+}
+
+/**
+ * Find newest recording file for a camera path
+ */
+function findLatestRecording(pathName: string): string | null {
+  const cameraDir = path.join(RECORDINGS_DIR, pathName);
+  if (!fs.existsSync(cameraDir)) {
+    // Also search flat recordings dir for matching prefix
+    if (!fs.existsSync(RECORDINGS_DIR)) return null;
+    const files = fs.readdirSync(RECORDINGS_DIR)
+      .filter((f) => f.startsWith(pathName) && (f.endsWith('.mp4') || f.endsWith('.mkv')))
+      .map((f) => ({
+        name: f,
+        mtime: fs.statSync(path.join(RECORDINGS_DIR, f)).mtimeMs,
+      }))
+      .sort((a, b) => b.mtime - a.mtime);
+    return files[0] ? path.join(RECORDINGS_DIR, files[0].name) : null;
+  }
+
+  const walk = (dir: string): string[] => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    const out: string[] = [];
+    for (const e of entries) {
+      const full = path.join(dir, e.name);
+      if (e.isDirectory()) out.push(...walk(full));
+      else if (e.name.endsWith('.mp4') || e.name.endsWith('.mkv')) out.push(full);
+    }
+    return out;
+  };
+
+  const files = walk(cameraDir)
+    .map((f) => ({ f, mtime: fs.statSync(f).mtimeMs }))
+    .sort((a, b) => b.mtime - a.mtime);
+
+  return files[0]?.f ?? null;
+}
+
 // ============================================================================
 // Routes
 // ============================================================================
 
+// Static media
+app.use('/snapshots', express.static(SNAPSHOTS_DIR));
+app.use('/recordings', express.static(RECORDINGS_DIR));
 /**
  * Health check endpoint
  */
@@ -385,27 +483,32 @@ app.post('/api/cameras/:cameraId/snapshot', async (req: Request, res: Response) 
       });
     }
 
-    // Generate snapshot filename
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
     const filename = `${cameraId}_${timestamp}.jpg`;
+    const outputPath = path.join(SNAPSHOTS_DIR, filename);
 
-    // TODO: Implement actual snapshot capture using FFmpeg
-    // For now, return a placeholder
-    // In production, you would:
-    // 1. Use FFmpeg to capture a frame from the HLS stream
-    // 2. Save to /snapshots directory
-    // 3. Upload to Supabase Storage
-    // 4. Return the URL
+    // Prefer local MediaMTX RTSP re-publish (stable for FFmpeg)
+    const rtspSource = `${MEDIAMTX_RTSP_URL}/${pathName}`;
+    const hlsSource = `${MEDIAMTX_HLS_URL}/${pathName}/index.m3u8`;
+
+    try {
+      await captureFrameWithFfmpeg(rtspSource, outputPath);
+    } catch (rtspErr) {
+      console.warn('[Snapshot] RTSP grab failed, trying HLS:', rtspErr);
+      await captureFrameWithFfmpeg(hlsSource, outputPath);
+    }
 
     return res.json({
       success: true,
       snapshotUrl: `/snapshots/${filename}`,
+      absoluteUrl: `http://localhost:${PORT}/snapshots/${filename}`,
       timestamp: new Date().toISOString(),
     });
   } catch (error) {
     console.error('Snapshot error:', error);
     return res.status(500).json({
       error: 'Failed to capture snapshot',
+      detail: error instanceof Error ? error.message : 'unknown',
     });
   }
 });
@@ -426,9 +529,15 @@ app.post('/api/cameras/:cameraId/record/start', async (req: Request, res: Respon
     // Enable recording for this path
     await mediamtx.patch(`/v3/config/paths/patch/${pathName}`, {
       record: true,
-      recordPath: `/recordings/${pathName}/%Y-%m-%d_%H-%M-%S`,
+      recordPath: `${RECORDINGS_DIR}/${pathName}/%Y-%m-%d_%H-%M-%S`,
       recordFormat: 'mp4',
     });
+
+    // Ensure camera recording subdirectory exists
+    const cameraRecDir = path.join(RECORDINGS_DIR, pathName);
+    if (!fs.existsSync(cameraRecDir)) {
+      fs.mkdirSync(cameraRecDir, { recursive: true });
+    }
 
     // Schedule recording stop
     const stopRecordingTimeout = setTimeout(async () => {
@@ -470,15 +579,60 @@ app.post('/api/cameras/:cameraId/record/stop', async (req: Request, res: Respons
       record: false,
     });
 
+    // Brief wait for MediaMTX to finalize the file
+    await new Promise((r) => setTimeout(r, 1500));
+    const latest = findLatestRecording(pathName);
+
     return res.json({
       success: true,
       stoppedAt: new Date().toISOString(),
+      recordingPath: latest
+        ? `/recordings/${path.relative(RECORDINGS_DIR, latest).replace(/\\/g, '/')}`
+        : null,
     });
   } catch (error) {
     console.error('Recording stop error:', error);
     return res.status(500).json({
       error: 'Failed to stop recording',
     });
+  }
+});
+
+/**
+ * Download latest (or named) recording
+ * GET /api/cameras/:cameraId/record/download
+ */
+app.get('/api/cameras/:cameraId/record/download', async (req: Request, res: Response) => {
+  try {
+    const { cameraId } = req.params;
+    const filename = typeof req.query.file === 'string' ? req.query.file : undefined;
+    const pathName = getCameraPathName(cameraId);
+
+    let filePath: string | null = null;
+    if (filename) {
+      const candidate = path.join(RECORDINGS_DIR, pathName, filename);
+      const flat = path.join(RECORDINGS_DIR, filename);
+      if (fs.existsSync(candidate)) filePath = candidate;
+      else if (fs.existsSync(flat)) filePath = flat;
+    } else {
+      filePath = findLatestRecording(pathName);
+    }
+
+    if (!filePath || !fs.existsSync(filePath)) {
+      return res.status(404).json({ error: 'No recording found' });
+    }
+
+    const relative = path.relative(RECORDINGS_DIR, filePath).replace(/\\/g, '/');
+    return res.json({
+      success: true,
+      downloadUrl: `/recordings/${relative}`,
+      absoluteUrl: `http://localhost:${PORT}/recordings/${relative}`,
+      filename: path.basename(filePath),
+      sizeBytes: fs.statSync(filePath).size,
+    });
+  } catch (error) {
+    console.error('Recording download error:', error);
+    return res.status(500).json({ error: 'Failed to resolve recording' });
   }
 });
 

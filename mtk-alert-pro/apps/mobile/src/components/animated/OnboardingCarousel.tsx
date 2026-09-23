@@ -5,7 +5,8 @@ import Animated, {
     useSharedValue,
     useAnimatedStyle,
     interpolate,
-    Extrapolation
+    Extrapolation,
+    SharedValue
 } from 'react-native-reanimated';
 import { designSystem } from '@/theme/design-system';
 import { Button } from '@/components/ui'; // Assuming this exists or will be refactored
@@ -24,7 +25,7 @@ interface OnboardingCarouselProps {
     onComplete: () => void;
 }
 
-const SlideItem = ({ item, index, x }: { item: OnboardingSlide; index: number; x: Animated.SharedValue<number> }) => {
+const SlideItem = ({ item, index, x }: { item: OnboardingSlide; index: number; x: SharedValue<number> }) => {
     const animatedImageStyle = useAnimatedStyle(() => {
         const inputRange = [
             (index - 1) * width,
@@ -105,7 +106,7 @@ const SlideItem = ({ item, index, x }: { item: OnboardingSlide; index: number; x
     );
 };
 
-const Pagination = ({ data, x }: { data: OnboardingSlide[]; x: Animated.SharedValue<number> }) => {
+const Pagination = ({ data, x }: { data: OnboardingSlide[]; x: SharedValue<number> }) => {
     return (
         <View style={styles.paginationContainer}>
             {data.map((_, index) => {

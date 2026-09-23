@@ -54,7 +54,15 @@ import { hapticNotification } from '@/lib/haptics';
 // Types
 // ============================================================================
 
-type PlayerState = 'idle' | 'connecting' | 'buffering' | 'playing' | 'paused' | 'error';
+type PlayerState =
+  | 'idle'
+  | 'connecting'
+  | 'buffering'
+  | 'playing'
+  | 'paused'
+  | 'error'
+  | 'server_unavailable'
+  | 'reconnecting';
 
 interface CameraStreamPlayerProps {
   cameraId: string;
@@ -138,9 +146,11 @@ function HlsCameraStreamPlayer({
   // State
   const [playerState, setPlayerState] = useState<PlayerState>('idle');
   const [hlsUrl, setHlsUrl] = useState<string | null>(null);
+  const [preferredProtocol, setPreferredProtocol] = useState<'webrtc' | 'hls'>('hls');
   const [isMuted, setIsMuted] = useState(false);
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
   const [retryCount, setRetryCount] = useState(0);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showControlsOverlay, setShowControlsOverlay] = useState(true);
   const [isRecording, setIsRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -168,10 +178,20 @@ function HlsCameraStreamPlayer({
   // =========================================================================
 
   const initializeStream = useCallback(async () => {
-    updateState('connecting');
+    updateState(retryCount > 0 ? 'reconnecting' : 'connecting');
+    setErrorMessage(null);
+    setHlsUrl(null);
 
     try {
-      console.log(`[CameraStreamPlayer] Initializing stream for camera: ${cameraId}`);
+      const healthy = await streamingService.checkMediaServerHealth();
+      if (!healthy) {
+        const msg =
+          'Media server unavailable. Start MediaMTX + API, or set EXPO_PUBLIC_MEDIA_SERVER_URL.';
+        setErrorMessage(msg);
+        updateState('server_unavailable');
+        onError?.(msg);
+        return;
+      }
 
       const registration = await streamingService.registerCamera(
         cameraId,
@@ -179,23 +199,26 @@ function HlsCameraStreamPlayer({
         userId
       );
 
-      let streamUrlToUse = '';
-      if (registration.success && registration.streams?.hls) {
-        streamUrlToUse = registration.streams.hls;
-        console.log(`[CameraStreamPlayer] Stream registered:`, streamUrlToUse);
-      } else if (rtspUrl && (rtspUrl.startsWith('http://') || rtspUrl.startsWith('https://'))) {
-        streamUrlToUse = rtspUrl;
-      } else {
-        console.warn('[CameraStreamPlayer] Media server offline, using staging stream preview fallback');
-        streamUrlToUse = 'https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4';
+      if (!registration.success || !registration.streams) {
+        const msg = registration.error || 'Failed to register camera with media server';
+        setErrorMessage(msg);
+        updateState('error');
+        onError?.(msg);
+        return;
       }
 
+      // Prefer HLS for expo-av compatibility; WebRTC URL cached for future native player
+      const streamUrlToUse = registration.streams.hls;
+      setPreferredProtocol(registration.streams.webrtc ? 'webrtc' : 'hls');
       setHlsUrl(streamUrlToUse);
+      streamingService.cachePreferredStreams(cameraId, registration.streams);
 
       try {
         const status = await streamingService.getStreamStatus(cameraId, false);
         setStreamStatus(status);
-      } catch {}
+      } catch {
+        // status is best-effort
+      }
 
       if (autoPlay) {
         updateState('buffering');
@@ -206,12 +229,15 @@ function HlsCameraStreamPlayer({
       setRetryCount(0);
       onStreamReady?.();
     } catch (error) {
-      console.warn('[CameraStreamPlayer] Media server registration notice, switching to fallback preview:', error);
-      setHlsUrl('https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4');
-      updateState(autoPlay ? 'buffering' : 'idle');
-      onStreamReady?.();
+      const msg =
+        error instanceof Error
+          ? error.message
+          : 'Unable to connect to media server';
+      setErrorMessage(msg);
+      updateState('server_unavailable');
+      onError?.(msg);
     }
-  }, [cameraId, rtspUrl, userId, autoPlay, onStreamReady, updateState]);
+  }, [cameraId, rtspUrl, userId, autoPlay, onStreamReady, onError, updateState, retryCount]);
 
   // =========================================================================
   // Cleanup
@@ -522,16 +548,45 @@ function HlsCameraStreamPlayer({
     );
   }
 
-  // Connecting state
-  if (playerState === 'connecting') {
+  // Connecting / reconnecting
+  if (playerState === 'connecting' || playerState === 'reconnecting') {
     return (
       <View style={styles.container}>
         <View style={styles.centerOverlay}>
           <ActivityIndicator size="large" color={colors.brand.red} />
-          <Text style={styles.connectingText}>Connecting to camera...</Text>
-          <Text style={styles.connectingSubtext}>
-            {retryCount > 0 ? `Retry ${retryCount}/${MAX_RETRIES}` : 'Setting up secure stream'}
+          <Text style={styles.connectingText}>
+            {playerState === 'reconnecting' ? 'Reconnecting...' : 'Connecting to camera...'}
           </Text>
+          <Text style={styles.connectingSubtext}>
+            {retryCount > 0
+              ? `Retry ${retryCount}/${MAX_RETRIES}`
+              : 'Registering RTSP → HLS via media server'}
+          </Text>
+        </View>
+      </View>
+    );
+  }
+
+  // Media server unavailable (honest — never fake video)
+  if (playerState === 'server_unavailable') {
+    return (
+      <View style={styles.container}>
+        <View style={styles.centerOverlay}>
+          <WifiOff size={56} color={colors.status.warning} />
+          <Text style={styles.errorTitle}>Media Server Offline</Text>
+          <Text style={styles.errorText}>
+            {errorMessage ||
+              'Live RTSP requires the MediaMTX media edge. Start the server, then retry.'}
+          </Text>
+          <View style={styles.errorList}>
+            <Text style={styles.errorListItem}>• Run: pnpm --filter @mtk/api start (or docker compose)</Text>
+            <Text style={styles.errorListItem}>• Set EXPO_PUBLIC_MEDIA_SERVER_URL in .env</Text>
+            <Text style={styles.errorListItem}>• Use HTTP/MJPEG URL for LAN preview without server</Text>
+          </View>
+          <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
+            <RefreshCw size={20} color="white" />
+            <Text style={styles.retryButtonText}>Retry Connection</Text>
+          </TouchableOpacity>
         </View>
       </View>
     );
@@ -545,12 +600,13 @@ function HlsCameraStreamPlayer({
           <WifiOff size={56} color={colors.status.error} />
           <Text style={styles.errorTitle}>Stream Unavailable</Text>
           <Text style={styles.errorText}>
-            Unable to connect to camera. Please check:
+            {errorMessage || 'Unable to connect to camera. Please check:'}
           </Text>
           <View style={styles.errorList}>
             <Text style={styles.errorListItem}>• Camera is powered on</Text>
             <Text style={styles.errorListItem}>• Camera is on the same network</Text>
             <Text style={styles.errorListItem}>• RTSP URL is correct</Text>
+            <Text style={styles.errorListItem}>• Media server can reach the camera</Text>
           </View>
           <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
             <RefreshCw size={20} color="white" />
@@ -594,10 +650,16 @@ function HlsCameraStreamPlayer({
         <View style={styles.liveIndicator}>
           <View style={[
             styles.liveDot,
-            { backgroundColor: streamStatus?.online ? colors.status.success : colors.status.error }
+            {
+              backgroundColor:
+                playerState === 'playing' && streamStatus?.online !== false
+                  ? colors.status.success
+                  : colors.status.error,
+            },
           ]} />
           <Text style={styles.liveText}>
-            {streamStatus?.online ? 'LIVE' : 'OFFLINE'}
+            {playerState === 'playing' ? 'LIVE' : playerState === 'buffering' ? 'BUFFERING' : 'OFFLINE'}
+            {preferredProtocol === 'hls' ? ' · HLS' : ' · WebRTC'}
           </Text>
         </View>
 

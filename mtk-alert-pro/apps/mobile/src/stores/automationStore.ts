@@ -12,6 +12,7 @@ import {
     getCurrentDay,
     validateSchedule,
 } from '@/lib/automation/automationService';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type {
     CameraAutomation,
     CameraAutomationDB,
@@ -236,8 +237,7 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
     },
 
     /**
-     * Check all automations and update active states
-     * Should be called periodically (e.g., every minute)
+     * Check all automations and APPLY red_alert / normal actions
      */
     checkAutomations: async () => {
         const currentTime = getCurrentTime();
@@ -245,6 +245,11 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
         const now = new Date();
 
         const { automations } = get();
+        const settings = useSettingsStore.getState();
+
+        let shouldRedAlert = settings.detection.redAlertMode;
+        let anyActive = false;
+
         const updatedAutomations = automations.map((automation) => {
             if (!automation.enabled) {
                 return { ...automation, isCurrentlyActive: false };
@@ -256,11 +261,37 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
                 automation.schedule
             );
 
+            if (shouldBeActive) {
+                anyActive = true;
+                if (automation.action === 'red_alert') {
+                    shouldRedAlert = true;
+                } else if (automation.action === 'normal') {
+                    shouldRedAlert = false;
+                }
+
+                // Persist last_triggered_at when transitioning into active
+                if (!automation.isCurrentlyActive) {
+                    void supabase
+                        .from('camera_automations')
+                        .update({ last_triggered_at: now.toISOString() })
+                        .eq('id', automation.id);
+                }
+            }
+
             return {
                 ...automation,
                 isCurrentlyActive: shouldBeActive,
             };
         });
+
+        if (anyActive && settings.detection.redAlertMode !== shouldRedAlert) {
+            settings.setDetection({ redAlertMode: shouldRedAlert });
+        }
+
+        // Ensure armed when any automation is active in window
+        if (anyActive && settings.detection.armed === false) {
+            settings.setDetection({ armed: true });
+        }
 
         set({
             automations: updatedAutomations,

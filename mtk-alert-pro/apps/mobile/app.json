@@ -7,9 +7,10 @@
     "icon": "./assets/icon.png",
     "scheme": "mtkalertpro",
     "userInterfaceStyle": "automatic",
-    "newArchEnabled": false,
+    "newArchEnabled": true,
+
     "splash": {
-      "image": "./assets/splash.jpg",
+      "image": "./assets/splash.png",
       "resizeMode": "cover",
       "backgroundColor": "#0F172A"
     },
@@ -27,7 +28,6 @@
     },
     "android": {
       "package": "com.mtk.alertpro",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1E293B"
@@ -88,7 +88,7 @@
         "expo-splash-screen",
         {
           "backgroundColor": "#0F172A",
-          "image": "./assets/splash.jpg",
+          "image": "./assets/splash.png",
           "imageWidth": 300
         }
       ],
@@ -115,8 +115,6 @@
       "router": {
         "origin": false
       },
-      "supabaseUrl": "https://your-project.supabase.co",
-      "supabaseAnonKey": "your-anon-key",
       "firebaseProjectId": "your-firebase-project-id",
       "revenuecatApiKey": "your-revenuecat-key",
       "sentryDsn": "your-sentry-dsn",

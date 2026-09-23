@@ -33,20 +33,28 @@ import {
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import * as Haptics from 'expo-haptics';
-import { useCameraStore } from '@/stores';
+import { useCameraStore, useIsPremium } from '@/stores';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
 import { getDecryptedCameraPassword } from '@/stores/cameraStore';
 import { maskRtspUrl } from '@/lib/camera/rtspHelper';
 import { CameraStreamPlayer } from '@/components/camera/CameraStreamPlayer';
 import { RecordingsModal } from '@/components/camera/RecordingsModal';
+import { SceneProfilePicker } from '@/components/camera/SceneProfilePicker';
+import { applySceneProfile } from '@/features/detection/sceneProfiles';
 import { recordingService } from '@/lib/recording/recordingService';
 import { requestMediaPermissions } from '@/lib/camera/cameraMediaService';
 import { designSystem } from '@/theme/design-system';
+import type { SceneProfileId } from '@/types';
 
 export default function CameraDetailScreen() {
   const { id } = useLocalSearchParams<{ id: string }>();
   const cameras = useCameraStore((state) => state.cameras);
   const deleteCamera = useCameraStore((state) => state.deleteCamera);
   const updateCamera = useCameraStore((state) => state.updateCamera);
+  const isPremium = useIsPremium();
+  const canUseAdvancedScenes = useSubscriptionStore((s) =>
+    s.checkFeatureAccess('hasAdvancedSceneProfiles')
+  );
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -134,17 +142,29 @@ export default function CameraDetailScreen() {
     );
   };
 
-  const toggleDetection = async (type: 'person' | 'vehicle' | 'face') => {
+  const toggleDetection = async (type: 'person' | 'vehicle' | 'face' | 'animal') => {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       await updateCamera(camera.id, {
         detectionSettings: {
           ...camera.detectionSettings,
           [type]: !camera.detectionSettings[type],
+          // Manual override → custom profile
+          sceneProfile: 'custom',
         },
       });
     } catch (err) {
       console.warn('Failed to update detection:', err);
+    }
+  };
+
+  const applyProfile = async (profileId: SceneProfileId) => {
+    try {
+      await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      const next = applySceneProfile(profileId, camera.detectionSettings);
+      await updateCamera(camera.id, { detectionSettings: next });
+    } catch (err) {
+      console.warn('Failed to apply scene profile:', err);
     }
   };
 
@@ -340,7 +360,26 @@ export default function CameraDetailScreen() {
 
           {/* Detection Settings */}
           <Animated.View entering={FadeInDown.delay(200).duration(600)} style={styles.detectionSection}>
+            <SceneProfilePicker
+              selected={camera.detectionSettings.sceneProfile || 'home'}
+              canUseAdvanced={canUseAdvancedScenes || isPremium}
+              onSelect={applyProfile}
+              onLocked={() => {
+                Alert.alert(
+                  'Pro Scene Modes',
+                  'Parking, Warehouse, Construction, and School profiles are included with Pro.',
+                  [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Upgrade', onPress: () => router.push('/subscription') },
+                  ]
+                );
+              }}
+            />
+
             <Text style={styles.sectionTitle}>AI Detection Toggles</Text>
+            <Text style={styles.sectionHint}>
+              Changing a toggle switches this camera to Custom mode.
+            </Text>
 
             {/* Person Detection */}
             <TouchableOpacity
@@ -395,6 +434,34 @@ export default function CameraDetailScreen() {
                 ]}
               >
                 {camera.detectionSettings.vehicle && <View style={styles.checkboxInner} />}
+              </View>
+            </TouchableOpacity>
+
+            {/* Animal Detection (opt-in; farm keeps off) */}
+            <TouchableOpacity
+              onPress={() => toggleDetection('animal')}
+              style={[
+                styles.detectionCard,
+                camera.detectionSettings.animal && styles.detectionCardAnimal,
+              ]}
+            >
+              <Shield
+                size={24}
+                color={camera.detectionSettings.animal ? '#84CC16' : designSystem.colors.text.muted}
+              />
+              <View style={styles.detectionContent}>
+                <Text style={styles.detectionTitle}>Animal Detection</Text>
+                <Text style={styles.detectionDescription}>
+                  Alert on livestock/pets. Keep off for farm cameras.
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.checkbox,
+                  camera.detectionSettings.animal && styles.checkboxAnimal,
+                ]}
+              >
+                {camera.detectionSettings.animal && <View style={styles.checkboxInner} />}
               </View>
             </TouchableOpacity>
 
@@ -691,6 +758,11 @@ const styles = StyleSheet.create({
     color: designSystem.colors.text.primary,
     fontWeight: '600',
     fontSize: designSystem.typography.size.lg,
+    marginBottom: designSystem.spacing.xs,
+  },
+  sectionHint: {
+    color: designSystem.colors.text.muted,
+    fontSize: designSystem.typography.size.sm,
     marginBottom: designSystem.spacing.md,
   },
   detectionCard: {
@@ -703,6 +775,9 @@ const styles = StyleSheet.create({
   },
   detectionCardActive: {
     backgroundColor: 'rgba(239, 68, 68, 0.15)',
+  },
+  detectionCardAnimal: {
+    backgroundColor: 'rgba(132, 204, 22, 0.15)',
   },
   detectionCardVehicle: {
     backgroundColor: 'rgba(6, 182, 212, 0.15)',
@@ -762,6 +837,10 @@ const styles = StyleSheet.create({
   checkboxFace: {
     borderColor: '#A855F7',
     backgroundColor: '#A855F7',
+  },
+  checkboxAnimal: {
+    borderColor: '#84CC16',
+    backgroundColor: '#84CC16',
   },
   checkboxNotification: {
     borderColor: designSystem.colors.status.success,

@@ -28,6 +28,7 @@ const defaultSettings: AppSettings = {
   detection: {
     redAlertMode: false,
     cooldownSeconds: 30,
+    armed: true,
   },
   display: {
     theme: 'system',

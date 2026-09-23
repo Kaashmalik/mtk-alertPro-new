@@ -83,6 +83,64 @@ class StreamingService {
   /** Status cache TTL in ms */
   private readonly STATUS_CACHE_TTL = 5000; // 5 seconds
 
+  /** Last known media server health */
+  private mediaServerHealthy: boolean | null = null;
+  private lastHealthCheck = 0;
+  private readonly HEALTH_CACHE_TTL = 10000;
+
+  /**
+   * Check if the media edge (API + MediaMTX) is reachable
+   */
+  async checkMediaServerHealth(force = false): Promise<boolean> {
+    if (
+      !force &&
+      this.mediaServerHealthy !== null &&
+      Date.now() - this.lastHealthCheck < this.HEALTH_CACHE_TTL
+    ) {
+      return this.mediaServerHealthy;
+    }
+
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const response = await fetch(`${MEDIA_SERVER_URL}/health`, {
+        signal: controller.signal,
+      });
+      clearTimeout(timeoutId);
+      this.mediaServerHealthy = response.ok;
+      this.lastHealthCheck = Date.now();
+      return this.mediaServerHealthy;
+    } catch {
+      this.mediaServerHealthy = false;
+      this.lastHealthCheck = Date.now();
+      return false;
+    }
+  }
+
+  /**
+   * Cache stream URLs after registration (HLS + WebRTC)
+   */
+  cachePreferredStreams(cameraId: string, streams: StreamUrls): void {
+    this.streamUrlCache.set(cameraId, streams);
+  }
+
+  /**
+   * Resolve best playable URL: HLS for expo-av; WebRTC available for native clients
+   */
+  getPreferredPlayUrl(
+    cameraId: string,
+    prefer: 'hls' | 'webrtc' = 'hls'
+  ): string | null {
+    const cached = this.streamUrlCache.get(cameraId);
+    if (!cached) return null;
+    if (prefer === 'webrtc' && cached.webrtc) return cached.webrtc;
+    return cached.hls || null;
+  }
+
+  getMediaServerUrl(): string {
+    return MEDIA_SERVER_URL;
+  }
+
   /**
    * Test if an RTSP URL is valid and camera is reachable
    * This goes through the media server for proper RTSP testing
@@ -309,7 +367,12 @@ class StreamingService {
       }
 
       const data = await response.json();
-      return data.snapshotUrl || null;
+      // Normalize relative snapshot paths to absolute media-server URLs
+      let snapshotUrl: string | null = data.snapshotUrl || null;
+      if (snapshotUrl && snapshotUrl.startsWith('/')) {
+        snapshotUrl = `${MEDIA_SERVER_URL}${snapshotUrl}`;
+      }
+      return snapshotUrl;
     } catch (error) {
       logError(error, 'StreamingService.captureSnapshot');
       return null;

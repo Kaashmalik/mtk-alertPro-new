@@ -140,7 +140,7 @@ export async function testCameraConnection(
     };
   }
 
-  // --- RTSP URL: parse then probe camera HTTP interface ---
+  // --- RTSP URL: prefer real DESCRIBE via media server ---
   if (protocol !== 'rtsp') {
     return {
       success: false,
@@ -150,7 +150,6 @@ export async function testCameraConnection(
     };
   }
 
-  // Parse the RTSP URL to extract IP
   const parsed = parseRtspUrl(streamUrl);
   if (!parsed) {
     return {
@@ -160,13 +159,30 @@ export async function testCameraConnection(
     };
   }
 
-  // Validate IP address format
   if (!isValidIp(parsed.ip)) {
     return {
       success: false,
       error: `Invalid IP address: ${parsed.ip}`,
       timestamp: new Date(),
     };
+  }
+
+  const MEDIA_SERVER_URL = process.env.EXPO_PUBLIC_MEDIA_SERVER_URL;
+  if (MEDIA_SERVER_URL) {
+    try {
+      const mediaResult = await testConnectionViaMediaServer(
+        MEDIA_SERVER_URL,
+        streamUrl,
+        timeoutMs
+      );
+      if (mediaResult.success) {
+        return mediaResult;
+      }
+      // Fall through to HTTP probe if media server says unreachable
+      // (camera may still be up on LAN for MJPEG)
+    } catch {
+      // Media server unreachable — fall back to HTTP probe
+    }
   }
 
   let lastError: string | undefined;

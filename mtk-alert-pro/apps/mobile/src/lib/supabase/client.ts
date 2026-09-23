@@ -21,12 +21,12 @@ import Constants from 'expo-constants';
 
 // 🔒 SECURE: Environment variables with proper validation
 const supabaseUrl =
-  Constants.expoConfig?.extra?.supabaseUrl ||
   process.env.EXPO_PUBLIC_SUPABASE_URL ||
+  Constants.expoConfig?.extra?.supabaseUrl ||
   '';
 const supabaseAnonKey =
-  Constants.expoConfig?.extra?.supabaseAnonKey ||
   process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY ||
+  Constants.expoConfig?.extra?.supabaseAnonKey ||
   '';
 
 // CRITICAL SECURITY: Validate configuration before initialization
@@ -186,7 +186,7 @@ if (__DEV__ === false && isConfigValid && Platform.OS !== 'web') {
 // 🔒 SECURITY: Export with validation
 // ============================================================================
 
-export { supabase };
+export { supabase, supabaseUrl };
 export const isSupabaseConfigured = isConfigValid;
 
 // Security helper to check if tokens are stored securely
