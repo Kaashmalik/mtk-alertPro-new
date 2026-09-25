@@ -1,0 +1,104 @@
+# Node modules (EAS installs fresh)
+node_modules/
+**/node_modules/
+
+# Expo caches
+.expo/
+.expo-shared/
+
+# Native folders (EAS generates these)
+ios/
+android/
+
+# Lock files (not needed for build)
+pnpm-lock.yaml
+package-lock.json
+yarn.lock
+*.lock
+
+# Logs
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Temp files
+.tmp/
+.temp/
+*.tmp
+*.temp
+
+# Test & build artifacts
+coverage/
+dist/
+build/
+__tests__/
+*.test.ts
+*.test.tsx
+*.spec.ts
+*.spec.tsx
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# Documentation (not needed in app)
+docs/
+*.md
+!README.md
+
+# Monorepo root files (we're in apps/mobile)
+../../node_modules/
+../../packages/
+../../docs/
+../../.git/
+../../pruned/
+
+# Large unnecessary files
+*.zip
+*.tar
+*.tar.gz
+*.rar
+*.7z
+
+# Source maps (built fresh)
+*.map
+
+# Additional exclusions for faster upload
+*.txt
+*.docx
+*.xlsx
+*.pptx
+*.pdf
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.svg
+*.ico
+*.webp
+*.mp4
+*.mov
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.flac
+
+# Expo doctor reports
+expo-doctor-report*.txt
+
+# Assets that aren't needed for build
+assets/sounds/
+assets/videos/
+assets/large-assets/

@@ -1,0 +1,73 @@
+﻿# Exclude everything except apps/mobile
+node_modules
+**/node_modules
+
+# Other apps and packages
+packages/
+apps/web/
+apps/backend/
+apps/detection-worker/
+
+# Root-level directories
+docs/
+pruned/
+.git/
+.github/
+server/
+supabase/
+src/
+
+# Native folders (nested)
+**/android/
+**/ios/
+
+
+# Lock files
+
+
+
+
+
+# Logs and caches
+*.log
+.expo/
+.expo-shared/
+.cache/
+.turbo/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Keep only apps/mobile (handled by its own .easignore)
+
+# Exclusions from mobile app
+**/coverage/
+**/dist/
+**/build/
+**/__tests__/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/*.zip
+**/*.tar
+**/*.tar.gz
+**/*.rar
+**/*.7z
+**/*.map
+**/*.mp4
+**/*.mov
+**/*.avi
+**/*.mkv
+**/*.mp3
+**/*.wav
+**/*.flac
+apps/mobile/assets/sounds/
+apps/mobile/assets/videos/
+apps/mobile/assets/large-assets/
+apps/mobile/expo-doctor-report*.txt

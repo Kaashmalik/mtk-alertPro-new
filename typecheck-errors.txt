@@ -1,0 +1,18 @@
+﻿src/__tests__/stores/cameraStore.test.ts(447,14): error TS18048: 'result' is possibly 'undefined'.
+src/__tests__/stores/cameraStore.test.ts(448,14): error TS18048: 'result' is possibly 'undefined'.
+src/app/onboarding.tsx(120,11): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(props: LinearGradientProps): LinearGradient', gave the following error.
+    Type 'string[]' is not assignable to type 'readonly [string, string, ...string[]]'.
+      Source provides no match for required element at position 0 in target.
+  Overload 2 of 2, '(props: LinearGradientProps, context: any): LinearGradient', gave the following error.
+    Type 'string[]' is not assignable to type 'readonly [string, string, ...string[]]'.
+src/app/settings/automations.tsx(8,10): error TS2305: Module '"@/stores"' has no exported member 'useAutomationStore'.
+src/app/settings/automations/create.tsx(14,10): error TS2305: Module '"@/stores"' has no exported member 'useAutomationStore'.
+src/app/settings/automations/create.tsx(24,55): error TS7006: Parameter 'a' implicitly has an 'any' type.
+src/components/ads/BannerAd.tsx(22,12): error TS2749: 'BannerAdSize' refers to a value, but is being used as a type here. Did you mean 'typeof BannerAdSize'?
+src/components/ads/InterstitialAd.tsx(31,26): error TS2749: 'InterstitialAd' refers to a value, but is being used as a type here. Did you mean 'typeof InterstitialAd'?
+src/components/ui/OfflineIndicator.tsx(50,24): error TS2339: Property 'isInternetReachable' does not exist on type 'NetworkStatus'.
+src/components/ui/SkeletonLoader.tsx(70,9): error TS2322: Type '{ width: string | number; height: number; borderRadius: number; opacity: Animated.AnimatedInterpolation<string | number>; }' is not assignable to type 'false | "" | RegisteredStyle<ViewStyle> | Value | WithAnimatedObject<ViewStyle> | AnimatedInterpolation<string | number> | WithAnimatedArray<...> | readonly (false | ... 6 more ... | undefined)[] | null | undefined'.
+  Types of property 'width' are incompatible.
+    Type 'string | number' is not assignable to type 'number | "auto" | `${number}%` | Value | AnimatedInterpolation<string | number> | WithAnimatedObject<AnimatedNode> | null | undefined'.
+      Type 'string' is not assignable to type 'number | "auto" | `${number}%` | Value | AnimatedInterpolation<string | number> | WithAnimatedObject<AnimatedNode> | null | undefined'.
