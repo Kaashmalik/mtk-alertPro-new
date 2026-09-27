@@ -177,3 +177,29 @@ export async function getBiometricUserEmail(): Promise<string | null> {
     return null;
   }
 }
+
+/**
+ * Guard for sensitive, non-reversible actions (purchases, account deletion,
+ * credential changes).
+ *
+ * Re-authenticates only when the user opted into biometric login. A user who
+ * has not enabled biometrics is NOT blocked here - the app lock is the control
+ * that protects them, and silently requiring biometrics they never set up would
+ * lock them out of their own account.
+ *
+ * @returns true when the action may proceed.
+ */
+export async function requireBiometric(actionLabel = 'continue'): Promise<boolean> {
+  if (Platform.OS === 'web') return true;
+
+  let enabled = false;
+  try {
+    enabled = await isBiometricEnabled();
+  } catch {
+    return true;
+  }
+  if (!enabled) return true;
+
+  const result = await authenticateWithBiometric(`Confirm to ${actionLabel}`);
+  return result.success;
+}

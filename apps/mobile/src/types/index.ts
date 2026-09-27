@@ -51,29 +51,48 @@ export interface DetectionSettings {
   zones?: DetectionZone[];
 }
 
+export interface ZonePoint {
+  x: number;
+  y: number;
+}
+
 export interface DetectionZone {
   id: string;
   name: string;
-  polygon: { x: number; y: number }[];
+  polygon: ZonePoint[];
   isActive: boolean;
+  /** Minimum confidence required inside this zone (0-1). */
+  sensitivity?: number;
 }
 
 export interface Alert {
   id: string;
-  cameraId: string;
+  /** Null for SOS alerts, which are raised by the user and not by a camera. */
+  cameraId: string | null;
   userId: string;
-  type: 'person' | 'vehicle' | 'face' | 'motion' | 'animal';
+  type: 'person' | 'vehicle' | 'face' | 'motion' | 'animal' | 'emergency';
   confidence: number;
   thumbnailUrl?: string;
   snapshotUrl?: string;
   videoClipUrl?: string;
   metadata: Record<string, unknown>;
   isRead: boolean;
+  /** Set while an SOS alert is active; cleared once resolved. */
+  emergencyReason?: string;
+  resolvedAt?: Date;
   createdAt: Date;
 }
 
 // Alarm sound types - each has a unique vibration pattern
-export type AlarmSoundType = 'urgent' | 'siren' | 'alert' | 'chime' | 'beep' | 'heavy';
+export type AlarmSoundType =
+  | 'urgent'
+  | 'siren'
+  | 'alert'
+  | 'chime'
+  | 'beep'
+  | 'heavy'
+  | 'sos'
+  | 'custom';
 
 export interface AppSettings {
   notifications: {

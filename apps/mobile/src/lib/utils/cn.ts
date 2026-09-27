@@ -34,7 +34,7 @@ export const rtspUrlSchema = z.string()
 export const cameraNameSchema = z.string()
   .min(1, 'Camera name required')
   .max(50, 'Camera name too long')
-  .regex(/^[\w\s\-]+$/, 'Camera name can only contain letters, numbers, spaces, and hyphens');
+  .regex(/^[\w\s-]+$/, 'Camera name can only contain letters, numbers, spaces, and hyphens');
 
 export const cameraSchema = z.object({
   name: cameraNameSchema,

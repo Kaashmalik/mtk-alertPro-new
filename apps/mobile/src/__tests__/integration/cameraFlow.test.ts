@@ -306,69 +306,20 @@ describe('Camera Flow Integration', () => {
   // Subscription Limits
   // =========================================================================
   describe('Subscription Limits', () => {
-    it('should enforce free tier camera limit', async () => {
-      // Add 2 cameras (free tier limit)
-      useCameraStore.setState({
-        cameras: [
-          createMockCamera({ id: 'cam-1' }),
-          createMockCamera({ id: 'cam-2' }),
-        ],
-      });
-
-      (supabase.from as jest.Mock).mockImplementation((table) => {
+    /**
+     * The quota check in addCamera reads the tier from `profiles` and the
+     * camera count from a `cameras` head/count query, in parallel. Both need
+     * to be modelled, otherwise the test passes or fails for the wrong reason
+     * (an unmocked table throws a TypeError that a bare `catch` swallows).
+     */
+    const mockSubscription = (tier: string, existingCameras: number) => {
+      (supabase.from as jest.Mock).mockImplementation((table: string) => {
         if (table === 'profiles') {
           return {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             single: jest.fn().mockResolvedValue({
-              data: { subscription_tier: 'free' },
-              error: null,
-            }),
-          };
-        }
-        return {};
-      });
-
-      // Should reject 3rd camera or set error state
-      try {
-        await useCameraStore.getState().addCamera({
-          name: 'Third Camera',
-          rtspUrl: 'rtsp://192.168.1.102:554/stream',
-          isActive: true,
-          detectionSettings: {
-            person: true,
-            vehicle: true,
-            face: false,
-            sensitivity: 0.7,
-            notificationsEnabled: true,
-            alarmEnabled: true,
-          },
-        });
-        // If it didn't throw, camera count should still be 2
-        const state = useCameraStore.getState();
-        expect(state.cameras.length).toBeLessThanOrEqual(2);
-      } catch (error) {
-        // Expected - limit was enforced
-        expect(error).toBeDefined();
-      }
-    });
-
-    it('should allow more cameras on pro tier', async () => {
-      // Add 2 cameras already
-      useCameraStore.setState({
-        cameras: [
-          createMockCamera({ id: 'cam-1' }),
-          createMockCamera({ id: 'cam-2' }),
-        ],
-      });
-
-      (supabase.from as jest.Mock).mockImplementation((table) => {
-        if (table === 'profiles') {
-          return {
-            select: jest.fn().mockReturnThis(),
-            eq: jest.fn().mockReturnThis(),
-            single: jest.fn().mockResolvedValue({
-              data: { subscription_tier: 'pro' }, // Pro tier
+              data: { subscription_tier: tier },
               error: null,
             }),
           };
@@ -377,6 +328,8 @@ describe('Camera Flow Integration', () => {
           return {
             insert: jest.fn().mockReturnThis(),
             select: jest.fn().mockReturnThis(),
+            // The head/count query resolves on eq().
+            eq: jest.fn().mockResolvedValue({ count: existingCameras, error: null }),
             single: jest.fn().mockResolvedValue({
               data: {
                 id: 'cam-3',
@@ -394,6 +347,76 @@ describe('Camera Flow Integration', () => {
         }
         return {};
       });
+    };
+
+    it('should enforce free tier camera limit', async () => {
+      useCameraStore.setState({
+        cameras: [
+          createMockCamera({ id: 'cam-1' }),
+          createMockCamera({ id: 'cam-2' }),
+        ],
+      });
+
+      // 2 cameras already exist server-side, and free allows 2.
+      mockSubscription('free', 2);
+
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
+
+      await expect(
+        useCameraStore.getState().addCamera({
+          name: 'Third Camera',
+          rtspUrl: 'rtsp://192.168.1.102:554/stream',
+          isActive: true,
+          detectionSettings: {
+            person: true,
+            vehicle: true,
+            face: false,
+            sensitivity: 0.7,
+            notificationsEnabled: true,
+            alarmEnabled: true,
+          },
+        })
+      ).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
+
+      // The camera must not have been added locally either.
+      expect(useCameraStore.getState().cameras).toHaveLength(2);
+    });
+
+    it('should cap an unknown tier at the free quota rather than allowing unlimited', async () => {
+      useCameraStore.setState({ cameras: [] });
+
+      // An unrecognised tier string must not grant paid entitlements. This
+      // previously failed OPEN: `n >= limits[tier]` was `n >= undefined`,
+      // which is always false.
+      mockSubscription('enterprise', 2);
+
+      await expect(
+        useCameraStore.getState().addCamera({
+          name: 'Third Camera',
+          rtspUrl: 'rtsp://192.168.1.102:554/stream',
+          isActive: true,
+          detectionSettings: {
+            person: true,
+            vehicle: true,
+            face: false,
+            sensitivity: 0.7,
+            notificationsEnabled: true,
+            alarmEnabled: true,
+          },
+        })
+      ).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
+    });
+
+    it('should allow more cameras on pro tier', async () => {
+      // Add 2 cameras already
+      useCameraStore.setState({
+        cameras: [
+          createMockCamera({ id: 'cam-1' }),
+          createMockCamera({ id: 'cam-2' }),
+        ],
+      });
+
+      mockSubscription('pro', 2);
 
       (global.fetch as jest.Mock).mockResolvedValue({ ok: true });
 

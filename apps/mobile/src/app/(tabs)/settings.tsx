@@ -17,6 +17,7 @@ import {
   Eye,
   Zap,
   Volume2,
+  Users,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useAuthStore, useSettingsStore, useSubscriptionStore, useIsPremium } from '@/stores';
@@ -193,6 +194,13 @@ export default function SettingsScreen() {
               label="Alarm Sounds"
               type="link"
               onPress={() => router.push('/settings/alarm-sounds')}
+            />
+            <SettingItem
+              icon={Users}
+              color={designSystem.colors.status.danger}
+              label="Emergency Contacts"
+              type="link"
+              onPress={() => router.push('/settings/emergency-contacts')}
             />
             <SettingItem
               icon={Zap}

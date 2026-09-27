@@ -35,6 +35,7 @@ import { useAuthStore } from '@/stores';
 import { profileService, UserProfile } from '@/lib/profile/profileService';
 import { designSystem } from '@/theme/design-system';
 import { hapticNotification } from '@/lib/haptics';
+import { requireBiometric } from '@/lib/biometric';
 
 export default function EditProfileScreen() {
     const { user, refreshUser } = useAuthStore();
@@ -136,6 +137,13 @@ export default function EditProfileScreen() {
                     text: 'Delete Forever',
                     style: 'destructive',
                     onPress: async () => {
+                        // Irreversible + unauthenticated-by-default: require the
+                        // user to re-prove identity if biometrics are enabled.
+                        const confirmed = await requireBiometric('delete your account');
+                        if (!confirmed) {
+                            Alert.alert('Cancelled', 'Account was not deleted.');
+                            return;
+                        }
                         const success = await profileService.deleteAccount();
                         if (success) {
                             router.replace('/(auth)/login');

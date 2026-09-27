@@ -1,4 +1,4 @@
-import { Dimensions, Platform } from 'react-native';
+import { Dimensions, Platform, useWindowDimensions } from 'react-native';
 
 const { width, height } = Dimensions.get('window');
 
@@ -177,3 +177,37 @@ export const designSystem = {
 };
 
 export type DesignSystem = typeof designSystem;
+
+/**
+ * Responsive layout hook.
+ *
+ * `designSystem.layout.screenWidth` is captured once at module load, so it goes
+ * stale on rotation, split-screen, foldables and browser resize. Anything that
+ * lays out from screen size must use this hook instead.
+ */
+export function useLayout() {
+  const { width: w, height: h } = useWindowDimensions();
+
+  const gutter = Math.min(24, Math.max(16, Math.round(w * 0.04)));
+
+  return {
+    width: w,
+    height: h,
+    gutter,
+    isCompact: w < 360,
+    isWide: w >= 600,
+    radius: designSystem.layout.radius,
+  };
+}
+
+/**
+ * Compute a responsive column count for card grids.
+ *
+ * Prefer this over a hardcoded 2: on a tablet a fixed 2-column grid produces
+ * tiles ~450px wide, which looks broken and wastes the live preview.
+ */
+export function useGridColumns(minTileWidth = 260, maxColumns = 4): number {
+  const { width } = useWindowDimensions();
+  const gutter = Math.min(24, Math.max(16, Math.round(width * 0.04)));
+  return Math.max(2, Math.min(maxColumns, Math.floor((width - gutter * 2) / minTileWidth)));
+}

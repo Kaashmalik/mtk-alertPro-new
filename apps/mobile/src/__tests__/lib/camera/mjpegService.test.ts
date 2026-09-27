@@ -7,6 +7,7 @@ import {
   fetchSnapshotFrame,
   createMjpegStream,
   blobToDataUri,
+  resolveFrameUrl,
 } from '@/lib/camera/mjpegService';
 
 function makeJpegBlob(size = 16): Blob {
@@ -342,6 +343,58 @@ describe('mjpegService', () => {
       expect(stream.getState().status).toBe('error');
       stream.stop();
       expect(stream.getState().status).toBe('idle');
+    });
+
+    it('does not re-sweep every candidate on each poll while offline', async () => {
+      // Regression guard: the stream used to re-probe the whole candidate list
+      // on every tick (20+ requests every 500ms) whenever a camera was down.
+      // It must instead back off and stay quiet between attempts.
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 404,
+        headers: { get: () => null },
+      });
+
+      const stream = createMjpegStream({ url: 'http://192.168.1.10/dead', fps: 10 });
+      stream.start();
+      await new Promise(r => setTimeout(r, 60));
+
+      const afterFirstSweep = (global.fetch as jest.Mock).mock.calls.length;
+      expect(afterFirstSweep).toBeGreaterThan(0);
+
+      // The backoff window is 5s, so several poll intervals later there must
+      // be no additional resolution traffic.
+      await new Promise(r => setTimeout(r, 200));
+      expect((global.fetch as jest.Mock).mock.calls.length).toBe(afterFirstSweep);
+      stream.stop();
+    });
+
+    it('probes candidates concurrently and aborts the losers', async () => {
+      // The original implementation awaited each candidate in turn, so a dead
+      // camera cost 20 sequential round-trips before reporting failure.
+      (global.fetch as jest.Mock).mockResolvedValue({
+        ok: false,
+        status: 404,
+        headers: { get: () => null },
+      });
+
+      const inFlight = new Set<string>();
+      let maxInFlight = 0;
+      (global.fetch as jest.Mock).mockImplementation((url: string) => {
+        inFlight.add(url);
+        maxInFlight = Math.max(maxInFlight, inFlight.size);
+        return new Promise((resolve) => {
+          setTimeout(() => {
+            inFlight.delete(url);
+            resolve({ ok: false, status: 404, headers: { get: () => null } });
+          }, 5);
+        });
+      });
+
+      const resolved = await resolveFrameUrl('http://192.168.1.10/mjpg/video.mjpg');
+      expect(resolved).toBeNull();
+      // More than one request must have been open at the same time.
+      expect(maxInFlight).toBeGreaterThan(1);
     });
 
     it('does not emit after stop', async () => {

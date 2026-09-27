@@ -27,9 +27,7 @@ export const AdBanner: React.FC<BannerAdProps> = ({
             <BannerAd
                 unitId={adMobService.getAdUnitId('banner')}
                 size={size}
-                requestOptions={{
-                    requestNonPersonalizedAdsOnly: false,
-                }}
+                requestOptions={adMobService.getRequestOptions()}
                 onAdLoaded={() => {
                     console.log('[AdBanner] Ad loaded successfully');
                 }}

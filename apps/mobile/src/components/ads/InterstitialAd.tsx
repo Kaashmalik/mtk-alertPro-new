@@ -30,7 +30,7 @@ export const useInterstitialAd = () => {
         const interstitial = InterstitialAd.createForAdRequest(
             adMobService.getAdUnitId('interstitial'),
             {
-                requestNonPersonalizedAdsOnly: false,
+                ...adMobService.getRequestOptions(),
             }
         );
 

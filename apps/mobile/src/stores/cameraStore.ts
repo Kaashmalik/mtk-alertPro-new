@@ -9,6 +9,11 @@ import { create } from 'zustand';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { encryptPassword, decryptPassword, isEncrypted } from '@/lib/crypto';
 import {
+  canAddCamera,
+  describeCameraLimit,
+  normalizeTier,
+} from '@/lib/subscription/planLimits';
+import {
   testCameraConnection,
   createHealthMonitor,
   type ConnectionTestResult,
@@ -411,23 +416,33 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       throw createAppError('AUTH_ERROR', 'User not authenticated');
     }
 
-    const { cameras } = get();
+    // Check subscription limits.
+    //
+    // The tier and the count are both read from the server rather than from
+    // local state. Previously the count came from the in-memory camera array,
+    // which is empty on a cold start before fetchCameras() resolves, so the
+    // limit silently did not apply. Combined with `limits[tier]` being
+    // undefined for an unrecognised tier - and `n >= undefined` being false -
+    // the check also failed OPEN, allowing unlimited cameras.
+    const [profileResult, countResult] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('subscription_tier')
+        .eq('id', user.id)
+        .single(),
+      supabase
+        .from('cameras')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+    ]);
 
-    // Check subscription limits
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('subscription_tier')
-      .eq('id', user.id)
-      .single();
+    const tier = normalizeTier(profileResult.data?.subscription_tier);
 
-    const tier = profile?.subscription_tier || 'free';
-    const limits: Record<string, number> = { free: 2, pro: 100, business: 100 };
-
-    if (cameras.length >= limits[tier]) {
+    if (!canAddCamera(tier, countResult.count ?? 0)) {
       throw createAppError(
         'QUOTA_EXCEEDED',
         `Camera limit reached for ${tier} tier`,
-        { userMessage: `Camera limit reached (${limits[tier]}). Upgrade to Pro for unlimited cameras.` }
+        { userMessage: describeCameraLimit(tier) }
       );
     }
 

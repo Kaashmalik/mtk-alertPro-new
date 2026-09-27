@@ -91,7 +91,7 @@ export function MjpegStreamPlayer({
       streamRef.current = null;
     };
     // Restart only when URL/credentials change
-  }, [url, username, password]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [url, username, password]);
 
   const handleRetry = () => {
     streamRef.current?.restart();

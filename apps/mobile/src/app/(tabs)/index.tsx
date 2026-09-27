@@ -54,6 +54,7 @@ import {
 import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
 import { designSystem } from '@/theme/design-system';
 import { AlertCard } from '@/components/animated';
+import { EmergencyButton } from '@/components/emergency/EmergencyButton';
 import { RecordingsModal } from '@/components/camera/RecordingsModal';
 import { LiveCameraGrid } from '@/components/camera/LiveCameraGrid';
 import {
@@ -112,7 +113,9 @@ export default function HomeScreen() {
   const handleToggleRedAlert = async () => {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Heavy);
-    } catch {}
+    } catch {
+      // Haptics are a nice-to-have; never let them block the state toggle.
+    }
 
     toggleScale.value = withSpring(0.9, {}, () => {
       toggleScale.value = withSpring(1);
@@ -128,7 +131,9 @@ export default function HomeScreen() {
   const handleToggleArm = async () => {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
-    } catch {}
+    } catch {
+      // Haptics are a nice-to-have; never let them block the state toggle.
+    }
     toggleArmed();
   };
 
@@ -203,6 +208,10 @@ export default function HomeScreen() {
                   (armed ?? true) ? styles.armChipOn : styles.armChipOff,
                 ]}
                 onPress={handleToggleArm}
+                accessibilityRole="switch"
+                accessibilityState={{ checked: armed ?? true }}
+                accessibilityLabel="Arm detection"
+                accessibilityHint="Turns on AI detection and alerting for all cameras"
               >
                 <Shield
                   size={16}
@@ -212,6 +221,11 @@ export default function HomeScreen() {
                   {(armed ?? true) ? 'ARMED' : 'DISARMED'}
                 </Text>
               </TouchableOpacity>
+
+              {/* Manual emergency trigger: hold to sound the SOS alarm. */}
+              <View style={styles.emergencySlot}>
+                <EmergencyButton size="sm" />
+              </View>
             </View>
 
             <TouchableOpacity
@@ -516,6 +530,12 @@ const styles = StyleSheet.create({
   },
   armRow: {
     marginBottom: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  emergencySlot: {
+    marginLeft: 12,
   },
   armChip: {
     alignSelf: 'flex-start',

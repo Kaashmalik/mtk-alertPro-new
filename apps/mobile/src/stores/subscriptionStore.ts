@@ -6,16 +6,33 @@
  */
 
 import { create } from 'zustand';
+import { useMemo } from 'react';
 import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase } from '@/lib/supabase/client';
 import { logError } from '@/lib/utils/errorHandler';
+import { useCameraStore } from '@/stores/cameraStore';
+import { adMobService } from '@/lib/ads/adMobService';
+import {
+  getPlanLimits,
+  isPaidTier,
+  isTierActive,
+  normalizeTier,
+  remainingCameras,
+  // Aliased: the store exposes its own `canAddCamera` action.
+  canAddCamera as canAddCameraLimit,
+  PLAN_LIMITS,
+  type SubscriptionTier,
+  type PlanLimits,
+} from '@/lib/subscription/planLimits';
+
+// Re-exported so existing `from '@/stores/subscriptionStore'` imports keep
+// working. The definitions now live in lib/subscription/planLimits.
+export type { SubscriptionTier, PlanLimits };
 
 // ============================================================================
 // Types
 // ============================================================================
-
-export type SubscriptionTier = 'free' | 'pro' | 'business';
 
 export interface SubscriptionPlan {
   id: SubscriptionTier;
@@ -26,19 +43,6 @@ export interface SubscriptionPlan {
   features: string[];
   limits: PlanLimits;
   popular?: boolean;
-}
-
-export interface PlanLimits {
-  maxCameras: number;
-  maxAlertHistory: number; // days
-  maxCloudStorage: number; // GB
-  hasAIDetection: boolean;
-  hasFaceRecognition: boolean;
-  hasCustomZones: boolean;
-  hasAdvancedSceneProfiles: boolean;
-  hasPrioritySupport: boolean;
-  hasAPIAccess: boolean;
-  streamQuality: 'sd' | 'hd' | '4k';
 }
 
 export interface SubscriptionState {
@@ -87,26 +91,15 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     currency: 'PKR',
     period: 'monthly',
     features: [
-      '2 Cameras Maximum',
+      `${PLAN_LIMITS.free.maxCameras} Cameras Maximum`,
       'Person & Vehicle Detection',
       'Home, Farm & Shop scene modes',
-      '7-Day Alert History',
+      `${PLAN_LIMITS.free.maxAlertHistory}-Day Alert History`,
       'Email Notifications',
       'Standard Quality Streams',
       'Basic Support',
     ],
-    limits: {
-      maxCameras: 2,
-      maxAlertHistory: 7,
-      maxCloudStorage: 1,
-      hasAIDetection: true,
-      hasFaceRecognition: false,
-      hasCustomZones: false,
-      hasAdvancedSceneProfiles: false,
-      hasPrioritySupport: false,
-      hasAPIAccess: false,
-      streamQuality: 'sd',
-    },
+    limits: PLAN_LIMITS.free,
   },
   {
     id: 'pro',
@@ -117,29 +110,17 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     popular: true,
     features: [
       'Unlimited Cameras',
-      'AI Face Recognition',
       'Person & Vehicle Detection',
       'All scene modes (Parking, Warehouse, School…)',
-      '30-Day Alert History',
+      `${PLAN_LIMITS.pro.maxAlertHistory}-Day Alert History`,
       'Push + Email Notifications',
       'HD/4K Stream Quality',
-      '100GB Cloud Storage',
+      `${PLAN_LIMITS.pro.maxCloudStorageGB}GB Cloud Storage`,
       'Priority Support',
       'Red Alert Mode',
       'Custom Detection Zones',
     ],
-    limits: {
-      maxCameras: Infinity,
-      maxAlertHistory: 30,
-      maxCloudStorage: 100,
-      hasAIDetection: true,
-      hasFaceRecognition: true,
-      hasCustomZones: true,
-      hasAdvancedSceneProfiles: true,
-      hasPrioritySupport: true,
-      hasAPIAccess: false,
-      streamQuality: 'hd',
-    },
+    limits: PLAN_LIMITS.pro,
   },
   {
     id: 'business',
@@ -150,7 +131,6 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     features: [
       'Unlimited Cameras',
       'Advanced AI Analytics',
-      'Face Recognition Database',
       'People Counting',
       'All scene detection profiles',
       'Unlimited Alert History',
@@ -161,18 +141,7 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
       'Custom Integrations',
       'SLA Guaranteed Uptime',
     ],
-    limits: {
-      maxCameras: Infinity,
-      maxAlertHistory: Infinity,
-      maxCloudStorage: Infinity,
-      hasAIDetection: true,
-      hasFaceRecognition: true,
-      hasCustomZones: true,
-      hasAdvancedSceneProfiles: true,
-      hasPrioritySupport: true,
-      hasAPIAccess: true,
-      streamQuality: '4k',
-    },
+    limits: PLAN_LIMITS.business,
   },
 ];
 
@@ -221,16 +190,21 @@ export const useSubscriptionStore = create<SubscriptionState>()(
             throw profileError;
           }
 
-          const tier = (profile?.subscription_tier as SubscriptionTier) || 'free';
-          const expiresAt = profile?.subscription_expires_at 
-            ? new Date(profile.subscription_expires_at) 
+          // An unrecognised tier must not grant paid benefits. Previously the
+          // raw column value was cast straight to SubscriptionTier, so any
+          // unexpected value flowed into every entitlement check.
+          const rawTier = profile?.subscription_tier;
+          const tier = normalizeTier(rawTier);
+          const expiresAt = profile?.subscription_expires_at
+            ? new Date(profile.subscription_expires_at)
             : null;
-          
-          // Check if subscription is still active
-          const isActive = !expiresAt || expiresAt > new Date();
-          const effectiveTier = isActive ? tier : 'free';
 
-          const currentPlan = SUBSCRIPTION_PLANS.find(p => p.id === effectiveTier) || SUBSCRIPTION_PLANS[0];
+          // A paid tier past its expiry is downgraded immediately rather than
+          // persisting until the user next opens the paywall.
+          const effectiveTier = isTierActive(tier, expiresAt) ? tier : 'free';
+
+          const currentPlan =
+            SUBSCRIPTION_PLANS.find((p) => p.id === effectiveTier) ?? SUBSCRIPTION_PLANS[0];
 
           // Fetch usage stats
           const { count: cameraCount } = await supabase
@@ -238,14 +212,21 @@ export const useSubscriptionStore = create<SubscriptionState>()(
             .select('*', { count: 'exact', head: true })
             .eq('user_id', user.id);
 
+          // Prefer the higher of the server count and the local list. If the
+          // count query failed (offline) the server value is 0, and reporting
+          // 0 would advertise free slots the user does not actually have. The
+          // authoritative check in cameraStore.addCamera is unaffected either
+          // way.
+          const localCount = useCameraStore.getState().cameras.length;
+
           set({
             currentTier: effectiveTier,
             expiresAt,
-            isActive,
+            isActive: effectiveTier !== 'free' || !isPaidTier(tier),
             currentPlan,
             usage: {
               ...get().usage,
-              camerasUsed: cameraCount || 0,
+              camerasUsed: Math.max(cameraCount ?? 0, localCount),
             },
             isLoading: false,
           });
@@ -263,32 +244,33 @@ export const useSubscriptionStore = create<SubscriptionState>()(
         await get().initialize();
       },
 
-      // Check if user has access to a feature
-      checkFeatureAccess: (feature: keyof PlanLimits) => {
-        const { currentPlan } = get();
-        if (!currentPlan) return false;
-        
-        const value = currentPlan.limits[feature];
+      // Check if user has access to a feature.
+      // Delegates to the shared table so the UI and the enforcement layer can
+      // never disagree, and applies the expiry check so a lapsed subscription
+      // immediately reports no access.
+      checkFeatureAccess: (feature) => {
+        const { currentTier, expiresAt } = get();
+        const tier = isTierActive(currentTier, expiresAt) ? currentTier : 'free';
+        const value = getPlanLimits(tier)[feature];
         if (typeof value === 'boolean') return value;
         if (typeof value === 'number') return value > 0;
         return true;
       },
 
-      // Check if user can add another camera
+      // Check if user can add another camera.
+      // Display hint only. cameraStore.addCamera performs the authoritative,
+      // server-counted check - this must never be treated as enforcement.
       canAddCamera: () => {
-        const { currentPlan, usage } = get();
-        if (!currentPlan) return false;
-        
-        return usage.camerasUsed < currentPlan.limits.maxCameras;
+        const { currentTier, expiresAt, usage } = get();
+        const tier = isTierActive(currentTier, expiresAt) ? currentTier : 'free';
+        return canAddCameraLimit(tier, usage.camerasUsed);
       },
 
       // Get remaining camera slots
       getRemainingCameras: () => {
-        const { currentPlan, usage } = get();
-        if (!currentPlan) return 0;
-        
-        if (currentPlan.limits.maxCameras === Infinity) return Infinity;
-        return Math.max(0, currentPlan.limits.maxCameras - usage.camerasUsed);
+        const { currentTier, expiresAt, usage } = get();
+        const tier = isTierActive(currentTier, expiresAt) ? currentTier : 'free';
+        return remainingCameras(tier, usage.camerasUsed);
       },
 
       // Get WhatsApp upgrade URL
@@ -316,19 +298,25 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           }
 
           if (planId === 'free') {
-            // Downgrade logic - update in Supabase
-            const { data: { user } } = await supabase.auth.getUser();
-            if (user) {
-              await supabase
-                .from('profiles')
-                .update({ 
-                  subscription_tier: 'free',
-                  subscription_expires_at: null,
-                })
-                .eq('id', user.id);
-              
-              await get().initialize();
+            // Downgrade goes through a SECURITY DEFINER RPC: the RLS hardening
+            // migration revoked column-level UPDATE on subscription fields, so a
+            // direct .update() on profiles is rejected by Postgres.
+            const { data, error } = await supabase.rpc('downgrade_subscription');
+
+            if (error) {
+              set({ isUpgrading: false, error: error.message });
+              return { success: false, message: `Downgrade failed: ${error.message}` };
             }
+
+            const result = data as { success?: boolean; error?: string } | null;
+            if (!result?.success) {
+              const reason = result?.error ?? 'Unknown error';
+              set({ isUpgrading: false, error: reason });
+              return { success: false, message: `Downgrade failed: ${reason}` };
+            }
+
+            await get().initialize();
+            set({ isUpgrading: false });
             return { success: true, message: 'Downgraded to Free plan' };
           }
 
@@ -376,14 +364,73 @@ export const useSubscriptionStore = create<SubscriptionState>()(
 // ============================================================================
 // Helper Hooks
 // ============================================================================
+// Usage Wiring
+// ============================================================================
+
+/**
+ * Keep the camera quota hint in sync with the real camera list.
+ *
+ * `usage.camerasUsed` was previously only written by initialize(), so after
+ * adding or removing a camera the "N of M" counter and the add-camera gate
+ * stayed at their bootstrap values for the rest of the session. A single
+ * subscription keeps one source of truth without scattering updateUsage()
+ * calls across every camera mutation path.
+ *
+ * This is a display hint only. cameraStore.addCamera re-checks the quota with a
+ * server-side count, so enforcement does not depend on this being correct.
+ *
+ * A plain subscribe + local diff is used rather than the selector overload,
+ * which would require adding subscribeWithSelector to cameraStore.
+ */
+let lastKnownCameraCount = useCameraStore.getState().cameras.length;
+if (lastKnownCameraCount !== 0) {
+  useSubscriptionStore.getState().updateUsage({ camerasUsed: lastKnownCameraCount });
+}
+
+useCameraStore.subscribe((state) => {
+  if (state.cameras.length === lastKnownCameraCount) return;
+  lastKnownCameraCount = state.cameras.length;
+  useSubscriptionStore.getState().updateUsage({ camerasUsed: lastKnownCameraCount });
+});
+
+/**
+ * Ad suppression tracks the same expiry-aware rule as feature gating.
+ * `setPremiumStatus` is a plain setter with no caller, so premium users were
+ * still served ads until (unless) something else happened to reset it.
+ */
+let lastKnownAdFree = false;
+const syncAdEntitlement = () => {
+  const { currentTier, expiresAt } = useSubscriptionStore.getState();
+  const adFree = isTierActive(currentTier, expiresAt);
+  if (adFree === lastKnownAdFree) return;
+  lastKnownAdFree = adFree;
+  adMobService.setPremiumStatus(adFree);
+};
+syncAdEntitlement();
+useSubscriptionStore.subscribe(syncAdEntitlement);
+
+// ============================================================================
 
 export const useIsPremium = () => {
   const tier = useSubscriptionStore((state) => state.currentTier);
-  return tier === 'pro' || tier === 'business';
+  const expiresAt = useSubscriptionStore((state) => state.expiresAt);
+  // Expiry-aware. Previously this only compared the tier string, so an expired
+  // subscription kept granting paid features until initialize() happened to
+  // run again. The persisted tier is a render hint; initialize() on bootstrap
+  // re-verifies it against the server.
+  return useMemo(() => isTierActive(tier, expiresAt), [tier, expiresAt]);
 };
 
 export const usePlanLimits = () => {
-  const currentPlan = useSubscriptionStore((state) => state.currentPlan);
-  return currentPlan?.limits || SUBSCRIPTION_PLANS[0].limits;
+  const currentTier = useSubscriptionStore((state) => state.currentTier);
+  const expiresAt = useSubscriptionStore((state) => state.expiresAt);
+  // Resolve through the shared table so the UI can never disagree with the
+  // enforcement layer about what a tier includes.
+  return useMemo(() => {
+    if (isTierActive(currentTier, expiresAt)) {
+      return getPlanLimits(currentTier);
+    }
+    return getPlanLimits('free');
+  }, [currentTier, expiresAt]);
 };
 

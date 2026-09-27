@@ -17,6 +17,7 @@
       "supportsTablet": false,
       "bundleIdentifier": "com.mtk.alertpro",
       "infoPlist": {
+        "NSMicrophoneUsageDescription": "MTK AlertPro uses the microphone only when you choose to record your own custom alarm sound. Recordings stay on this device.",
         "NSUserTrackingUsageDescription": "This app uses your advertising ID to show you relevant ads and improve your experience. You can opt out anytime in Settings.",
         "SKAdNetworkItems": [
           {
@@ -33,26 +34,19 @@
       },
       "permissions": [
         "INTERNET",
-        "POST_NOTIFICATIONS",
-        "VIBRATE",
-        "CAMERA",
-        "RECORD_AUDIO",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "READ_MEDIA_IMAGES",
-        "READ_MEDIA_VIDEO",
-        "WAKE_LOCK",
-        "FOREGROUND_SERVICE",
         "ACCESS_NETWORK_STATE",
         "ACCESS_WIFI_STATE",
+        "POST_NOTIFICATIONS",
+        "VIBRATE",
+        "WAKE_LOCK",
+        "CAMERA",
+        "android.permission.RECORD_AUDIO",
         "android.permission.USE_BIOMETRIC",
         "android.permission.USE_FINGERPRINT",
         "android.permission.READ_EXTERNAL_STORAGE",
-        "android.permission.WRITE_EXTERNAL_STORAGE",
-        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED",
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.READ_MEDIA_VIDEO",
-        "android.permission.READ_MEDIA_AUDIO"
+        "android.permission.READ_MEDIA_VISUAL_USER_SELECTED"
       ]
     },
     "web": {
@@ -67,14 +61,18 @@
             "useFrameworks": "static"
           },
           "android": {
-            "kotlinVersion": "1.9.24",
-            "compileSdkVersion": 35,
-            "targetSdkVersion": 34,
-            "minSdkVersion": 24
+            "compileSdkVersion": 36,
+            "targetSdkVersion": 36,
+            "minSdkVersion": 24,
+            "enableMinifyInReleaseBuilds": true,
+            "enableShrinkResourcesInReleaseBuilds": true,
+            "enableProguardInReleaseBuilds": true
           }
         }
       ],
       "expo-router",
+      "./plugins/withKotlinMetadataSkip",
+      "./plugins/withExpoBundleEntry",
       "expo-secure-store",
       [
         "expo-local-authentication",

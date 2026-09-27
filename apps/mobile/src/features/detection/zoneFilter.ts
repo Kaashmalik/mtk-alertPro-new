@@ -9,7 +9,16 @@ export interface BoundingBox {
   y: number;
   width: number;
   height: number;
+  /**
+   * Model score for this detection, 0..1. Required: per-zone sensitivity is
+   * only meaningful against a real score, and defaulting it would make every
+   * zone threshold pass unconditionally.
+   */
+  confidence: number;
 }
+
+/** Applied to zones that predate the per-zone sensitivity column. */
+const DEFAULT_SENSITIVITY = 0.6;
 
 function pointInPolygon(
   px: number,
@@ -31,7 +40,12 @@ function pointInPolygon(
 }
 
 /**
- * Pass if no active zones, or detection center is inside any active zone.
+ * Pass if no active zones, or the detection center is inside an active zone
+ * whose confidence bar the detection also clears.
+ *
+ * A zone's `sensitivity` lets a noisy area (a road) demand high confidence
+ * while a driveway stays sensitive. Default 0.6 for zones written before the
+ * column existed.
  */
 export function isDetectionInZones(
   box: BoundingBox | undefined,
@@ -46,5 +60,9 @@ export function isDetectionInZones(
   const cx = box.x + box.width / 2;
   const cy = box.y + box.height / 2;
 
-  return active.some((z) => pointInPolygon(cx, cy, z.polygon));
+  return active.some((z) => {
+    if (!pointInPolygon(cx, cy, z.polygon)) return false;
+    const threshold = typeof z.sensitivity === 'number' ? z.sensitivity : DEFAULT_SENSITIVITY;
+    return box.confidence >= threshold;
+  });
 }

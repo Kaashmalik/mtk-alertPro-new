@@ -231,8 +231,13 @@ class DetectionManager {
     try {
       let detections = await detectionService.detect(framePath);
 
+      // Zone sensitivity is judged against the model's score, so pair the box
+      // with its confidence rather than letting the filter assume a perfect 1.0.
       detections = detections.filter((d) =>
-        isDetectionInZones(d.boundingBox, camera.detectionSettings.zones)
+        isDetectionInZones(
+          d.boundingBox ? { ...d.boundingBox, confidence: d.confidence } : undefined,
+          camera.detectionSettings.zones
+        )
       );
 
       const validDetections = detections.filter((detection) => {

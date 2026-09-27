@@ -286,6 +286,8 @@ describe('Camera Store', () => {
           return {
             insert: jest.fn().mockReturnThis(),
             select: jest.fn().mockReturnThis(),
+            // Quota check: a head/count query that resolves on eq().
+            eq: jest.fn().mockResolvedValue({ count: 0, error: null }),
             single: jest.fn().mockResolvedValue({
               data: newCameraData,
               error: null,
@@ -723,8 +725,9 @@ describe('Camera Store', () => {
       ).data?.password;
       expect(queuedPassword).toBeDefined();
       expect(queuedPassword).not.toBe('SuperSecret123!');
-      // CryptoJS AES ciphertexts carry the OpenSSL "Salted__" base64 prefix
-      expect(queuedPassword).toMatch(/^U2FsdGVk/);
+      // v2 format: "v2:<base64 iv>:<base64 ciphertext>". The IV is random per
+      // encryption, so two encryptions of the same password must differ.
+      expect(queuedPassword).toMatch(/^v2:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
 
       // Persisted copy must also be encrypted — never raw text on disk
       const persisted = await loadOfflineQueue();
@@ -734,7 +737,7 @@ describe('Camera Store', () => {
       ).data?.password;
       expect(persistedPassword).toBeDefined();
       expect(persistedPassword).not.toBe('SuperSecret123!');
-      expect(persistedPassword).toMatch(/^U2FsdGVk/);
+      expect(persistedPassword).toMatch(/^v2:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
     });
 
     it('strips the password instead of queueing plaintext when no user id is available', async () => {
@@ -1035,7 +1038,13 @@ describe('Camera Store', () => {
             }),
           };
         }
-        return { insert: insertMock, select: jest.fn().mockReturnThis(), single: singleMock };
+        return {
+          insert: insertMock,
+          select: jest.fn().mockReturnThis(),
+          // Quota check: head/count query resolving on eq().
+          eq: jest.fn().mockResolvedValue({ count: 0, error: null }),
+          single: singleMock,
+        };
       });
 
       (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });

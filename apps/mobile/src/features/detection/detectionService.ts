@@ -15,6 +15,7 @@ if (Platform.OS !== 'web') {
     }
 }
 import * as FileSystem from 'expo-file-system/legacy';
+import { File as ExpoFile } from 'expo-file-system';
 import NetInfo from '@react-native-community/netinfo';
 import { logError } from '@/lib/utils/errorHandler';
 import type { DetectionResult } from '@/types';
@@ -23,13 +24,17 @@ import { COCO_DETECTION_CLASSES, mapCocoClassToDetectionType } from './cocoClass
 export { mapCocoClassToDetectionType };
 
 const DETECTION_CONFIG = {
-  inputSize: 320,
+  // SSD MobileNet V2 (COCO) consumes 300x300. This is only a fallback — the
+  // authoritative size is read from `model.inputs[0].shape` once loaded.
+  inputSize: 300,
+  // MobileNet feature extractors pre-process to [-1, 1] (x / 127.5 - 1).
+  // Feeding [0, 1] silently degrades accuracy, so this is explicit.
+  pixelScale: 127.5,
   scoreThreshold: 0.65,
   maxDetections: 10,
   typeThresholds: {
     person: 0.6,
     vehicle: 0.65,
-    face: 0.6,
     animal: 0.55,
   },
 } as const;
@@ -46,6 +51,32 @@ class DetectionService {
   private netInfoUnsubscribe: (() => void) | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
   private disposed = false;
+  private inputSize: number = DETECTION_CONFIG.inputSize;
+
+  /**
+   * Prefer the model's own declared input shape over the hardcoded constant so
+   * a mismatch can never silently degrade accuracy again.
+   */
+  private _syncInputSize(model: tf.GraphModel): void {
+    try {
+      const declared = model.inputs?.[0]?.shape;
+      if (declared && declared.length === 4) {
+        const [, height, width] = declared;
+        if (typeof height === 'number' && height > 0 && height === width) {
+          if (this.inputSize !== height) {
+            console.log(
+              `[DetectionService] Using model-declared input size ${height}x${height}`,
+            );
+          }
+          this.inputSize = height;
+          return;
+        }
+      }
+    } catch {
+      // Fall through to the configured default.
+    }
+    this.inputSize = DETECTION_CONFIG.inputSize;
+  }
 
   async initialize(): Promise<void> {
     if (this.isReady && !this.isFallbackMode) return;
@@ -81,6 +112,7 @@ class DetectionService {
         );
         this.model = (await Promise.race([loadPromise, timeoutPromise])) as tf.GraphModel;
         this.isFallbackMode = false;
+        this._syncInputSize(this.model);
         console.log('[DetectionService] SSD MobileNet model loaded successfully');
         this._stopModelRetryWatcher();
       } catch (loadError) {
@@ -149,6 +181,7 @@ class DetectionService {
       );
       this.model = (await Promise.race([loadPromise, timeoutPromise])) as tf.GraphModel;
       this.isFallbackMode = false;
+      this._syncInputSize(this.model);
       console.log('[DetectionService] Model loaded successfully on retry');
       this._stopModelRetryWatcher();
     } catch (error) {
@@ -228,21 +261,22 @@ class DetectionService {
     const startTime = Date.now();
 
     try {
-      // 🔒 MEMORY SAFE: Load and process image
-      const imageBuffer = await FileSystem.readAsStringAsync(imageUri, {
-        encoding: FileSystem.EncodingType.Base64,
-      });
-
-      const buffer = tf.util.encodeString(imageBuffer, 'base64');
-      const rawImage = decodeJpeg(new Uint8Array(buffer.buffer));
+      // Read raw JPEG bytes. Reading via the file bytes API avoids the old
+      // base64 string round-trip (~1.4x the JPEG size allocated as a JS string
+      // per frame, then re-decoded). The base64 path remains as a safety net.
+      const rawImage = decodeJpeg(await this._readJpegBytes(imageUri));
 
       const resized = tf.image.resizeBilinear(rawImage, [
-        DETECTION_CONFIG.inputSize,
-        DETECTION_CONFIG.inputSize,
+        this.inputSize,
+        this.inputSize,
       ]);
       rawImage.dispose();
 
-      const normalized = resized.div(255.0);
+      // MobileNet feature extractors expect [-1, 1]. A plain /255 maps into
+      // [0, 1], which biases activations and measurably lowers confidence.
+      const normalized = resized
+        .div(DETECTION_CONFIG.pixelScale)
+        .sub(1);
       resized.dispose();
 
       const batched = normalized.expandDims(0);
@@ -282,6 +316,23 @@ class DetectionService {
         tf.disposeVariables();
       }
     }
+  }
+
+  /** Decode a JPEG into RGBA bytes, preferring the zero-allocation file API. */
+  private async _readJpegBytes(imageUri: string): Promise<Uint8Array> {
+    try {
+      const bytes = await new ExpoFile(imageUri).bytes();
+      if (bytes instanceof Uint8Array && bytes.byteLength > 0) return bytes;
+    } catch (e) {
+      console.warn('[DetectionService] bytes() read failed, using base64', e);
+    }
+
+    const imageBuffer = await FileSystem.readAsStringAsync(imageUri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+    // Pass the typed array itself — its byteOffset/length are authoritative,
+    // unlike the underlying ArrayBuffer which may be a differently-sized view.
+    return tf.util.encodeString(imageBuffer, 'base64');
   }
 
   private async _parsePredictions(
@@ -326,25 +377,6 @@ class DetectionService {
           height: y2 - y1,
         },
       });
-
-      // When a person is detected, extract face region candidate for face detection alerts
-      if (detectionType === 'person' && score >= (DETECTION_CONFIG.typeThresholds.face || 0.6)) {
-        const faceHeight = (y2 - y1) * 0.3;
-        const faceWidth = (x2 - x1) * 0.55;
-        const faceX = x1 + ((x2 - x1) - faceWidth) / 2;
-        const faceY = y1 + (y2 - y1) * 0.05;
-
-        results.push({
-          type: 'face',
-          confidence: Math.round(score * 0.95 * 100) / 100,
-          boundingBox: {
-            x: Math.max(0, faceX),
-            y: Math.max(0, faceY),
-            width: Math.min(1, faceWidth),
-            height: Math.min(1, faceHeight),
-          },
-        });
-      }
     }
 
     return results.sort((a, b) => b.confidence - a.confidence);

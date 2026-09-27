@@ -16,7 +16,7 @@ import { designSystem } from '@/theme/design-system';
 
 interface AlertCardProps {
     id: string;
-    type: 'person' | 'vehicle' | 'motion' | 'face' | 'animal';
+    type: 'person' | 'vehicle' | 'motion' | 'face' | 'animal' | 'emergency';
     confidence: number;
     timestamp: Date;
     thumbnailUrl?: string;
@@ -49,6 +49,7 @@ export const AlertCard: React.FC<AlertCardProps> = ({
         motion: '💨',
         face: '🔍',
         animal: '🐾',
+        emergency: '🆘',
     };
 
     const gesture = Gesture.Pan()

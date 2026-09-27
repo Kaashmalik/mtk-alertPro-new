@@ -7,6 +7,7 @@ export {
   decryptPassword,
   hashString,
   generateRandomKey,
+  initializeEncryption,
   isEncrypted,
 } from './encryption';
 

@@ -118,7 +118,7 @@ export function getRecurrenceDescription(schedule: AutomationSchedule): string {
         case 'weekends':
             return 'Weekends (Sat-Sun)';
 
-        case 'custom':
+        case 'custom': {
             if (!schedule.daysOfWeek || schedule.daysOfWeek.length === 0) {
                 return 'Never';
             }
@@ -128,6 +128,7 @@ export function getRecurrenceDescription(schedule: AutomationSchedule): string {
                 .map(d => dayNames[d])
                 .join(', ');
             return selectedDays;
+        }
 
         default:
             return 'Unknown';
