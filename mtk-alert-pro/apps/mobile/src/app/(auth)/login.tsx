@@ -4,10 +4,11 @@
  * Beautiful login experience with biometric support and animations
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import {
   View,
   Text,
+  TextInput,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -15,12 +16,11 @@ import {
   TouchableOpacity,
   StatusBar,
   ActivityIndicator,
-  Dimensions,
 } from 'react-native';
 import { router } from 'expo-router';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Shield, Mail, Lock, Fingerprint, Eye, EyeOff, ArrowRight } from 'lucide-react-native';
+import { Shield, Mail, Lock, Fingerprint, ArrowRight } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
 import { useForm, Controller } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -34,11 +34,9 @@ import {
   checkBiometricCapability,
 } from '@/lib/biometric';
 
-const { height: SCREEN_HEIGHT } = Dimensions.get('window');
-
 const loginSchema = z.object({
-  email: z.string().email('Please enter a valid email'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
+  email: z.string().min(1, 'Email is required').email('Please enter a valid email'),
+  password: z.string().min(1, 'Password is required').min(6, 'Password must be at least 6 characters'),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
@@ -49,9 +47,11 @@ export default function LoginScreen() {
 
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showPassword, setShowPassword] = useState(false);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricLoading, setBiometricLoading] = useState(false);
+
+  const emailInputRef = useRef<TextInput>(null);
+  const passwordInputRef = useRef<TextInput>(null);
 
   const { control, handleSubmit, formState: { errors } } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
@@ -73,13 +73,6 @@ export default function LoginScreen() {
 
         if (mounted) {
           setBiometricAvailable(available);
-
-          // Auto-prompt biometric on mount if available
-          if (available) {
-            setTimeout(() => {
-              if (mounted) handleBiometricLogin();
-            }, 500);
-          }
         }
       } catch (err) {
         console.warn('Biometric check error:', err);
@@ -116,7 +109,7 @@ export default function LoginScreen() {
           setError(result.error);
         }
       }
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.warn('Biometric login skipped:', err);
     } finally {
       setBiometricLoading(false);
@@ -130,9 +123,9 @@ export default function LoginScreen() {
     try {
       await signInWithEmail(data.email, data.password);
       router.replace('/(tabs)');
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Login error:', err);
-      setError(err.message || 'Login failed. Please try again.');
+      setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -142,16 +135,18 @@ export default function LoginScreen() {
     <View style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
 
-      <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.keyboardView}
-      >
-        <ScrollView
-          contentContainerStyle={styles.scrollContent}
-          keyboardShouldPersistTaps="handled"
-          showsVerticalScrollIndicator={false}
+      <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+          style={styles.keyboardView}
+          keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : undefined}
         >
-          <SafeAreaView style={styles.safeArea}>
+          <ScrollView
+            contentContainerStyle={styles.scrollContent}
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={false}
+            keyboardDismissMode="on-drag"
+          >
             {/* Hero Section */}
             <Animated.View
               entering={FadeInDown.delay(100).duration(800)}
@@ -192,11 +187,16 @@ export default function LoginScreen() {
                   name="email"
                   render={({ field: { onChange, onBlur, value } }) => (
                     <Input
+                      ref={emailInputRef}
                       label="Email Address"
                       placeholder="Enter your email"
                       keyboardType="email-address"
                       autoCapitalize="none"
                       autoComplete="email"
+                      textContentType="emailAddress"
+                      returnKeyType="next"
+                      blurOnSubmit={false}
+                      onSubmitEditing={() => passwordInputRef.current?.focus()}
                       leftIcon={<Mail size={20} color={designSystem.colors.text.muted} />}
                       value={value}
                       onChangeText={onChange}
@@ -215,10 +215,15 @@ export default function LoginScreen() {
                   name="password"
                   render={({ field: { onChange, onBlur, value } }) => (
                     <Input
+                      ref={passwordInputRef}
                       label="Password"
                       placeholder="Enter your password"
-                      secureTextEntry={!showPassword}
+                      secureTextEntry
                       autoCapitalize="none"
+                      autoComplete="current-password"
+                      textContentType="password"
+                      returnKeyType="done"
+                      onSubmitEditing={handleSubmit(onSubmit)}
                       leftIcon={<Lock size={20} color={designSystem.colors.text.muted} />}
                       value={value}
                       onChangeText={onChange}
@@ -305,9 +310,9 @@ export default function LoginScreen() {
                 <Text style={styles.footerLink}>Terms of Service</Text>
               </Text>
             </View>
-          </SafeAreaView>
-        </ScrollView>
-      </KeyboardAvoidingView>
+          </ScrollView>
+        </KeyboardAvoidingView>
+      </SafeAreaView>
     </View>
   );
 }
@@ -321,20 +326,20 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: designSystem.colors.background.primary,
   },
+  safeArea: {
+    flex: 1,
+  },
   keyboardView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    minHeight: SCREEN_HEIGHT,
-  },
-  safeArea: {
-    flex: 1,
     justifyContent: 'center',
+    paddingVertical: designSystem.spacing.xl,
   },
   heroSection: {
     alignItems: 'center',
-    paddingTop: designSystem.spacing.xxxl,
+    paddingTop: designSystem.spacing.xxl,
     paddingBottom: designSystem.spacing.xxl,
   },
   logoContainer: {

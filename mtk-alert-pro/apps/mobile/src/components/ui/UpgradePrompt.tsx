@@ -29,6 +29,7 @@ import {
 import { colors, spacing, fontSize, borderRadius, shadows, palette } from '@/lib/theme';
 import { useSubscriptionStore, useIsPremium } from '@/stores/subscriptionStore';
 import { subscriptionService, type UpgradePromptConfig } from '@/lib/subscription/subscriptionService';
+import type { BooleanFeature } from '@/lib/subscription/planLimits';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
@@ -44,7 +45,13 @@ interface UpgradePromptProps {
 }
 
 interface FeatureGateProps {
-  feature: string;
+  /**
+   * Typed as the boolean subset of PlanLimits so a typo or a numeric limit
+   * cannot be passed as a gate. Previously `string`, and the value was cast to
+   * `any` at the call to checkFeatureAccess, so a misspelled feature silently
+   * evaluated to `undefined` -> falsy and locked the UI permanently.
+   */
+  feature: BooleanFeature;
   children: React.ReactNode;
   fallback?: React.ReactNode;
   showLockIcon?: boolean;
@@ -206,11 +213,10 @@ export function FeatureGate({
   fallback,
   showLockIcon = true,
 }: FeatureGateProps) {
-  const currentTier = useSubscriptionStore((state) => state.currentTier);
   const checkFeatureAccess = useSubscriptionStore((state) => state.checkFeatureAccess);
   const [showUpgrade, setShowUpgrade] = useState(false);
 
-  const hasAccess = checkFeatureAccess(feature as any);
+  const hasAccess = checkFeatureAccess(feature);
 
   if (hasAccess) {
     return <>{children}</>;

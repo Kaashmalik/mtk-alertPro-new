@@ -1,5 +1,15 @@
 import { useState } from 'react';
-import { View, Text, Alert, StyleSheet, TouchableOpacity, StatusBar } from 'react-native';
+import {
+  View,
+  Text,
+  Alert,
+  StyleSheet,
+  TouchableOpacity,
+  StatusBar,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+} from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import { Mail, ArrowLeft } from 'lucide-react-native';
@@ -8,7 +18,7 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Button, Input } from '@/components/ui';
 import { supabase } from '@/lib/supabase/client';
-import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
+import { colors, spacing, fontSize } from '@/lib/theme';
 
 const schema = z.object({
   email: z.string().email('Invalid email address'),
@@ -53,7 +63,7 @@ export default function ForgotPasswordScreen() {
   return (
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
-      
+
       {/* Back Button */}
       <TouchableOpacity
         onPress={() => router.back()}
@@ -63,40 +73,55 @@ export default function ForgotPasswordScreen() {
         <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
 
-      <View style={styles.content}>
-        <Text style={styles.title}>
-          Forgot Password?
-        </Text>
-        <Text style={styles.subtitle}>
-          Enter your email and we'll send you a link to reset your password.
-        </Text>
-
-        <Controller
-          control={control}
-          name="email"
-          render={({ field: { onChange, onBlur, value } }) => (
-            <Input
-              label="Email"
-              placeholder="Enter your email"
-              keyboardType="email-address"
-              autoCapitalize="none"
-              leftIcon={<Mail size={20} color={colors.text.muted} />}
-              value={value}
-              onChangeText={onChange}
-              onBlur={onBlur}
-              error={errors.email?.message}
-            />
-          )}
-        />
-
-        <Button
-          style={styles.submitButton}
-          onPress={handleSubmit(onSubmit)}
-          loading={isLoading}
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+        style={styles.keyboardView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : undefined}
+      >
+        <ScrollView
+          contentContainerStyle={styles.scrollContent}
+          keyboardShouldPersistTaps="handled"
+          showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
         >
-          Send Reset Link
-        </Button>
-      </View>
+          <View style={styles.content}>
+            <Text style={styles.title}>
+              Forgot Password?
+            </Text>
+            <Text style={styles.subtitle}>
+              Enter your email and we'll send you a link to reset your password.
+            </Text>
+
+            <Controller
+              control={control}
+              name="email"
+              render={({ field: { onChange, onBlur, value } }) => (
+                <Input
+                  label="Email"
+                  placeholder="Enter your email"
+                  keyboardType="email-address"
+                  autoCapitalize="none"
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  leftIcon={<Mail size={20} color={colors.text.muted} />}
+                  value={value}
+                  onChangeText={onChange}
+                  onBlur={onBlur}
+                  error={errors.email?.message}
+                />
+              )}
+            />
+
+            <Button
+              style={styles.submitButton}
+              onPress={handleSubmit(onSubmit)}
+              loading={isLoading}
+            >
+              Send Reset Link
+            </Button>
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
     </SafeAreaView>
   );
 }
@@ -117,9 +142,15 @@ const styles = StyleSheet.create({
     marginLeft: spacing.sm,
     fontSize: fontSize.base,
   },
-  content: {
+  keyboardView: {
     flex: 1,
+  },
+  scrollContent: {
+    flexGrow: 1,
     justifyContent: 'center',
+  },
+  content: {
+    width: '100%',
   },
   title: {
     color: colors.text.primary,

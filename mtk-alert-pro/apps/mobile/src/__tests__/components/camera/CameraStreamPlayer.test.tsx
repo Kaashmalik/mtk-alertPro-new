@@ -15,6 +15,8 @@ jest.mock('@/lib/streaming/streamingService', () => ({
     getStreamStatus: jest.fn(),
     getHlsUrl: jest.fn(),
     isRegistered: jest.fn(),
+    checkMediaServerHealth: jest.fn().mockResolvedValue(true),
+    cachePreferredStreams: jest.fn(),
   },
 }));
 
@@ -76,6 +78,7 @@ describe('CameraStreamPlayer', () => {
     });
     
     (streamingService.unregisterCamera as jest.Mock).mockResolvedValue(true);
+    (streamingService.checkMediaServerHealth as jest.Mock).mockResolvedValue(true);
   });
 
   // =========================================================================

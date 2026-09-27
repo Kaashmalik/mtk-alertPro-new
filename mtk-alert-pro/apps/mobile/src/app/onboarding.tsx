@@ -30,6 +30,7 @@ import {
 } from 'lucide-react-native';
 import { colors, spacing, fontSize, borderRadius, palette } from '@/lib/theme';
 import { hapticPrimaryAction, hapticSelection } from '@/lib/haptics';
+import { ensureNotificationPermission } from '@/lib/notifications/service';
 
 const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
@@ -109,6 +110,23 @@ export default function OnboardingScreen() {
 
   const handleComplete = async () => {
     hapticPrimaryAction();
+
+    // Ask for notification permission here rather than at cold start.
+    //
+    // The app's own `notifications.enabled` setting defaults to true, so
+    // without this the app believes alerts are on while Android 13+ silently
+    // drops every one of them. Onboarding is the one moment where the request
+    // has context - the slides have just explained that the app sends
+    // intruder alerts - which is what both the Play policy and the platform
+    // permission guidance ask for. A cold-start prompt on first launch has no
+    // context and is the most common way to get a permanent denial.
+    try {
+      await ensureNotificationPermission();
+    } catch (error) {
+      // Never block onboarding on a permission prompt.
+      console.warn('[Onboarding] Notification permission request failed:', error);
+    }
+
     await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
     router.replace('/(auth)/login');
   };

@@ -58,7 +58,7 @@ export async function handleDetectionAlarm(
             alarmVolume: notifications.alarmVolume,
             repeatAlarm: notifications.repeatAlarm,
             repeatCount: notifications.repeatCount,
-        });
+        }, notifications.vibration);
         return;
     }
 
@@ -71,8 +71,8 @@ export async function handleDetectionAlarm(
             alarmVolume: notifications.alarmVolume,
             repeatAlarm: notifications.repeatAlarm,
             repeatCount: notifications.repeatCount,
-        });
-    } else {
+        }, notifications.vibration);
+    } else if (notifications.vibration) {
         // Low-priority detection: just haptic feedback
         hapticNotification();
     }
@@ -81,10 +81,12 @@ export async function handleDetectionAlarm(
 /**
  * Trigger alarm with configuration
  */
-async function triggerAlarm(config: DetectionAlarmConfig): Promise<void> {
+async function triggerAlarm(config: DetectionAlarmConfig, vibrate: boolean): Promise<void> {
     try {
         // Play haptic feedback
-        hapticNotification();
+        if (vibrate) {
+            hapticNotification();
+        }
 
         // Play alarm sound
         await alarmService.playAlarm(
@@ -93,6 +95,9 @@ async function triggerAlarm(config: DetectionAlarmConfig): Promise<void> {
                 volume: config.alarmVolume,
                 repeat: config.repeatAlarm,
                 repeatCount: config.repeatCount,
+                // Respect the user's vibration preference. The service used to
+                // vibrate unconditionally, ignoring the settings toggle.
+                vibrate,
             }
         );
 

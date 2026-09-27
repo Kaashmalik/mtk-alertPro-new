@@ -139,9 +139,9 @@ function HlsCameraStreamPlayer({
   // Refs
   const videoRef = useRef<Video>(null);
   const containerRef = useRef<View>(null);
-  const statusCheckInterval = useRef<NodeJS.Timeout | null>(null);
-  const retryTimeout = useRef<NodeJS.Timeout | null>(null);
-  const controlsTimeout = useRef<NodeJS.Timeout | null>(null);
+  const statusCheckInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const retryTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // State
   const [playerState, setPlayerState] = useState<PlayerState>('idle');
@@ -284,7 +284,7 @@ function HlsCameraStreamPlayer({
 
   // Recording timer
   useEffect(() => {
-    let timer: NodeJS.Timeout;
+    let timer: ReturnType<typeof setInterval> | undefined;
     if (isRecording) {
       timer = setInterval(() => {
         setRecordingDuration(prev => prev + 1);

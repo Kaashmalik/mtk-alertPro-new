@@ -1,6 +1,6 @@
-# Exclude everything except apps/mobile
-node_modules/
-**/node_modules/
+﻿# Exclude everything except apps/mobile
+node_modules
+**/node_modules
 
 # Other apps and packages
 packages/
@@ -13,12 +13,20 @@ docs/
 pruned/
 .git/
 .github/
+server/
+supabase/
+src/
+
+# Native folders (nested)
+**/android/
+**/ios/
+
 
 # Lock files
-pnpm-lock.yaml
-package-lock.json
-yarn.lock
-*.lock
+
+
+
+
 
 # Logs and caches
 *.log
@@ -36,3 +44,30 @@ yarn.lock
 Thumbs.db
 
 # Keep only apps/mobile (handled by its own .easignore)
+
+# Exclusions from mobile app
+**/coverage/
+**/dist/
+**/build/
+**/__tests__/
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/*.spec.tsx
+**/*.zip
+**/*.tar
+**/*.tar.gz
+**/*.rar
+**/*.7z
+**/*.map
+**/*.mp4
+**/*.mov
+**/*.avi
+**/*.mkv
+**/*.mp3
+**/*.wav
+**/*.flac
+apps/mobile/assets/sounds/
+apps/mobile/assets/videos/
+apps/mobile/assets/large-assets/
+apps/mobile/expo-doctor-report*.txt

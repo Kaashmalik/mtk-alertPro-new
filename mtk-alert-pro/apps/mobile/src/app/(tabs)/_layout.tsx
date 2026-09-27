@@ -1,11 +1,15 @@
 import { Tabs } from 'expo-router';
 import { Home, Camera, Bell, Settings } from 'lucide-react-native';
 import { View, Text, StyleSheet } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAlertStore } from '@/stores';
 import { colors } from '@/lib/theme';
 
+const TAB_BAR_CONTENT_HEIGHT = 60;
+
 export default function TabsLayout() {
   const { unreadCount } = useAlertStore();
+  const insets = useSafeAreaInsets();
 
   return (
     <Tabs
@@ -15,8 +19,13 @@ export default function TabsLayout() {
           backgroundColor: colors.bg.secondary,
           borderTopColor: colors.border.default,
           borderTopWidth: 1,
-          height: 70,
-          paddingBottom: 10,
+          // Do NOT hardcode `height`. React Navigation applies
+          // `insets.bottom` before `tabBarStyle`, so a fixed height overrides
+          // the safe area and the tab labels end up underneath the iOS home
+          // indicator (and the Android gesture bar). Adding the inset to the
+          // height preserves both.
+          height: TAB_BAR_CONTENT_HEIGHT + insets.bottom,
+          paddingBottom: Math.max(insets.bottom, 10),
           paddingTop: 10,
         },
         tabBarActiveTintColor: colors.brand.red,
@@ -32,6 +41,7 @@ export default function TabsLayout() {
         name="index"
         options={{
           title: 'Home',
+          tabBarAccessibilityLabel: 'Home dashboard',
           tabBarIcon: ({ color, size }) => <Home size={size} color={color} />,
         }}
       />
@@ -39,6 +49,7 @@ export default function TabsLayout() {
         name="cameras"
         options={{
           title: 'Cameras',
+          tabBarAccessibilityLabel: 'Cameras',
           tabBarIcon: ({ color, size }) => <Camera size={size} color={color} />,
         }}
       />
@@ -46,6 +57,10 @@ export default function TabsLayout() {
         name="alerts"
         options={{
           title: 'Alerts',
+          // Announce the unread count so screen-reader users know the tab
+          // holds unread alerts rather than only seeing a coloured dot.
+          tabBarAccessibilityLabel:
+            unreadCount > 0 ? `Alerts, ${unreadCount} unread` : 'Alerts',
           tabBarIcon: ({ color, size }) => (
             <View>
               <Bell size={size} color={color} />
@@ -64,6 +79,7 @@ export default function TabsLayout() {
         name="settings"
         options={{
           title: 'Settings',
+          tabBarAccessibilityLabel: 'Settings',
           tabBarIcon: ({ color, size }) => <Settings size={size} color={color} />,
         }}
       />

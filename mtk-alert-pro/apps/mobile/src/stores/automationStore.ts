@@ -13,6 +13,11 @@ import {
     validateSchedule,
 } from '@/lib/automation/automationService';
 import { useSettingsStore } from '@/stores/settingsStore';
+import {
+    canCreateAutomation,
+    normalizeTier,
+    MAX_AUTOMATIONS,
+} from '@/lib/subscription/planLimits';
 import type {
     CameraAutomation,
     CameraAutomationDB,
@@ -112,6 +117,12 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
             return;
         }
 
+        const { data: { session } } = await supabase.auth.getSession();
+        if (!session?.user) {
+            set({ automations: [], isLoading: false, error: null });
+            return;
+        }
+
         set({ isLoading: true, error: null });
 
         try {
@@ -146,6 +157,36 @@ export const useAutomationStore = create<AutomationState>((set, get) => ({
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) {
             throw createAppError('AUTH_ERROR', 'User not authenticated');
+        }
+
+        // Enforce the automation quota here, in the action, not only in the
+        // list screen. The screen check was trivially bypassed because
+        // /settings/automations/create is directly routable and the store
+        // never validated. Counts are server-authoritative.
+        const [profileResult, countResult] = await Promise.all([
+            supabase
+                .from('profiles')
+                .select('subscription_tier')
+                .eq('id', user.id)
+                .single(),
+            supabase
+                .from('camera_automations')
+                .select('id', { count: 'exact', head: true })
+                .eq('user_id', user.id),
+        ]);
+
+        const tier = normalizeTier(profileResult.data?.subscription_tier);
+        if (!canCreateAutomation(tier, countResult.count ?? 0)) {
+            const limit = MAX_AUTOMATIONS[tier];
+            throw createAppError(
+                'QUOTA_EXCEEDED',
+                `Automation limit reached for ${tier} tier`,
+                {
+                    userMessage: limit === Infinity
+                        ? 'Automation limit reached.'
+                        : `Automation limit reached (${limit}). Upgrade for more automations.`,
+                }
+            );
         }
 
         const dbData = automationToDb({

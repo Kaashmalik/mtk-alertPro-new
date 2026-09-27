@@ -7,12 +7,16 @@
 // Ensure encryption key is present before module import in node environment
 process.env.EXPO_PUBLIC_ENCRYPTION_KEY = 'test-secret-key-32-characters-len!';
 
+import CryptoJS from 'crypto-js';
+import * as SecureStore from 'expo-secure-store';
 import {
   encryptPassword,
   decryptPassword,
   hashString,
   generateRandomKey,
   isEncrypted,
+  initializeEncryption,
+  __resetDeviceKeyForTests,
 } from '@/lib/crypto/encryption';
 
 describe('Encryption Utility', () => {
@@ -260,6 +264,84 @@ describe('Encryption Utility', () => {
     it('should return true for base64 encoded strings', () => {
       const base64 = 'U2FsdGVkX1+SomeBase64String==';
       expect(isEncrypted(base64)).toBe(true);
+    });
+
+    it('should NOT treat pure-alphanumeric passwords as already encrypted', () => {
+      // Regression: loose base64 charset check made hunter2/ShouldNotPersist
+      // look "encrypted", so addCamera skipped encryption and queued plaintext.
+      expect(isEncrypted('hunter2')).toBe(false);
+      expect(isEncrypted('ShouldNotPersist')).toBe(false);
+      expect(isEncrypted('Password123')).toBe(false);
+    });
+  });
+
+  // =========================================================================
+  // Legacy migration
+  // =========================================================================
+  describe('legacy ciphertext migration', () => {
+    /**
+     * Produce a pre-v2 ciphertext the way the old CryptoJS passphrase
+     * implementation did: `salt:password` encrypted under the environment key.
+     */
+    const legacyEncrypt = (password: string, salt: string, key: string): string =>
+      CryptoJS.AES.encrypt(`${salt}:${password}`, key).toString();
+
+    beforeEach(() => {
+      __resetDeviceKeyForTests();
+    });
+
+    afterEach(() => {
+      __resetDeviceKeyForTests();
+    });
+
+    it('decrypts a legacy row with the environment key when no device key exists', () => {
+      const legacy = legacyEncrypt('hunter2', 'user-1', process.env.EXPO_PUBLIC_ENCRYPTION_KEY!);
+
+      expect(isEncrypted(legacy)).toBe(true);
+      expect(decryptPassword(legacy, 'user-1')).toBe('hunter2');
+    });
+
+    it('still decrypts a legacy row after a device key has been generated', async () => {
+      // The upgrade regression: initializeEncryption() creates a SecureStore
+      // key on first launch. Decrypting legacy rows with only that key made
+      // every previously stored camera password unreadable.
+      const legacy = legacyEncrypt('hunter2', 'user-1', process.env.EXPO_PUBLIC_ENCRYPTION_KEY!);
+
+      const setItemAsync = jest.fn().mockResolvedValue(undefined);
+      const getItemAsync = jest
+        .spyOn(SecureStore, 'getItemAsync')
+        .mockResolvedValue('a-brand-new-device-key-000000');
+      jest.spyOn(SecureStore, 'setItemAsync').mockImplementation(setItemAsync);
+
+      await initializeEncryption();
+
+      // Guard: the test is only meaningful if a device key actually replaced
+      // the environment key, otherwise the legacy decrypt would have passed
+      // even with the bug.
+      expect(getItemAsync).toHaveBeenCalled();
+      expect('a-brand-new-device-key-000000').not.toBe(process.env.EXPO_PUBLIC_ENCRYPTION_KEY);
+
+      // A fresh v2 write uses the device key...
+      const v2 = encryptPassword('newpass', 'user-1');
+      expect(v2.startsWith('v2:')).toBe(true);
+
+      // ...but the legacy row, which predates that key, still opens.
+      expect(decryptPassword(legacy, 'user-1')).toBe('hunter2');
+
+      (SecureStore.getItemAsync as jest.Mock).mockRestore?.();
+      (SecureStore.setItemAsync as jest.Mock).mockRestore?.();
+    });
+
+    it('rejects a legacy row when no key can open it', () => {
+      const legacy = legacyEncrypt('hunter2', 'user-1', 'some-other-entirely-different-key');
+
+      expect(() => decryptPassword(legacy, 'user-1')).toThrow();
+    });
+
+    it('rejects a legacy row opened with the wrong salt', () => {
+      const legacy = legacyEncrypt('hunter2', 'user-1', process.env.EXPO_PUBLIC_ENCRYPTION_KEY!);
+
+      expect(() => decryptPassword(legacy, 'user-2')).toThrow();
     });
   });
 

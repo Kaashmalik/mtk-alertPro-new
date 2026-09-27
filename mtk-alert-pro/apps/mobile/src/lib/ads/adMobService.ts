@@ -73,6 +73,11 @@ class AdMobService {
     private initialized = false;
     private isPremiumUser = false;
     private isNativeModuleAvailable = true;
+    /**
+     * Defaults to `true` so no ad request is ever personalised before consent
+     * has actually been resolved. Only an explicit, granted consent flips this.
+     */
+    private nonPersonalizedOnly = true;
 
     constructor() {
         // Detect if we are in Expo Go or if native module is missing
@@ -134,23 +139,54 @@ class AdMobService {
     }
 
     /**
+     * Placeholder IDs (`ca-app-pub-XXXXXXXXXX/XXXXXXXXXX`) are never configured
+     * in AdMob — requesting them fails the request outright. Treat them as
+     * "not configured" so we fall back to Google's test units instead of
+     * silently serving nothing in production.
+     */
+    private isPlaceholder(unit: string | undefined): boolean {
+        if (!unit) return true;
+        return unit.includes('XXXX');
+    }
+
+    /**
      * Get Ad Unit ID for specific ad type and platform
      * @param type Ad type (banner, interstitial, etc.)
      * @param useTestAds Use test ads (default: true in __DEV__)
      */
     getAdUnitId(type: AdType, useTestAds = __DEV__): string {
-        const units = useTestAds ? TEST_AD_UNITS : PRODUCTION_AD_UNITS;
         const platform = Platform.OS as AdMobPlatform;
 
-        const adUnit = units[type]?.[platform];
-
-        if (!adUnit) {
-            console.warn(`[AdMob] No ad unit found for type:${type} platform:${platform}`);
-            // Fallback to test ad unit
-            return TEST_AD_UNITS[type][platform];
+        if (!useTestAds) {
+            const production = PRODUCTION_AD_UNITS[type]?.[platform];
+            if (!this.isPlaceholder(production)) return production as string;
+            console.warn(
+                `[AdMob] No production ${type} ad unit configured for ${platform} - using test unit`,
+            );
         }
 
-        return adUnit;
+        const testUnit = TEST_AD_UNITS[type][platform];
+        if (!testUnit) {
+            console.warn(`[AdMob] No test ad unit found for type:${type} platform:${platform}`);
+        }
+        return testUnit ?? '';
+    }
+
+    /**
+     * Record whether personalised ads are permitted for this user.
+     * Called with the resolved UMP consent state at startup.
+     */
+    setConsentGranted(granted: boolean): void {
+        this.nonPersonalizedOnly = !granted;
+        console.log(`[AdMob] Personalised ads ${granted ? 'allowed' : 'suppressed'}`);
+    }
+
+    /**
+     * Shared request options for every ad load. Consent must be applied at
+     * request time — it is not a global SDK flag.
+     */
+    getRequestOptions(): { requestNonPersonalizedAdsOnly: boolean } {
+        return { requestNonPersonalizedAdsOnly: this.nonPersonalizedOnly };
     }
 
     /**
@@ -167,8 +203,9 @@ class AdMobService {
      * Returns false for premium users
      */
     shouldShowAds(): boolean {
-        // In Expo Go, we never show ads because the native component will crash
-        if (!this.isNativeModuleAvailable) return false;
+        // Fail closed: no ads before initialization has resolved (i.e. before
+        // consent is known) or if the native module is missing (Expo Go).
+        if (!this.initialized || !this.isNativeModuleAvailable) return false;
         return !this.isPremiumUser;
     }
 

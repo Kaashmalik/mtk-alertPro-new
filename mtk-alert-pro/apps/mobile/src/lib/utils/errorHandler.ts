@@ -171,6 +171,19 @@ export function parseError(
     return createAppError(fallbackCode, error);
   }
 
+  // Object with message property (e.g. PostgrestError)
+  if (
+    typeof error === 'object' &&
+    error !== null &&
+    'message' in error &&
+    typeof (error as { message: unknown }).message === 'string'
+  ) {
+    const errorObj = error as { message: string; code?: string; details?: unknown };
+    return createAppError(fallbackCode, errorObj.message, {
+      context: error as Record<string, unknown>,
+    });
+  }
+
   // Unknown error type
   return createAppError(fallbackCode, 'An unknown error occurred');
 }

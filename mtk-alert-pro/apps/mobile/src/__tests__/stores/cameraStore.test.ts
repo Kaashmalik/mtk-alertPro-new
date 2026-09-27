@@ -286,6 +286,8 @@ describe('Camera Store', () => {
           return {
             insert: jest.fn().mockReturnThis(),
             select: jest.fn().mockReturnThis(),
+            // Quota check: a head/count query that resolves on eq().
+            eq: jest.fn().mockResolvedValue({ count: 0, error: null }),
             single: jest.fn().mockResolvedValue({
               data: newCameraData,
               error: null,
@@ -682,6 +684,111 @@ describe('Camera Store', () => {
       expect(await loadOfflineQueue()).toHaveLength(1);
     });
 
+    it('encrypts passwords before they touch the offline queue (AsyncStorage is plaintext)', async () => {
+      // Default must resolve a user so encryptQueuedPassword's 2nd getUser
+      // (after the Once rejection below) still gets a salt — restoreMocks
+      // wipes the factory mock between tests in the full suite.
+      (supabase.auth.getUser as jest.Mock)
+        .mockResolvedValue({
+          data: { user: { id: 'mock-user-id', email: 'test@example.com' } },
+          error: null,
+        })
+        .mockRejectedValueOnce(new TypeError('Network request failed'));
+
+      let thrown: { code?: string } | undefined;
+      try {
+        await useCameraStore.getState().addCamera({
+          name: 'Secure Cam',
+          rtspUrl: 'rtsp://192.168.1.51:554/stream',
+          username: 'admin',
+          password: 'SuperSecret123!',
+          isActive: true,
+          detectionSettings: {
+            person: true,
+            vehicle: true,
+            face: false,
+            sensitivity: 0.7,
+            notificationsEnabled: true,
+            alarmEnabled: true,
+          },
+        });
+      } catch (error) {
+        thrown = error as { code?: string };
+      }
+
+      expect(thrown?.code).toBe('NETWORK_ERROR');
+
+      const state = useCameraStore.getState();
+      expect(state.offlineQueue).toHaveLength(1);
+      const queuedPassword = (
+        state.offlineQueue[0] as { data?: { password?: string } }
+      ).data?.password;
+      expect(queuedPassword).toBeDefined();
+      expect(queuedPassword).not.toBe('SuperSecret123!');
+      // v2 format: "v2:<base64 iv>:<base64 ciphertext>". The IV is random per
+      // encryption, so two encryptions of the same password must differ.
+      expect(queuedPassword).toMatch(/^v2:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
+
+      // Persisted copy must also be encrypted — never raw text on disk
+      const persisted = await loadOfflineQueue();
+      expect(persisted).toHaveLength(1);
+      const persistedPassword = (
+        persisted[0] as { data?: { password?: string } }
+      ).data?.password;
+      expect(persistedPassword).toBeDefined();
+      expect(persistedPassword).not.toBe('SuperSecret123!');
+      expect(persistedPassword).toMatch(/^v2:[A-Za-z0-9+/=]+:[A-Za-z0-9+/=]+$/);
+    });
+
+    it('strips the password instead of queueing plaintext when no user id is available', async () => {
+      // 1st call: addCamera's auth check (network fail → queue)
+      // 2nd call: encryptQueuedPassword's getUser fallback (also fail → try session)
+      (supabase.auth.getUser as jest.Mock)
+        .mockRejectedValueOnce(new TypeError('Network request failed'))
+        .mockRejectedValueOnce(new TypeError('Network request failed'));
+      // Ensure any further getUser (shouldn't happen) also fails closed
+      (supabase.auth.getUser as jest.Mock).mockResolvedValue({
+        data: { user: null },
+        error: null,
+      });
+      (supabase.auth.getSession as jest.Mock).mockResolvedValue({
+        data: { session: null },
+        error: null,
+      });
+
+      let thrown: { code?: string } | undefined;
+      try {
+        await useCameraStore.getState().addCamera({
+          name: 'No User Cam',
+          rtspUrl: 'rtsp://192.168.1.52:554/stream',
+          password: 'ShouldNotPersist',
+          isActive: true,
+          detectionSettings: {
+            person: true,
+            vehicle: true,
+            face: false,
+            sensitivity: 0.7,
+            notificationsEnabled: true,
+            alarmEnabled: true,
+          },
+        });
+      } catch (error) {
+        thrown = error as { code?: string };
+      }
+
+      expect(thrown?.code).toBe('NETWORK_ERROR');
+      const state = useCameraStore.getState();
+      expect(state.offlineQueue).toHaveLength(1);
+      const queuedPassword = (
+        state.offlineQueue[0] as { data?: { password?: string } }
+      ).data?.password;
+      expect(queuedPassword).toBeUndefined();
+
+      const persisted = await loadOfflineQueue();
+      const persistedRaw = JSON.stringify(persisted);
+      expect(persistedRaw).not.toContain('ShouldNotPersist');
+    });
+
     it('queues an update when offline instead of dropping it', async () => {
       (supabase.auth.getUser as jest.Mock).mockRejectedValueOnce(
         new TypeError('Network request failed')
@@ -902,6 +1009,8 @@ describe('Camera Store', () => {
         data: { user: { id: 'user-1' } },
         error: null,
       });
+      // Re-establish global fetch in case restoreMocks cleared it
+      (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
 
       const insertMock = jest.fn().mockReturnThis();
       const singleMock = jest.fn().mockResolvedValue({
@@ -929,7 +1038,13 @@ describe('Camera Store', () => {
             }),
           };
         }
-        return { insert: insertMock, select: jest.fn().mockReturnThis(), single: singleMock };
+        return {
+          insert: insertMock,
+          select: jest.fn().mockReturnThis(),
+          // Quota check: head/count query resolving on eq().
+          eq: jest.fn().mockResolvedValue({ count: 0, error: null }),
+          single: singleMock,
+        };
       });
 
       (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });

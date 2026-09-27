@@ -103,6 +103,12 @@ class DetectionManager {
     this.config = { ...DEFAULT_CONFIG, ...config };
   }
 
+  private hasAnyDetectionEnabled(s: Camera['detectionSettings']): boolean {
+    return Boolean(
+      s.person || s.vehicle || s.face || s.animal || s.motion === true
+    );
+  }
+
   /**
    * Initialize the detection system
    */
@@ -137,22 +143,22 @@ class DetectionManager {
     }
 
     // Check if detection is enabled for this camera
-    if (
-      !camera.detectionSettings.person &&
-      !camera.detectionSettings.vehicle &&
-      !camera.detectionSettings.face &&
-      !camera.detectionSettings.animal &&
-      camera.detectionSettings.motion === false
-    ) {
-      if (!this.config.enableMotionFallback || camera.detectionSettings.motion === false) {
-        console.log(`[DetectionManager] Camera ${camera.name} has no detection enabled, skipping`);
-        return;
+    if (!this.hasAnyDetectionEnabled(camera.detectionSettings)) {
+      // If it was monitored under older settings, stop it so the disabled
+      // toggles actually take effect.
+      if (this.activeCameras.has(camera.id)) {
+        this.stopMonitoring(camera.id);
       }
+      console.log(`[DetectionManager] Camera ${camera.name} has no detection enabled, skipping`);
+      return;
     }
 
-    // Check if already monitoring
+    // Already monitoring: refresh the stored camera so settings changes
+    // (scene profile, type toggles, sensitivity, cooldown) apply to the next
+    // frame instead of being stuck with the snapshot taken at first start.
     if (this.activeCameras.has(camera.id)) {
-      console.log(`[DetectionManager] Camera ${camera.name} already being monitored`);
+      this.activeCameras.set(camera.id, camera);
+      console.log(`[DetectionManager] Refreshed detection settings for: ${camera.name}`);
       return;
     }
 
@@ -161,12 +167,16 @@ class DetectionManager {
     // Store camera
     this.activeCameras.set(camera.id, camera);
 
-    // Start periodic frame capture and detection
+    // Start periodic frame capture and detection.
+    // Always read the camera from the map (never close over the start-time
+    // object) so refreshed settings are used on every frame.
     frameCaptureService.startPeriodicCapture(
       camera.id,
       this.config.captureIntervalMs,
       async (framePath, timestamp) => {
-        await this.processFrame(camera, framePath, timestamp);
+        const current = this.activeCameras.get(camera.id);
+        if (!current) return;
+        await this.processFrame(current, framePath, timestamp);
       }
     );
 
@@ -221,8 +231,13 @@ class DetectionManager {
     try {
       let detections = await detectionService.detect(framePath);
 
+      // Zone sensitivity is judged against the model's score, so pair the box
+      // with its confidence rather than letting the filter assume a perfect 1.0.
       detections = detections.filter((d) =>
-        isDetectionInZones(d.boundingBox, camera.detectionSettings.zones)
+        isDetectionInZones(
+          d.boundingBox ? { ...d.boundingBox, confidence: d.confidence } : undefined,
+          camera.detectionSettings.zones
+        )
       );
 
       const validDetections = detections.filter((detection) => {
@@ -235,19 +250,28 @@ class DetectionManager {
       });
 
       if (validDetections.length === 0 && this.config.enableMotionFallback) {
-        // Respect scene motion toggle (home/farm/shop suppress loose motion)
-        if (camera.detectionSettings.motion === false) {
+        const aiUnavailable = detectionService.isInFallbackMode();
+
+        // Respect scene motion toggle (home/farm/shop suppress loose motion),
+        // but when the AI model is unavailable (offline), pixel motion is the
+        // only remaining signal — don't let motion:false mute alerts entirely.
+        const motionAllowed =
+          camera.detectionSettings.motion === true ||
+          (aiUnavailable && this.hasAnyDetectionEnabled(camera.detectionSettings));
+
+        if (!motionAllowed) {
+          const stalePrev = this.prevFrames.get(camera.id);
           this.prevFrames.set(camera.id, framePath);
+          if (stalePrev && stalePrev !== framePath) {
+            await frameCaptureService.deleteFrame(stalePrev).catch(() => {});
+          }
           return;
         }
 
         const prev = this.prevFrames.get(camera.id) || null;
         const motion = await detectMotionBetweenFrames(prev, framePath);
         this.prevFrames.set(camera.id, framePath);
-        if (
-          motion.motion &&
-          shouldAlert({ type: 'motion' }, camera.detectionSettings)
-        ) {
+        if (motion.motion) {
           await this.handleDetection(
             camera,
             { type: 'unknown', confidence: motion.score },

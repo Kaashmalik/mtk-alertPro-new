@@ -33,7 +33,7 @@ export type FrameCallback = (framePath: string, timestamp: Date) => void;
  */
 interface CaptureSession {
   cameraId: string;
-  intervalId: NodeJS.Timeout;
+  intervalId: ReturnType<typeof setInterval>;
   callback: FrameCallback;
   captureCount: number;
   lastCapture: Date | null;
@@ -50,7 +50,7 @@ interface CaptureSession {
 class FrameCaptureService {
   private isInitialized = false;
   private activeSessions: Map<string, CaptureSession> = new Map();
-  private cleanupIntervalId: NodeJS.Timeout | null = null;
+  private cleanupIntervalId: ReturnType<typeof setInterval> | null = null;
 
   /**
    * Initialize the frame capture service

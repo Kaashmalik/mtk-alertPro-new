@@ -44,7 +44,7 @@ export function VideoPlayer({
   const [error, setError] = useState<string | null>(null);
   const [showControlsOverlay, setShowControlsOverlay] = useState(true);
   const [isFullscreen, setIsFullscreen] = useState(false);
-  const controlsTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const controlsTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const isPlaying = status?.isLoaded ? status.isPlaying : false;
   const isMuted = status?.isLoaded ? status.isMuted : false;

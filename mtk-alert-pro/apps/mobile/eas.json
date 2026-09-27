@@ -31,7 +31,8 @@
       "extends": "base",
       "distribution": "internal",
       "android": {
-        "buildType": "apk"
+        "buildType": "apk",
+        "gradleCommand": ":app:assembleRelease -PreactNativeArchitectures=armeabi-v7a,arm64-v8a"
       },
       "env": {
         "EXPO_PUBLIC_APP_ENV": "staging"

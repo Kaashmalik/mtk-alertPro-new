@@ -1,4 +1,4 @@
-﻿export type Json =
+export type Json =
   | string
   | number
   | boolean
@@ -12,65 +12,46 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       alerts: {
         Row: {
-          camera_id: string
+          camera_id: string | null
           confidence: number
           created_at: string | null
+          emergency_reason: string | null
           id: string
           is_read: boolean | null
           metadata: Json | null
+          resolved_at: string | null
           snapshot_url: string | null
           type: string
           user_id: string
           video_clip_url: string | null
         }
         Insert: {
-          camera_id: string
+          camera_id?: string | null
           confidence: number
           created_at?: string | null
+          emergency_reason?: string | null
           id?: string
           is_read?: boolean | null
           metadata?: Json | null
+          resolved_at?: string | null
           snapshot_url?: string | null
           type: string
           user_id: string
           video_clip_url?: string | null
         }
         Update: {
-          camera_id?: string
+          camera_id?: string | null
           confidence?: number
           created_at?: string | null
+          emergency_reason?: string | null
           id?: string
           is_read?: boolean | null
           metadata?: Json | null
+          resolved_at?: string | null
           snapshot_url?: string | null
           type?: string
           user_id?: string
@@ -217,6 +198,7 @@ export type Database = {
           is_active: boolean | null
           name: string
           polygon: Json
+          sensitivity: number
         }
         Insert: {
           camera_id: string
@@ -225,6 +207,7 @@ export type Database = {
           is_active?: boolean | null
           name: string
           polygon: Json
+          sensitivity?: number
         }
         Update: {
           camera_id?: string
@@ -233,6 +216,7 @@ export type Database = {
           is_active?: boolean | null
           name?: string
           polygon?: Json
+          sensitivity?: number
         }
         Relationships: [
           {
@@ -240,6 +224,41 @@ export type Database = {
             columns: ["camera_id"]
             isOneToOne: false
             referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      emergency_contacts: {
+        Row: {
+          always_notify: boolean | null
+          created_at: string | null
+          id: string
+          name: string
+          phone: string
+          user_id: string
+        }
+        Insert: {
+          always_notify?: boolean | null
+          created_at?: string | null
+          id?: string
+          name: string
+          phone: string
+          user_id: string
+        }
+        Update: {
+          always_notify?: boolean | null
+          created_at?: string | null
+          id?: string
+          name?: string
+          phone?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "emergency_contacts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -405,6 +424,53 @@ export type Database = {
         }
         Relationships: []
       }
+      subscriptions: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          external_id: string | null
+          id: string
+          payment_provider: string
+          plan_id: string
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          external_id?: string | null
+          id?: string
+          payment_provider: string
+          plan_id: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          external_id?: string | null
+          id?: string
+          payment_provider?: string
+          plan_id?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
@@ -414,6 +480,7 @@ export type Database = {
         Args: { p_payment_request_id: string; p_transaction_id?: string }
         Returns: Json
       }
+      downgrade_subscription: { Args: never; Returns: Json }
     }
     Enums: {
       [_ in never]: never
@@ -542,9 +609,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },

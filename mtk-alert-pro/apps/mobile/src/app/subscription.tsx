@@ -15,6 +15,7 @@ import {
   Animated,
   Dimensions,
   RefreshControl,
+  Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
@@ -37,12 +38,14 @@ import {
   Smartphone,
   Building,
   AlertCircle,
+  Play,
 } from 'lucide-react-native';
 import { colors, spacing, fontSize, borderRadius, shadows, palette } from '@/lib/theme';
 import { useSubscriptionStore, useIsPremium, type SubscriptionTier } from '@/stores/subscriptionStore';
 import { useAuthStore } from '@/stores';
 import { subscriptionService, type PaymentProvider } from '@/lib/subscription';
 import { hapticSelection, hapticPrimaryAction, hapticSuccess } from '@/lib/haptics';
+import { requireBiometric } from '@/lib/biometric';
 import { SkeletonSubscriptionCard } from '@/components/ui';
 
 const { width: SCREEN_WIDTH } = Dimensions.get('window');
@@ -62,9 +65,30 @@ export default function SubscriptionScreen() {
   const [isProcessing, setIsProcessing] = useState(false);
   const fadeAnim = useState(new Animated.Value(0))[0];
 
-  const paymentProviders = subscriptionService.getAvailableProviders();
+  // Play Billing availability is only known after subscriptionService.initialize()
+  // finishes, so the provider list has to be state rather than a render-time read.
+  const [paymentProviders, setPaymentProviders] = useState<PaymentProvider[]>(
+    () => subscriptionService.getAvailableProviders()
+  );
   const daysUntilExpiry = subscriptionService.getDaysUntilExpiry(expiresAt);
   const showExpiryWarning = subscriptionService.shouldShowExpiryWarning(expiresAt);
+
+  const syncProviders = useCallback(() => {
+    const providers = subscriptionService.getAvailableProviders();
+    setPaymentProviders(providers);
+    // Google Play Billing is the primary method whenever it is configured.
+    // Only fall back to WhatsApp when the Play path is unavailable (no RevenueCat
+    // key, not signed in, or the device has no Play Services).
+    setSelectedProvider((current) => {
+      if (!providers.some((p) => p.id === current)) {
+        return providers[0]?.id ?? current;
+      }
+      if (providers.some((p) => p.id === 'google_play')) {
+        return 'google_play';
+      }
+      return current;
+    });
+  }, []);
 
   useEffect(() => {
     initialize();
@@ -74,6 +98,10 @@ export default function SubscriptionScreen() {
       useNativeDriver: true,
     }).start();
   }, []);
+
+  useEffect(() => {
+    syncProviders();
+  }, [syncProviders]);
 
   const onRefresh = useCallback(() => {
     initialize();
@@ -92,6 +120,14 @@ export default function SubscriptionScreen() {
   const handlePayment = async () => {
     if (!user?.email) return;
     
+    // Money is about to move. If the user has biometrics enabled, make them
+    // prove it before the purchase sheet opens.
+    const confirmed = await requireBiometric('confirm your purchase');
+    if (!confirmed) {
+      Alert.alert('Cancelled', 'Purchase was not started.');
+      return;
+    }
+
     hapticPrimaryAction();
     setIsProcessing(true);
     
@@ -116,6 +152,8 @@ export default function SubscriptionScreen() {
 
   const getProviderIcon = (providerId: PaymentProvider['id']) => {
     switch (providerId) {
+      case 'google_play':
+        return <Play size={20} color="#34A853" />;
       case 'whatsapp':
         return <MessageCircle size={20} color="#25D366" />;
       case 'easypaisa':

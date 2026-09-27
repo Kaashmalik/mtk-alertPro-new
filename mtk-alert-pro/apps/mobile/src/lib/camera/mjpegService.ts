@@ -38,6 +38,11 @@ export interface MjpegStreamState {
 const DEFAULT_FPS = 2;
 const DEFAULT_TIMEOUT_MS = 4000;
 const MIN_INTERVAL_MS = 250;
+/** How long a candidate stays in the skip-set after it fails. */
+const CANDIDATE_BLACKLIST_MS = 60_000;
+/** Consecutive-failure backoff: attempt N waits 2^N x RESOLVE_COOLDOWN_MS. */
+const RESOLVE_COOLDOWN_MS = 5_000;
+const MAX_RESOLVE_BACKOFF_MS = 60_000;
 
 /**
  * Common snapshot endpoint paths keyed off a stream's origin/path
@@ -215,11 +220,19 @@ async function extractFirstJpeg(blob: Blob): Promise<Blob | null> {
  */
 export async function fetchSnapshotFrame(
   url: string,
-  options: { timeoutMs?: number; username?: string; password?: string } = {}
+  options: {
+    timeoutMs?: number;
+    username?: string;
+    password?: string;
+    signal?: AbortSignal;
+  } = {}
 ): Promise<string | null> {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, username, password } = options;
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, username, password, signal } = options;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+  // Propagate an outer cancellation (used to stop losing candidate probes).
+  const onOuterAbort = () => controller.abort();
+  signal?.addEventListener('abort', onOuterAbort);
 
   try {
     const headers: Record<string, string> = {
@@ -272,28 +285,89 @@ export async function fetchSnapshotFrame(
     return null;
   } finally {
     clearTimeout(timeoutId);
+    signal?.removeEventListener('abort', onOuterAbort);
   }
 }
 
 /**
  * Resolve the first working snapshot URL from the candidate list.
- * Probes candidates once (HEAD-ish GET cancelled after headers where possible).
+ *
+ * Candidates are probed with bounded concurrency and the losers are aborted the
+ * moment one succeeds. Probing them sequentially (as this used to) meant a dead
+ * camera burned ~20 sequential requests x 3s = ~60s per attempt, and the caller
+ * re-ran the whole sweep on every poll tick.
+ *
+ * @param options.skipCandidates Candidate URLs that recently failed; probing
+ *        them again immediately is pure waste.
+ * @returns the winning URL, or null when nothing responded.
  */
 export async function resolveFrameUrl(
   url: string,
-  options: { timeoutMs?: number; username?: string; password?: string } = {}
+  options: {
+    timeoutMs?: number;
+    username?: string;
+    password?: string;
+    skipCandidates?: ReadonlySet<string>;
+    concurrency?: number;
+  } = {}
 ): Promise<string | null> {
-  const candidates = getSnapshotCandidates(url);
+  const all = getSnapshotCandidates(url);
+  const candidates = options.skipCandidates?.size
+    ? all.filter(c => !options.skipCandidates!.has(c))
+    : all;
 
-  for (const candidate of candidates) {
-    const frame = await fetchSnapshotFrame(candidate, {
-      ...options,
-      timeoutMs: Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 3000),
-    });
-    if (frame) return candidate;
-  }
+  // Everything we know about is currently failing; force a full re-sweep
+  // rather than spinning on an empty list forever.
+  const probeList = candidates.length > 0 ? candidates : all;
+  const perCandidateTimeout = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 3000);
+  const concurrency = Math.max(1, Math.min(options.concurrency ?? 6, probeList.length));
 
-  return null;
+  const group = new AbortController();
+  let settled = false;
+
+  const probe = async (candidate: string): Promise<string | null> => {
+    if (settled) return null;
+
+    const controller = new AbortController();
+    const onAbort = () => controller.abort();
+    group.signal.addEventListener('abort', onAbort);
+    const timeoutId = setTimeout(() => controller.abort(), perCandidateTimeout);
+
+    try {
+      const frame = await fetchSnapshotFrame(candidate, {
+        timeoutMs: perCandidateTimeout,
+        username: options.username,
+        password: options.password,
+        signal: controller.signal,
+      });
+      if (frame && !settled) {
+        settled = true;
+        group.abort(); // stop the remaining probes
+        return candidate;
+      }
+      return null;
+    } catch {
+      return null;
+    } finally {
+      clearTimeout(timeoutId);
+      group.signal.removeEventListener('abort', onAbort);
+    }
+  };
+
+  // Bounded worker pool: keeps at most `concurrency` sockets open.
+  const queue = [...probeList];
+  const workers = Array.from({ length: concurrency }, async () => {
+    for (;;) {
+      if (settled) return null;
+      const next = queue.shift();
+      if (next === undefined) return null;
+      const winner = await probe(next);
+      if (winner) return winner;
+    }
+  });
+
+  const results = await Promise.all(workers);
+  return results.find((r): r is string => typeof r === 'string') ?? null;
 }
 
 /**
@@ -330,6 +404,11 @@ export function createMjpegStream(options: MjpegStreamOptions): MjpegStream {
   let running = false;
   let generation = 0;
   let frameUrl: string | null = null;
+  /** Candidates that recently failed, so a dead camera is not re-swept. */
+  const failedCandidates = new Map<string, number>();
+  /** Consecutive failed resolution attempts -> exponential backoff. */
+  let resolveFailures = 0;
+  let nextResolveAttemptAt = 0;
   const listeners = new Set<(s: MjpegStreamState) => void>();
 
   const setState = (next: MjpegStreamState) => {
@@ -337,30 +416,86 @@ export function createMjpegStream(options: MjpegStreamOptions): MjpegStream {
     listeners.forEach(listener => listener(state));
   };
 
+  const activeSkipSet = (): ReadonlySet<string> => {
+    const now = Date.now();
+    for (const [candidate, until] of failedCandidates) {
+      if (until <= now) failedCandidates.delete(candidate);
+    }
+    return new Set(failedCandidates.keys());
+  };
+
+  const resolveFrameUrlWithBackoff = async (): Promise<{
+    url: string | null;
+    /** false when suppressed by the backoff window (no probe was made). */
+    attempted: boolean;
+  }> => {
+    const now = Date.now();
+    if (now < nextResolveAttemptAt) return { url: null, attempted: false };
+
+    const resolved = await resolveFrameUrl(url, {
+      timeoutMs,
+      username,
+      password: pass,
+      skipCandidates: activeSkipSet(),
+    });
+
+    if (resolved) {
+      resolveFailures = 0;
+      nextResolveAttemptAt = 0;
+      return { url: resolved, attempted: true };
+    }
+
+    resolveFailures += 1;
+    const backoff = Math.min(
+      RESOLVE_COOLDOWN_MS * Math.pow(2, resolveFailures - 1),
+      MAX_RESOLVE_BACKOFF_MS
+    );
+    nextResolveAttemptAt = Date.now() + backoff;
+    console.log(
+      `[MjpegStream] No snapshot endpoint found; next attempt in ${Math.round(backoff / 1000)}s`
+    );
+    return { url: null, attempted: true };
+  };
+
   const tick = async (gen: number) => {
     if (!running || gen !== generation) return;
 
     try {
       if (!frameUrl) {
-        frameUrl = await resolveFrameUrl(url, { timeoutMs, username, password: pass });
+        const { url: resolved, attempted } = await resolveFrameUrlWithBackoff();
+        if (resolved) frameUrl = resolved;
+
+        if (!running || gen !== generation) return;
+
+        if (!frameUrl) {
+          // Only report on a real attempt. While backing off we stay quiet and
+          // keep the last frame, instead of re-erroring every poll interval.
+          if (attempted) {
+            setState({
+              status: 'error',
+              frame: state.frame,
+              error: 'No snapshot endpoint responded. Check the stream URL.',
+            });
+          } else if (state.status === 'idle' || state.status === 'loading') {
+            setState({
+              status: state.frame ? 'live' : 'loading',
+              frame: state.frame,
+              error: state.frame ? undefined : 'Waiting for first frame…',
+            });
+          }
+        }
       }
 
-      if (!running || gen !== generation) return;
-
-      if (!frameUrl) {
-        setState({
-          status: 'error',
-          frame: state.frame,
-          error: 'No snapshot endpoint responded. Check the stream URL.',
-        });
-      } else {
+      if (frameUrl && running && gen === generation) {
         const uri = await fetchSnapshotFrame(frameUrl, { timeoutMs, username, password: pass });
         if (!running || gen !== generation) return;
 
         if (uri) {
           setState({ status: 'live', frame: { uri, timestamp: Date.now() } });
         } else {
-          // Frame fetch failed — force re-resolve next tick
+          // The endpoint that worked stopped working: blacklist it briefly and
+          // re-resolve, but only after the backoff window.
+          failedCandidates.set(frameUrl, Date.now() + CANDIDATE_BLACKLIST_MS);
           frameUrl = null;
           setState({
             status: state.frame ? 'live' : 'loading',
@@ -404,6 +539,9 @@ export function createMjpegStream(options: MjpegStreamOptions): MjpegStream {
     restart() {
       this.stop();
       frameUrl = null;
+      failedCandidates.clear();
+      resolveFailures = 0;
+      nextResolveAttemptAt = 0;
       this.start();
     },
     getState() {

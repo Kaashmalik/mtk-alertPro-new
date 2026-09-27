@@ -23,8 +23,8 @@ process.env.EXPO_PUBLIC_APP_ENV = 'test';
 // Global Mocks
 // ============================================================================
 
-// Mock expo-file-system
-jest.mock('expo-file-system', () => ({
+// Mock expo-file-system and expo-file-system/legacy
+const mockFileSystem = {
   documentDirectory: '/mock/document/',
   cacheDirectory: '/mock/cache/',
   getInfoAsync: jest.fn().mockResolvedValue({ exists: true, size: 1024 }),
@@ -38,7 +38,9 @@ jest.mock('expo-file-system', () => ({
     UTF8: 'utf8',
     Base64: 'base64',
   },
-}));
+};
+jest.mock('expo-file-system', () => mockFileSystem);
+jest.mock('expo-file-system/legacy', () => mockFileSystem);
 
 // Mock expo-secure-store
 jest.mock('expo-secure-store', () => ({
@@ -267,6 +269,15 @@ jest.mock('@/lib/supabase/client', () => ({
     auth: {
       getUser: jest.fn().mockResolvedValue({
         data: { user: { id: 'mock-user-id', email: 'test@example.com' } },
+        error: null,
+      }),
+      getSession: jest.fn().mockResolvedValue({
+        data: {
+          session: {
+            user: { id: 'mock-user-id', email: 'test@example.com' },
+            access_token: 'mock-token',
+          },
+        },
         error: null,
       }),
       signInWithPassword: jest.fn().mockResolvedValue({ data: {}, error: null }),

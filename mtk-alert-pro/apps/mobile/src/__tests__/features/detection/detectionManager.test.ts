@@ -17,8 +17,14 @@ jest.mock('@/features/detection/detectionService', () => ({
     isInitialized: jest.fn().mockReturnValue(true),
     isBusy: jest.fn().mockReturnValue(false),
     getLastProcessTime: jest.fn().mockReturnValue(100),
+    isInFallbackMode: jest.fn().mockReturnValue(false),
+    retryModelLoad: jest.fn().mockResolvedValue(true),
     dispose: jest.fn().mockResolvedValue(undefined),
   },
+}));
+
+jest.mock('@/features/detection/motionDetector', () => ({
+  detectMotionBetweenFrames: jest.fn().mockResolvedValue({ motion: false, score: 0 }),
 }));
 
 jest.mock('@/features/detection/frameCaptureService', () => ({
@@ -49,6 +55,10 @@ describe('Detection Manager', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    const { detectionService } = require('@/features/detection/detectionService');
+    detectionService.isInFallbackMode.mockReturnValue(false);
+    const { detectMotionBetweenFrames } = require('@/features/detection/motionDetector');
+    detectMotionBetweenFrames.mockResolvedValue({ motion: false, score: 0 });
     manager = new DetectionManager({
       captureIntervalMs: 100,
       cooldownMs: 1000,
@@ -127,6 +137,202 @@ describe('Detection Manager', () => {
       await manager.startMonitoring(camera);
 
       expect(frameCaptureService.startPeriodicCapture).toHaveBeenCalledTimes(1);
+    });
+
+    it('should process a frame and notify when detection passes the threshold', async () => {
+      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const { detectionService } = require('@/features/detection/detectionService');
+      const { sendLocalNotification } = require('@/lib/notifications/service');
+
+      const camera = createMockCamera({
+        detectionSettings: {
+          person: true,
+          vehicle: false,
+          sensitivity: 0.5,
+          alarmEnabled: false,
+          notificationsEnabled: true,
+        },
+      });
+
+      await manager.startMonitoring(camera);
+      const captureCallback = frameCaptureService.startPeriodicCapture.mock.calls[0][2];
+
+      detectionService.detect.mockResolvedValue([
+        { type: 'person', confidence: 0.6, boundingBox: { x: 0, y: 0, width: 10, height: 10 } },
+      ]);
+
+      await captureCallback('/frame.jpg', new Date());
+
+      expect(sendLocalNotification).toHaveBeenCalledTimes(1);
+      expect(sendLocalNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Person Detected' })
+      );
+    });
+
+    it('should apply refreshed settings to an already-monitored camera', async () => {
+      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const { detectionService } = require('@/features/detection/detectionService');
+      const { sendLocalNotification } = require('@/lib/notifications/service');
+
+      const camera = createMockCamera({
+        detectionSettings: {
+          person: true,
+          vehicle: false,
+          sensitivity: 0.5,
+          alarmEnabled: false,
+          notificationsEnabled: true,
+        },
+      });
+
+      await manager.startMonitoring(camera);
+      const captureCallback = frameCaptureService.startPeriodicCapture.mock.calls[0][2];
+
+      // Coordinator re-syncs with stricter sensitivity after a settings change
+      await manager.startMonitoring({
+        ...camera,
+        detectionSettings: { ...camera.detectionSettings, sensitivity: 0.9 },
+      });
+
+      // Refresh must not restart the capture loop
+      expect(frameCaptureService.startPeriodicCapture).toHaveBeenCalledTimes(1);
+      expect(manager.getMonitoredCameraCount()).toBe(1);
+
+      detectionService.detect.mockResolvedValue([
+        { type: 'person', confidence: 0.6, boundingBox: { x: 0, y: 0, width: 10, height: 10 } },
+      ]);
+
+      await captureCallback('/frame.jpg', new Date());
+
+      // 0.6 < refreshed 0.9 threshold — stale settings would have notified
+      expect(sendLocalNotification).not.toHaveBeenCalled();
+    });
+
+    it('should stop monitoring when all detection types are disabled on refresh', async () => {
+      const camera = createMockCamera({
+        detectionSettings: { person: true, vehicle: true },
+      });
+
+      await manager.startMonitoring(camera);
+      expect(manager.getMonitoredCameraCount()).toBe(1);
+
+      await manager.startMonitoring({
+        ...camera,
+        detectionSettings: {
+          person: false,
+          vehicle: false,
+          face: false,
+          animal: false,
+          sensitivity: 0.7,
+          notificationsEnabled: true,
+          alarmEnabled: true,
+        },
+      });
+
+      expect(manager.getMonitoredCameraCount()).toBe(0);
+    });
+
+    it('should still alert on motion when AI model is offline even if motion toggle is off', async () => {
+      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const { detectionService } = require('@/features/detection/detectionService');
+      const { detectMotionBetweenFrames } = require('@/features/detection/motionDetector');
+      const { sendLocalNotification } = require('@/lib/notifications/service');
+
+      // Home profile: person on, motion explicitly off
+      const camera = createMockCamera({
+        detectionSettings: {
+          person: true,
+          vehicle: false,
+          motion: false,
+          sensitivity: 0.65,
+          alarmEnabled: false,
+          notificationsEnabled: true,
+        },
+      });
+
+      await manager.startMonitoring(camera);
+      const captureCallback = frameCaptureService.startPeriodicCapture.mock.calls[0][2];
+
+      // Offline: AI returns nothing, but pixel motion is detected
+      detectionService.isInFallbackMode.mockReturnValue(true);
+      detectionService.detect.mockResolvedValue([]);
+      detectMotionBetweenFrames.mockResolvedValue({ motion: true, score: 0.5 });
+
+      await captureCallback('/frame.jpg', new Date());
+
+      expect(sendLocalNotification).toHaveBeenCalledWith(
+        expect.objectContaining({ title: 'Motion Detected' })
+      );
+    });
+
+    it('should suppress motion alerts when AI is available and motion toggle is off', async () => {
+      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const { detectionService } = require('@/features/detection/detectionService');
+      const { detectMotionBetweenFrames } = require('@/features/detection/motionDetector');
+      const { sendLocalNotification } = require('@/lib/notifications/service');
+
+      const camera = createMockCamera({
+        detectionSettings: {
+          person: true,
+          vehicle: false,
+          motion: false,
+          sensitivity: 0.65,
+          alarmEnabled: false,
+          notificationsEnabled: true,
+        },
+      });
+
+      await manager.startMonitoring(camera);
+      const captureCallback = frameCaptureService.startPeriodicCapture.mock.calls[0][2];
+
+      detectionService.isInFallbackMode.mockReturnValue(false);
+      detectionService.detect.mockResolvedValue([]);
+      detectMotionBetweenFrames.mockResolvedValue({ motion: true, score: 0.9 });
+
+      await captureCallback('/frame.jpg', new Date());
+
+      expect(sendLocalNotification).not.toHaveBeenCalled();
+    });
+
+    it('should not motion-alert offline when the camera has no detection types enabled', async () => {
+      const { detectionService } = require('@/features/detection/detectionService');
+      const { detectMotionBetweenFrames } = require('@/features/detection/motionDetector');
+      const { sendLocalNotification } = require('@/lib/notifications/service');
+
+      const camera = createMockCamera({
+        detectionSettings: {
+          person: true,
+          vehicle: false,
+          face: false,
+          animal: false,
+          motion: false,
+          sensitivity: 0.65,
+          alarmEnabled: false,
+          notificationsEnabled: true,
+        },
+      });
+
+      await manager.startMonitoring(camera);
+      expect(manager.getMonitoredCameraCount()).toBe(1);
+
+      // All types get disabled after monitoring started
+      await manager.startMonitoring({
+        ...camera,
+        detectionSettings: {
+          person: false,
+          vehicle: false,
+          face: false,
+          animal: false,
+          motion: false,
+          sensitivity: 0.65,
+          notificationsEnabled: true,
+          alarmEnabled: false,
+        },
+      });
+
+      expect(manager.getMonitoredCameraCount()).toBe(0);
+      expect(sendLocalNotification).not.toHaveBeenCalled();
+      expect(detectMotionBetweenFrames).not.toHaveBeenCalled();
+      expect(detectionService.detect).not.toHaveBeenCalled();
     });
   });
 

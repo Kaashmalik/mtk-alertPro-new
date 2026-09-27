@@ -220,9 +220,15 @@ export const useAlertStore = create<AlertState>((set, get) => ({
           const isValidAlertType = newAlert.type === 'person' || newAlert.type === 'vehicle';
           const cameraAllowsAlarm = camera?.detectionSettings?.alarmEnabled ?? true;
           const cameraAllowsNotification = camera?.detectionSettings?.notificationsEnabled ?? true;
-          const detectionTypeEnabled =
-            (newAlert.type === 'person' && camera?.detectionSettings?.person) ||
-            (newAlert.type === 'vehicle' && camera?.detectionSettings?.vehicle);
+
+          // If the camera is not in the local store yet (cold start, or the
+          // camera was deleted), fall back to ALLOWING the alert. Defaulting to
+          // false here silently dropped real person/vehicle alerts.
+          const detectionTypeEnabled = camera
+            ? newAlert.type === 'person'
+              ? !!camera.detectionSettings?.person
+              : !!camera.detectionSettings?.vehicle
+            : true;
 
           if (isValidAlertType && detectionTypeEnabled) {
             if (settings.sound && cameraAllowsAlarm) {
@@ -231,6 +237,9 @@ export const useAlertStore = create<AlertState>((set, get) => ({
                   volume: settings.alarmVolume,
                   repeat: settings.repeatAlarm,
                   repeatCount: settings.repeatCount,
+                  // alarmService no longer vibrates unconditionally; pass the
+                  // user's preference through so the toggle actually works.
+                  vibrate: false,
                 });
               } catch (error) {
                 console.error('Failed to play alarm:', error);

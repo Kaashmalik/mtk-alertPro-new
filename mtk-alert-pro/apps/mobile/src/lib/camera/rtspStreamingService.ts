@@ -142,7 +142,7 @@ export class RTSPStreamingService {
 
   private config: StreamConfig;
   private reconnectAttempts = 0;
-  private reconnectTimer: NodeJS.Timeout | null = null;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private isConnecting = false;
   private isManuallyDisconnected = false;
   private statusListeners: Array<(status: StreamStatus) => void> = [];

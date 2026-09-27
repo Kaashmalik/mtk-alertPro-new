@@ -3,7 +3,7 @@
  * Configure alarm sounds, volume, vibration, and patterns
  */
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import {
     View,
     Text,
@@ -13,6 +13,7 @@ import {
     StatusBar,
     Switch,
     Vibration,
+    Alert,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router, Stack } from 'expo-router';
@@ -27,15 +28,30 @@ import {
     Bell,
     AlertTriangle,
     Zap,
+    Siren,
+    Mic,
+    Upload,
+    Trash2,
+    Square,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
+import * as DocumentPicker from 'expo-document-picker';
+import { Audio } from 'expo-av';
 import { useSettingsStore } from '@/stores';
 import { designSystem } from '@/theme/design-system';
 import { hapticNotification } from '@/lib/haptics';
 import { alarmService } from '@/lib/audio/alarmService';
+import {
+    clearCustomAlarmSound,
+    getCustomAlarmSound,
+    isSupportedAudioFile,
+    saveCustomAlarmSound,
+    type CustomAlarmSound,
+} from '@/lib/audio/customAlarmSound';
+import type { AlarmSoundType } from '@/types';
 
 // Sound type
-type SoundId = 'alert' | 'urgent' | 'siren' | 'chime' | 'beep' | 'heavy';
+type SoundId = AlarmSoundType;
 
 // Sound Definitions
 interface AlarmSound {
@@ -54,6 +70,8 @@ const ALARM_SOUNDS: AlarmSound[] = [
     { id: 'chime', name: 'Chime', description: 'Gentle notification', icon: Bell, color: '#10B981' },
     { id: 'beep', name: 'Beep', description: 'Simple alert beep', icon: Bell, color: '#6366F1' },
     { id: 'heavy', name: 'Heavy Alarm', description: 'MAXIMUM VOLUME', icon: Zap, color: '#DC2626', isHeavy: true },
+    { id: 'sos', name: 'Emergency SOS', description: 'Distress pattern for emergency button', icon: Siren, color: '#B91C1C', isHeavy: true },
+    { id: 'custom', name: 'Custom sound', description: 'Your own recording or chosen audio file', icon: Mic, color: '#8B5CF6' },
 ];
 
 const VIBRATION_PATTERNS = [
@@ -66,7 +84,7 @@ const VIBRATION_PATTERNS = [
 
 export default function AlarmSoundsScreen() {
     const { notifications: notifSettings, setNotifications } = useSettingsStore();
-    const [selectedSound, setSelectedSound] = useState<'alert' | 'urgent' | 'siren' | 'chime' | 'beep' | 'heavy'>(notifSettings.alarmSound || 'alert');
+    const [selectedSound, setSelectedSound] = useState<AlarmSoundType>(notifSettings.alarmSound || 'alert');
     const [volume, setVolume] = useState(notifSettings.alarmVolume || 0.8);
     const [soundEnabled, setSoundEnabled] = useState(notifSettings.sound ?? true);
     const [vibrationEnabled, setVibrationEnabled] = useState(notifSettings.vibration ?? true);
@@ -75,12 +93,131 @@ export default function AlarmSoundsScreen() {
     const [selectedVibration, setSelectedVibration] = useState('default');
     const [playingSound, setPlayingSound] = useState<string | null>(null);
 
+    // Custom alarm sound (imported file or a fresh recording)
+    const [customSound, setCustomSound] = useState<CustomAlarmSound | null>(null);
+    const [isRecording, setIsRecording] = useState(false);
+    const [recordSeconds, setRecordSeconds] = useState(0);
+    const [recording, setRecording] = useState<Audio.Recording | null>(null);
+
     // Cleanup on unmount
     useEffect(() => {
         return () => {
             alarmService.stopAlarm();
         };
     }, []);
+
+    // Load any previously imported custom sound
+    useEffect(() => {
+        void (async () => {
+            const stored = await getCustomAlarmSound();
+            if (stored) setCustomSound(stored);
+        })();
+    }, []);
+
+    // Record-timer while capturing
+    useEffect(() => {
+        if (!isRecording) return;
+        const id = setInterval(() => setRecordSeconds((n) => n + 1), 1000);
+        return () => clearInterval(id);
+    }, [isRecording]);
+
+    const pickCustomSound = useCallback(async () => {
+        try {
+            const result = await DocumentPicker.getDocumentAsync({
+                type: ['audio/*'],
+                copyToCacheDirectory: true,
+                multiple: false,
+            });
+            if (result.canceled || !result.assets?.length) return;
+
+            const asset = result.assets[0];
+            if (!isSupportedAudioFile(asset.uri)) {
+                Alert.alert('Unsupported file', 'Choose an MP3, M4A, WAV or AAC audio file.');
+                return;
+            }
+
+            const saved = await saveCustomAlarmSound(asset.uri, asset.name);
+            if (!saved) {
+                Alert.alert('Could not import', 'The audio file could not be copied.');
+                return;
+            }
+            setCustomSound(saved);
+            setSelectedSound('custom');
+            hapticNotification();
+            Alert.alert('Custom sound ready', `"${saved.name}" is now your alarm sound.`);
+        } catch (error) {
+            console.error('[AlarmSounds] Pick failed:', error);
+            Alert.alert('Could not import', 'Something went wrong while choosing the file.');
+        }
+    }, []);
+
+    const startRecording = useCallback(async () => {
+        try {
+            const permission = await Audio.requestPermissionsAsync();
+            if (!permission.granted) {
+                Alert.alert('Microphone access needed', 'Allow microphone access to record a custom alarm.');
+                return;
+            }
+
+            await Audio.setAudioModeAsync({ allowsRecordingIOS: true, playsInSilentModeIOS: true });
+
+            const { recording: rec } = await Audio.Recording.createAsync(
+                Audio.RecordingOptionsPresets.HIGH_QUALITY
+            );
+            await rec.prepareToRecordAsync();
+            rec.setOnRecordingStatusUpdate((status) => {
+                if (!status.isRecording) setIsRecording(false);
+            });
+            await rec.startAsync();
+
+            setRecording(rec);
+            setRecordSeconds(0);
+            setIsRecording(true);
+        } catch (error) {
+            console.error('[AlarmSounds] Record start failed:', error);
+            Alert.alert('Recording failed', 'Could not start recording.');
+        }
+    }, []);
+
+    const stopRecording = useCallback(async () => {
+        const rec = recording;
+        if (!rec) return;
+        try {
+            setIsRecording(false);
+            await rec.stopAndUnloadAsync();
+            await Audio.setAudioModeAsync({
+                allowsRecordingIOS: false,
+                playsInSilentModeIOS: true,
+            });
+
+            const uri = rec.getURI();
+            if (!uri || recordSeconds === 0) {
+                Alert.alert('Nothing recorded', 'Hold the record button a little longer.');
+                setRecording(null);
+                return;
+            }
+
+            const saved = await saveCustomAlarmSound(uri, `Recording (${recordSeconds}s)`);
+            if (!saved) {
+                Alert.alert('Could not save', 'The recording could not be stored.');
+                setRecording(null);
+                return;
+            }
+            setCustomSound(saved);
+            setRecording(null);
+            setSelectedSound('custom');
+            hapticNotification();
+        } catch (error) {
+            console.error('[AlarmSounds] Record stop failed:', error);
+            setRecording(null);
+        }
+    }, [recording, recordSeconds]);
+
+    const removeCustomSound = useCallback(async () => {
+        await clearCustomAlarmSound();
+        setCustomSound(null);
+        if (selectedSound === 'custom') setSelectedSound('alert');
+    }, [selectedSound]);
 
     // Save settings when changed
     useEffect(() => {
@@ -94,7 +231,7 @@ export default function AlarmSoundsScreen() {
         });
     }, [selectedSound, volume, soundEnabled, vibrationEnabled, repeatAlarm, repeatCount]);
 
-    const playPreviewSound = async (soundId: string) => {
+    const playPreviewSound = async (soundId: AlarmSoundType) => {
         hapticNotification();
 
         // If already playing this sound, stop it
@@ -110,7 +247,7 @@ export default function AlarmSoundsScreen() {
 
         try {
             // Use alarmService to preview the sound
-            await alarmService.previewSound(soundId as any, volume);
+            await alarmService.previewSound(soundId, volume);
 
             console.log('[AlarmSounds] Playing sound:', soundId);
 
@@ -266,6 +403,54 @@ export default function AlarmSoundsScreen() {
                             {ALARM_SOUNDS.map((sound) => (
                                 <SoundCard key={sound.id} sound={sound} />
                             ))}
+
+                            {/* Custom sound controls, only relevant when "Custom" is selected */}
+                            {selectedSound === 'custom' && (
+                                <View style={styles.customPanel}>
+                                    {customSound ? (
+                                        <>
+                                            <View style={styles.customRow}>
+                                                <Mic size={18} color={designSystem.colors.primary[500]} />
+                                                <Text style={styles.customName} numberOfLines={1}>
+                                                    {customSound.name}
+                                                </Text>
+                                            </View>
+                                            <TouchableOpacity
+                                                style={styles.customAction}
+                                                onPress={removeCustomSound}
+                                            >
+                                                <Trash2 size={16} color="#F87171" />
+                                                <Text style={styles.customActionText}>Remove custom sound</Text>
+                                            </TouchableOpacity>
+                                        </>
+                                    ) : (
+                                        <Text style={styles.customHint}>
+                                            No custom sound selected yet. Record one or choose an audio file.
+                                        </Text>
+                                    )}
+
+                                    <View style={styles.customButtons}>
+                                        <TouchableOpacity
+                                            style={styles.customButton}
+                                            onPress={isRecording ? stopRecording : startRecording}
+                                        >
+                                            {isRecording ? <Square size={16} color="#0F172A" /> : <Mic size={16} color="#0F172A" />}
+                                            <Text style={styles.customButtonText}>
+                                                {isRecording ? `Stop (${recordSeconds}s)` : 'Record'}
+                                            </Text>
+                                        </TouchableOpacity>
+
+                                        <TouchableOpacity
+                                            style={styles.customButton}
+                                            onPress={pickCustomSound}
+                                            disabled={isRecording}
+                                        >
+                                            <Upload size={16} color="#0F172A" />
+                                            <Text style={styles.customButtonText}>Choose file</Text>
+                                        </TouchableOpacity>
+                                    </View>
+                                </View>
+                            )}
                         </Animated.View>
                     )}
 
@@ -360,8 +545,66 @@ const styles = StyleSheet.create({
     section: {
         marginBottom: 24,
     },
-    sectionTitle: {
-        fontSize: 12,
+    customPanel: {
+        marginTop: designSystem.spacing.md,
+        padding: designSystem.spacing.md,
+        borderRadius: 14,
+        backgroundColor: designSystem.colors.background.secondary,
+        borderWidth: 1,
+        borderColor: designSystem.colors.border.default,
+        gap: designSystem.spacing.md,
+    },
+    customRow: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        gap: 8,
+    },
+    customName: {
+        flex: 1,
+        color: designSystem.colors.text.primary,
+        fontSize: 15,
+        fontWeight: '600',
+    },
+    customHint: {
+        color: designSystem.colors.text.secondary,
+        fontSize: 13,
+        lineHeight: 19,
+    },
+    customButtons: {
+        flexDirection: 'row',
+        gap: designSystem.spacing.sm,
+    },
+    customButton: {
+        flex: 1,
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 12,
+        borderRadius: 12,
+        backgroundColor: designSystem.colors.primary[500],
+    },
+    customButtonText: {
+        color: '#0F172A',
+        fontWeight: '700',
+        fontSize: 14,
+    },
+    customAction: {
+        flexDirection: 'row',
+        alignItems: 'center',
+        justifyContent: 'center',
+        gap: 6,
+        paddingVertical: 10,
+        borderRadius: 12,
+        borderWidth: 1,
+        borderColor: 'rgba(248, 113, 113, 0.4)',
+    },
+    customActionText: {
+        color: '#F87171',
+        fontWeight: '600',
+        fontSize: 13,
+    },
+    sectionTitle: {        fontSize: 12,
         fontWeight: '600',
         color: designSystem.colors.text.secondary,
         marginBottom: 12,

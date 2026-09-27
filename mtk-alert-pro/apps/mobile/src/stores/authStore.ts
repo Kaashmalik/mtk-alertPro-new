@@ -3,6 +3,7 @@ import { persist, createJSONStorage } from 'zustand/middleware';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, isSupabaseConfigured, supabaseUrl } from '@/lib/supabase/client';
 import { useCameraStore } from './cameraStore';
+import { disableBiometricAuth } from '@/lib/biometric';
 import type { User } from '@/types';
 
 interface AuthState {
@@ -226,8 +227,9 @@ export const useAuthStore = create<AuthState>()(
         try {
           // Clear persisted auth state
           await AsyncStorage.removeItem('auth-storage');
-          // Clear biometric stored email if exists
-          await AsyncStorage.removeItem('biometric-user-email');
+          // Clear SecureStore biometric keys (user email + enabled flag) so the
+          // next user on this device can never unlock the previous user's account
+          await disableBiometricAuth();
         } catch (error) {
           console.error('Storage cleanup error:', error);
         }

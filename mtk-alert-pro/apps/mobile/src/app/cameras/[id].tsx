@@ -15,6 +15,7 @@ import { router, Stack, useLocalSearchParams } from 'expo-router';
 import {
   ArrowLeft,
   Settings,
+  Layers,
   Trash2,
   Play,
   Pause,
@@ -67,7 +68,7 @@ export default function CameraDetailScreen() {
   const [editSensitivity, setEditSensitivity] = useState(0.65);
   const [editCooldown, setEditCooldown] = useState(30);
 
-  const recordingTimer = useRef<NodeJS.Timeout | null>(null);
+  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const [streamCreds, setStreamCreds] = useState<{ username?: string; password?: string }>({});
 
   const camera = cameras.find((c) => c.id === id);
@@ -355,6 +356,15 @@ export default function CameraDetailScreen() {
             >
               <Settings size={22} color="white" />
               <Text style={styles.controlText}>Settings</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity
+              onPress={() => router.push(`/cameras/${camera.id}/zones`)}
+              style={styles.controlButton}
+              accessibilityLabel="Edit detection zones"
+            >
+              <Layers size={22} color="#38BDF8" />
+              <Text style={styles.controlText}>Zones</Text>
             </TouchableOpacity>
           </Animated.View>
 

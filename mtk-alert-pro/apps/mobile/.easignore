@@ -10,11 +10,8 @@ node_modules/
 ios/
 android/
 
-# Lock files (not needed for build)
-pnpm-lock.yaml
-package-lock.json
-yarn.lock
-*.lock
+# Lock files — MUST be uploaded so EAS installs the exact same dependency
+# tree as local dev (excluding them makes builds non-reproducible).
 
 # Logs
 *.log
@@ -64,6 +61,11 @@ docs/
 ../../.git/
 ../../pruned/
 
+# Secrets — must never be uploaded to EAS or baked into a build
+.env
+.env.*
+!.env.example
+
 # Large unnecessary files
 *.zip
 *.tar
@@ -80,9 +82,6 @@ docs/
 *.xlsx
 *.pptx
 *.pdf
-*.jpg
-*.jpeg
-*.png
 *.gif
 *.svg
 *.ico
@@ -91,14 +90,21 @@ docs/
 *.mov
 *.avi
 *.mkv
-*.mp3
-*.wav
 *.flac
+
+# Media under src/ is not needed for the build
+src/**/*.jpg
+src/**/*.jpeg
+src/**/*.png
+src/**/*.mp3
+src/**/*.wav
+
+# CRITICAL: app.json references assets/icon.png, assets/splash.png,
+# assets/adaptive-icon.png, assets/notification-icon.png and
+# assets/favicon.png, and expo-notifications needs assets/sounds/.
+# Re-include the whole assets tree so prebuild never fails.
+!assets/
+!assets/**
 
 # Expo doctor reports
 expo-doctor-report*.txt
-
-# Assets that aren't needed for build
-assets/sounds/
-assets/videos/
-assets/large-assets/

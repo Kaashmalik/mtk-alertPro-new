@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useRef } from 'react';
 import {
   View,
   Text,
+  TextInput,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
@@ -21,15 +22,28 @@ import { Button, Input } from '@/components/ui';
 import { useAuthStore } from '@/stores';
 import { designSystem } from '@/theme/design-system';
 
-const registerSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters'),
-  email: z.string().email('Invalid email address'),
-  password: z.string().min(6, 'Password must be at least 6 characters'),
-  confirmPassword: z.string(),
-}).refine((data) => data.password === data.confirmPassword, {
-  message: 'Passwords do not match',
-  path: ['confirmPassword'],
-});
+const registerSchema = z
+  .object({
+    name: z
+      .string()
+      .min(1, 'Full name is required')
+      .min(2, 'Name must be at least 2 characters'),
+    email: z
+      .string()
+      .min(1, 'Email is required')
+      .email('Please enter a valid email address'),
+    password: z
+      .string()
+      .min(1, 'Password is required')
+      .min(6, 'Password must be at least 6 characters'),
+    confirmPassword: z
+      .string()
+      .min(1, 'Please confirm your password'),
+  })
+  .refine((data) => data.password === data.confirmPassword, {
+    message: 'Passwords do not match',
+    path: ['confirmPassword'],
+  });
 
 type RegisterForm = z.infer<typeof registerSchema>;
 
@@ -37,6 +51,11 @@ export default function RegisterScreen() {
   const signUpWithEmail = useAuthStore((state) => state.signUpWithEmail);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const nameInputRef = useRef<TextInput>(null);
+  const emailInputRef = useRef<TextInput>(null);
+  const passwordInputRef = useRef<TextInput>(null);
+  const confirmPasswordInputRef = useRef<TextInput>(null);
 
   const {
     control,
@@ -101,22 +120,27 @@ export default function RegisterScreen() {
     <SafeAreaView style={styles.container}>
       <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
 
-      {/* Back Button */}
-      <TouchableOpacity
-        style={styles.backButton}
-        onPress={() => router.back()}
-      >
-        <ArrowLeft size={24} color={designSystem.colors.text.primary} />
-      </TouchableOpacity>
+      {/* Header with Back Button */}
+      <View style={styles.header}>
+        <TouchableOpacity
+          style={styles.backButton}
+          onPress={() => router.back()}
+          hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+        >
+          <ArrowLeft size={24} color={designSystem.colors.text.primary} />
+        </TouchableOpacity>
+      </View>
 
       <KeyboardAvoidingView
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
         style={styles.keyboardView}
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 0 : undefined}
       >
         <ScrollView
           contentContainerStyle={styles.scrollContent}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
+          keyboardDismissMode="on-drag"
         >
           {/* Logo */}
           <Animated.View
@@ -140,9 +164,15 @@ export default function RegisterScreen() {
               name="name"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
+                  ref={nameInputRef}
                   label="Full Name"
                   placeholder="Enter your name"
                   autoCapitalize="words"
+                  autoComplete="name"
+                  textContentType="name"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => emailInputRef.current?.focus()}
                   leftIcon={<User size={20} color={designSystem.colors.text.muted} />}
                   value={value}
                   onChangeText={onChange}
@@ -159,10 +189,16 @@ export default function RegisterScreen() {
               name="email"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
+                  ref={emailInputRef}
                   label="Email"
                   placeholder="Enter your email"
                   keyboardType="email-address"
                   autoCapitalize="none"
+                  autoComplete="email"
+                  textContentType="emailAddress"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => passwordInputRef.current?.focus()}
                   leftIcon={<Mail size={20} color={designSystem.colors.text.muted} />}
                   value={value}
                   onChangeText={onChange}
@@ -179,9 +215,16 @@ export default function RegisterScreen() {
               name="password"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
+                  ref={passwordInputRef}
                   label="Password"
                   placeholder="Create a password"
                   secureTextEntry
+                  autoCapitalize="none"
+                  autoComplete="new-password"
+                  textContentType="newPassword"
+                  returnKeyType="next"
+                  blurOnSubmit={false}
+                  onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
                   leftIcon={<Lock size={20} color={designSystem.colors.text.muted} />}
                   value={value}
                   onChangeText={onChange}
@@ -198,9 +241,15 @@ export default function RegisterScreen() {
               name="confirmPassword"
               render={({ field: { onChange, onBlur, value } }) => (
                 <Input
+                  ref={confirmPasswordInputRef}
                   label="Confirm Password"
                   placeholder="Confirm your password"
                   secureTextEntry
+                  autoCapitalize="none"
+                  autoComplete="new-password"
+                  textContentType="newPassword"
+                  returnKeyType="done"
+                  onSubmitEditing={handleSubmit(onSubmit)}
                   leftIcon={<Lock size={20} color={designSystem.colors.text.muted} />}
                   value={value}
                   onChangeText={onChange}
@@ -246,25 +295,31 @@ const styles = StyleSheet.create({
     flex: 1,
     backgroundColor: designSystem.colors.background.primary,
   },
+  header: {
+    paddingHorizontal: designSystem.spacing.lg,
+    paddingTop: designSystem.spacing.xs,
+    paddingBottom: designSystem.spacing.xs,
+  },
   backButton: {
-    position: 'absolute',
-    top: 60,
-    left: designSystem.spacing.lg,
-    zIndex: 10,
-    padding: designSystem.spacing.sm,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
+    borderRadius: 20,
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
   },
   keyboardView: {
     flex: 1,
   },
   scrollContent: {
     flexGrow: 1,
-    justifyContent: 'center',
     paddingHorizontal: designSystem.spacing.xxl,
-    paddingVertical: designSystem.spacing.xxxl,
+    paddingTop: designSystem.spacing.sm,
+    paddingBottom: designSystem.spacing.xxxl,
   },
   logoSection: {
     alignItems: 'center',
-    marginBottom: designSystem.spacing.xxl,
+    marginBottom: designSystem.spacing.xl,
   },
   logoContainer: {
     width: 72,
@@ -273,7 +328,7 @@ const styles = StyleSheet.create({
     borderRadius: designSystem.layout.radius.xl,
     alignItems: 'center',
     justifyContent: 'center',
-    marginBottom: designSystem.spacing.lg,
+    marginBottom: designSystem.spacing.md,
     ...designSystem.shadows.glow.primary,
   },
   title: {

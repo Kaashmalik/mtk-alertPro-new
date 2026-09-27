@@ -1,6 +1,19 @@
 /**
  * Alarm Sound Service
- * Manages alarm sounds for security alerts with actual audio playback
+ *
+ * Plays the audible alarm for detections and manual emergency triggers.
+ *
+ * Fixes applied in this revision:
+ *  - Volume is applied once, at the player. It was previously baked into the
+ *    synthesised PCM *and* passed to the player, so the effective gain was
+ *    volume^2 and a 0.8 setting played at 0.64.
+ *  - playAlarm() is guarded by an in-flight token. Concurrent calls used to
+ *    interleave `stopAlarm -> create -> assign`, orphaning an Audio.Sound that
+ *    kept playing forever and leaking a native resource per detection.
+ *  - Vibration respects the user's notification settings. It previously fired
+ *    unconditionally, so a user who disabled vibration still got buzzed.
+ *  - The repeat loop uses a timer rather than nested playback callbacks, which
+ *    stopped reliably instead of racing the player.
  */
 
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
@@ -12,7 +25,7 @@ export interface AlarmSound {
   id: AlarmSoundType;
   name: string;
   description: string;
-  // Vibration pattern for each sound type (used alongside audio)
+  /** Vibration pattern for each sound type (used alongside audio). */
   vibrationPattern: number[];
 }
 
@@ -53,16 +66,96 @@ export const ALARM_SOUNDS: AlarmSound[] = [
     description: 'MAXIMUM VOLUME - Intense alarm',
     vibrationPattern: [0, 1000, 200, 1000, 200, 1000],
   },
+  {
+    id: 'sos',
+    name: 'Emergency SOS',
+    description: 'Distress pattern for manual emergency alerts',
+    vibrationPattern: [0, 200, 100, 200, 100, 200, 200, 500, 200, 500, 200, 500],
+  },
+  {
+    id: 'custom',
+    name: 'Custom sound',
+    description: 'Your own recording or an audio file you chose',
+    vibrationPattern: [0, 500, 250, 500, 250, 500],
+  },
 ];
+
+export interface PlayAlarmOptions {
+  /** Playback volume, 0..1. Applied by the player, not baked into the audio. */
+  volume?: number;
+  /** Play the sound more than once. */
+  repeat?: boolean;
+  /** Total plays when `repeat` is true. */
+  repeatCount?: number;
+  /** Whether to vibrate alongside the sound. */
+  vibrate?: boolean;
+}
+
+const FALLBACK_ALARM: AlarmSound = {
+  id: 'alert',
+  name: 'Alert',
+  description: 'Standard security alert',
+  vibrationPattern: [0, 300, 150, 300, 150, 300],
+};
+
+/** Gap between repeats of a non-repeating-then-looping alarm. */
+const REPEAT_GAP_MS = 250;
+
+/**
+ * Resolve the audio source for a sound type.
+ *
+ * For 'custom' this returns the user's imported file when one exists. A missing
+ * or unplayable custom file deliberately falls back to the standard 'alert'
+ * tone: during a real intrusion, playing nothing because the user's chosen file
+ * went missing is the worst possible failure mode.
+ */
+async function resolveAudioSource(
+  soundType: AlarmSoundType,
+  generated: string
+): Promise<string> {
+  if (soundType !== 'custom') return generated;
+
+  try {
+    const { getCustomAlarmSound } = await import('./customAlarmSound');
+    const custom = await getCustomAlarmSound();
+    if (custom?.uri) {
+      console.log('[AlarmService] Playing custom alarm sound');
+      return custom.uri;
+    }
+  } catch (error) {
+    console.warn('[AlarmService] Custom sound unavailable:', error);
+  }
+
+  console.warn('[AlarmService] No custom sound set - falling back to standard alert');
+  return getSound('alert');
+}
 
 class AlarmService {
   private sound: Audio.Sound | null = null;
   private isPlaying = false;
-  private repeatInterval: NodeJS.Timeout | null = null;
   private initialized = false;
+  /**
+   * Monotonic token; a call whose token is stale on resume must not attach.
+   */
+  private playToken = 0;
+  private repeatTimer: ReturnType<typeof setTimeout> | null = null;
+  private currentVolume = 0.8;
 
   /**
-   * Initialize the audio system
+   * Settings preview uses its own player and its own token, entirely separate
+   * from the live alarm. Sharing `sound`/`playToken` meant previewing a sound
+   * in settings called stopAlarm() and silenced a real intrusion alarm - the
+   * opposite of what the preview is for.
+   */
+  private previewSoundInstance: Audio.Sound | null = null;
+  private previewToken = 0;
+
+  /**
+   * Configure the audio session.
+   *
+   * `playsInSilentModeIOS` is required: users expect a security alarm to be
+   * audible when the ringer switch is off. Android is handled via the
+   * USAGE_ALARM stream.
    */
   async initialize(): Promise<void> {
     if (this.initialized) return;
@@ -79,154 +172,244 @@ class AlarmService {
       });
       this.initialized = true;
     } catch (error) {
-      console.error('Failed to initialize audio:', error);
+      console.error('[AlarmService] Failed to initialize audio session:', error);
     }
   }
 
   /**
-   * Play alarm sound with audio and vibration
+   * Play an alarm sound with audio and optional vibration.
    */
   async playAlarm(
     soundType: AlarmSoundType = 'alert',
-    options: {
-      volume?: number;
-      repeat?: boolean;
-      repeatCount?: number;
-    } = {}
+    options: PlayAlarmOptions = {}
   ): Promise<void> {
-    const { volume = 0.8, repeat = false, repeatCount = 3 } = options;
+    const { volume = 0.8, repeat = false, repeatCount = 3, vibrate = true } = options;
 
     await this.initialize();
-    await this.stopAlarm();
-    this.isPlaying = true;
 
-    const soundConfig = ALARM_SOUNDS.find(s => s.id === soundType) || ALARM_SOUNDS[2];
+    // Stop whatever is currently sounding, THEN claim the token.
+    //
+    // Order matters. stopAlarm() increments playToken to invalidate in-flight
+    // calls, so claiming the token first and stopping afterwards guaranteed
+    // `token !== this.playToken` and every alarm returned before playing.
+    // There is no await between the two statements, so the claim is still
+    // atomic with respect to other callers: if a newer call claims in between,
+    // this one detects the stale token below and unloads itself.
+    await this.stopAlarm();
+    const token = ++this.playToken;
+
+    this.isPlaying = true;
+    this.currentVolume = clampVolume(volume);
+
+    const soundConfig = findSound(soundType);
+    const totalPlays = repeat ? Math.max(1, repeatCount) : 1;
 
     try {
-      // Generate and play actual audio
-      const audioUri = getSound(soundType, volume);
+      // A user-supplied file has no generated counterpart, so it must win over
+      // the built-in tone. If it is missing we fall back rather than stay silent
+      // during an intrusion.
+      const audioUri = await resolveAudioSource(soundType, getSound(soundType));
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUri },
-        { volume, shouldPlay: true }
+        { volume: this.currentVolume, shouldPlay: true }
       );
+
+      // A newer call may have started while we awaited creation. Unload our
+      // player immediately rather than leaking it.
+      if (token !== this.playToken) {
+        await unloadQuietly(sound);
+        return;
+      }
 
       this.sound = sound;
 
-      // Also vibrate
-      Vibration.vibrate(soundConfig.vibrationPattern);
-
-      if (repeat && repeatCount > 0) {
-        let playCount = 1;
-
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (status.isLoaded && status.didJustFinish) {
-            if (playCount < repeatCount && this.isPlaying) {
-              playCount++;
-              sound.replayAsync();
-              Vibration.vibrate(soundConfig.vibrationPattern);
-            } else {
-              this.stopAlarm();
-            }
-          }
-        });
-      } else {
-        sound.setOnPlaybackStatusUpdate((status) => {
-          if (status.isLoaded && status.didJustFinish) {
-            this.stopAlarm();
-          }
-        });
+      if (vibrate) {
+        Vibration.vibrate(soundConfig.vibrationPattern);
       }
+
+      let playsRemaining = totalPlays - 1;
+
+      const scheduleNext = (): void => {
+        this.repeatTimer = setTimeout(() => {
+          this.repeatTimer = null;
+          if (!this.isPlaying || playsRemaining <= 0) return;
+
+          playsRemaining--;
+          if (vibrate) {
+            Vibration.vibrate(soundConfig.vibrationPattern);
+          }
+          sound.replayAsync().catch((error) => {
+            console.error('[AlarmService] Replay failed:', error);
+          });
+          scheduleNext();
+        }, REPEAT_GAP_MS);
+      };
+
+      sound.setOnPlaybackStatusUpdate((status) => {
+        if (status.isLoaded && status.didJustFinish) {
+          if (playsRemaining > 0 && this.isPlaying) {
+            scheduleNext();
+          } else {
+            void this.stopAlarm();
+          }
+        }
+      });
     } catch (error) {
-      console.error('Failed to play alarm audio:', error);
-      // Fallback to vibration only
-      Vibration.vibrate(soundConfig.vibrationPattern);
+      console.error('[AlarmService] Failed to play alarm audio:', error);
+      // Audio failed; vibration (if requested) is the fallback so the alert
+      // is still perceptible.
+      if (vibrate) {
+        Vibration.vibrate(soundConfig.vibrationPattern);
+      }
       this.isPlaying = false;
     }
   }
 
   /**
-   * Play a preview of alarm sound (for settings)
+   * Preview a sound from settings. Never repeats and never touches the live
+   * alarm's player, state, or token, so it cannot interfere with an alarm that
+   * is already sounding.
+   *
+   * A live alarm always wins: if one is playing the preview is skipped, since
+   * it would be inaudible anyway and the alarm must not be disturbed.
    */
-  async previewSound(soundType: AlarmSoundType, volume: number = 0.5): Promise<void> {
+  async previewSound(
+    soundType: AlarmSoundType,
+    volume: number = 0.5,
+    vibrate = false
+  ): Promise<void> {
     await this.initialize();
-    await this.stopAlarm();
 
-    const soundConfig = ALARM_SOUNDS.find(s => s.id === soundType) || ALARM_SOUNDS[2];
+    if (this.isPlaying) {
+      // Do not disturb a live alarm.
+      return;
+    }
+
+    // Replace any previous preview only.
+    const previousPreview = this.previewSoundInstance;
+    this.previewSoundInstance = null;
+    if (previousPreview) {
+      await unloadQuietly(previousPreview);
+    }
+
+    const token = ++this.previewToken;
+    const soundConfig = findSound(soundType);
 
     try {
-      // Generate and play audio preview
-      const audioUri = getSound(soundType, volume);
+      const audioUri = await resolveAudioSource(soundType, getSound(soundType));
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUri },
-        { volume, shouldPlay: true }
+        { volume: clampVolume(volume), shouldPlay: true }
       );
 
-      this.sound = sound;
+      // Superseded while creating, or an alarm started meanwhile: discard.
+      if (token !== this.previewToken || this.isPlaying) {
+        await unloadQuietly(sound);
+        return;
+      }
 
-      // Also vibrate
-      Vibration.vibrate(soundConfig.vibrationPattern);
+      this.previewSoundInstance = sound;
 
-      // Auto-cleanup after playback
+      if (vibrate) {
+        Vibration.vibrate(soundConfig.vibrationPattern);
+      }
+
       sound.setOnPlaybackStatusUpdate((status) => {
         if (status.isLoaded && status.didJustFinish) {
-          sound.unloadAsync();
-          this.sound = null;
+          void unloadQuietly(sound);
+          if (this.previewSoundInstance === sound) {
+            this.previewSoundInstance = null;
+          }
         }
       });
     } catch (error) {
-      console.error('Failed to preview sound:', error);
-      // Fallback to vibration only
-      Vibration.vibrate(soundConfig.vibrationPattern);
+      console.error('[AlarmService] Failed to preview sound:', error);
     }
   }
 
   /**
-   * Stop the alarm
+   * Change the volume of the currently playing alarm without restarting it.
    */
-  async stopAlarm(): Promise<void> {
-    if (this.repeatInterval) {
-      clearInterval(this.repeatInterval);
-      this.repeatInterval = null;
-    }
-
-    // Cancel any ongoing vibration
-    Vibration.cancel();
-
+  async setVolume(volume: number): Promise<void> {
+    this.currentVolume = clampVolume(volume);
     if (this.sound) {
       try {
-        await this.sound.stopAsync();
-        await this.sound.unloadAsync();
-      } catch {
-        // Ignore errors on cleanup
+        await this.sound.setVolumeAsync(this.currentVolume);
+      } catch (error) {
+        console.error('[AlarmService] Failed to set volume:', error);
       }
-      this.sound = null;
     }
-
-    this.isPlaying = false;
   }
 
   /**
-   * Check if alarm is currently playing
+   * Stop the alarm and release the player.
+   *
+   * Also silences any settings preview: when a real alarm fires it must be the
+   * only thing audible.
    */
+  async stopAlarm(): Promise<void> {
+    // Invalidate any in-flight playAlarm so late resolutions clean up.
+    this.playToken++;
+
+    // Invalidate any in-flight preview too.
+    this.previewToken++;
+
+    if (this.repeatTimer) {
+      clearTimeout(this.repeatTimer);
+      this.repeatTimer = null;
+    }
+
+    Vibration.cancel();
+
+    const sound = this.sound;
+    this.sound = null;
+    this.isPlaying = false;
+
+    if (sound) {
+      await unloadQuietly(sound);
+    }
+
+    const preview = this.previewSoundInstance;
+    this.previewSoundInstance = null;
+    if (preview) {
+      await unloadQuietly(preview);
+    }
+  }
+
   isAlarmPlaying(): boolean {
     return this.isPlaying;
   }
 
   /**
-   * Set volume (0.0 to 1.0) - placeholder for future audio implementation
-   */
-  async setVolume(_volume: number): Promise<void> {
-    // Volume control will work when actual audio files are added
-  }
-
-  /**
-   * Cleanup resources
+   * Release resources on app teardown.
    */
   async cleanup(): Promise<void> {
     await this.stopAlarm();
     this.initialized = false;
+  }
+}
+
+function clampVolume(volume: number): number {
+  if (!Number.isFinite(volume)) return 0.8;
+  return Math.min(1, Math.max(0, volume));
+}
+
+function findSound(type: AlarmSoundType): AlarmSound {
+  return ALARM_SOUNDS.find((s) => s.id === type) ?? FALLBACK_ALARM;
+}
+
+async function unloadQuietly(sound: Audio.Sound): Promise<void> {
+  try {
+    await sound.stopAsync();
+  } catch {
+    // Already stopped or unloaded; nothing to do.
+  }
+  try {
+    await sound.unloadAsync();
+  } catch {
+    // Native handle may already be released.
   }
 }
 

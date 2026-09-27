@@ -17,10 +17,12 @@ import {
   Eye,
   Zap,
   Volume2,
+  Users,
 } from 'lucide-react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useAuthStore, useSettingsStore, useSubscriptionStore, useIsPremium } from '@/stores';
 import { profileService } from '@/lib/profile/profileService';
+import { enableBiometricAuth, disableBiometricAuth } from '@/lib/biometric';
 import { designSystem } from '@/theme/design-system';
 
 export default function SettingsScreen() {
@@ -38,6 +40,27 @@ export default function SettingsScreen() {
   const { currentTier } = useSubscriptionStore();
   const isPremium = useIsPremium();
   const [isLoading, setIsLoading] = useState(false);
+
+  const handleBiometricToggle = async (v: boolean) => {
+    if (v) {
+      if (!user?.email) {
+        Alert.alert('Biometric Login', 'Sign in with your email first to enable biometric login.');
+        return;
+      }
+      const enabled = await enableBiometricAuth(user.email);
+      if (!enabled) {
+        Alert.alert(
+          'Biometric Unavailable',
+          'Fingerprint/Face ID is not supported or no biometrics are enrolled on this device. Set one up in your device settings first.'
+        );
+        return;
+      }
+      setSecurity?.({ biometricEnabled: true });
+    } else {
+      await disableBiometricAuth();
+      setSecurity?.({ biometricEnabled: false });
+    }
+  };
 
   const handleSignOut = async () => {
     Alert.alert(
@@ -173,6 +196,13 @@ export default function SettingsScreen() {
               onPress={() => router.push('/settings/alarm-sounds')}
             />
             <SettingItem
+              icon={Users}
+              color={designSystem.colors.status.danger}
+              label="Emergency Contacts"
+              type="link"
+              onPress={() => router.push('/settings/emergency-contacts')}
+            />
+            <SettingItem
               icon={Zap}
               color={designSystem.colors.status.danger}
               label="Red Alert Mode"
@@ -228,7 +258,7 @@ export default function SettingsScreen() {
               label="Biometric Login"
               type="toggle"
               value={security?.biometricEnabled ?? false}
-              onToggle={(v: boolean) => setSecurity?.({ biometricEnabled: v })}
+              onToggle={handleBiometricToggle}
             />
           </SettingSection>
 

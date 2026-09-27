@@ -9,6 +9,11 @@ import { create } from 'zustand';
 import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
 import { encryptPassword, decryptPassword, isEncrypted } from '@/lib/crypto';
 import {
+  canAddCamera,
+  describeCameraLimit,
+  normalizeTier,
+} from '@/lib/subscription/planLimits';
+import {
   testCameraConnection,
   createHealthMonitor,
   type ConnectionTestResult,
@@ -129,6 +134,58 @@ let isReplayingQueue = false;
 
 /** Pending timer for the next automatic backoff retry (cleared in reset()) */
 let offlineQueueRetryTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * 🔒 Encrypt a camera password before it is persisted to the offline queue.
+ * AsyncStorage is plaintext on disk — a queued password must never land there raw.
+ *
+ * Resolves the current user id (getUser first, cached session as offline fallback)
+ * and encrypts with it as salt. If no user id can be resolved, the password is
+ * STRIPPED rather than stored in cleartext (the camera syncs without credentials
+ * and the user is prompted to re-enter them — never a plaintext leak).
+ */
+async function encryptQueuedPassword<T extends Record<string, unknown>>(
+  data: T
+): Promise<T> {
+  const password = data.password;
+  if (typeof password !== 'string' || !password || isEncrypted(password)) {
+    return data;
+  }
+
+  let userId: string | null = null;
+  try {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    userId = user?.id ?? null;
+  } catch {
+    // getUser hits the network — fall back to the locally cached session
+    try {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      userId = session?.user?.id ?? null;
+    } catch {
+      // leave userId null
+    }
+  }
+
+  if (!userId) {
+    console.warn(
+      '[CameraStore] Could not resolve user for offline password encryption — stripping password from queued op'
+    );
+    const { password: _dropped, ...rest } = data;
+    return rest as T;
+  }
+
+  try {
+    return { ...data, password: encryptPassword(password, userId) };
+  } catch (error) {
+    logError(error, 'CameraStore.encryptQueuedPassword');
+    const { password: _dropped, ...rest } = data;
+    return rest as T;
+  }
+}
 
 /**
  * Initial state
@@ -359,23 +416,33 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       throw createAppError('AUTH_ERROR', 'User not authenticated');
     }
 
-    const { cameras } = get();
+    // Check subscription limits.
+    //
+    // The tier and the count are both read from the server rather than from
+    // local state. Previously the count came from the in-memory camera array,
+    // which is empty on a cold start before fetchCameras() resolves, so the
+    // limit silently did not apply. Combined with `limits[tier]` being
+    // undefined for an unrecognised tier - and `n >= undefined` being false -
+    // the check also failed OPEN, allowing unlimited cameras.
+    const [profileResult, countResult] = await Promise.all([
+      supabase
+        .from('profiles')
+        .select('subscription_tier')
+        .eq('id', user.id)
+        .single(),
+      supabase
+        .from('cameras')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+    ]);
 
-    // Check subscription limits
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('subscription_tier')
-      .eq('id', user.id)
-      .single();
+    const tier = normalizeTier(profileResult.data?.subscription_tier);
 
-    const tier = profile?.subscription_tier || 'free';
-    const limits: Record<string, number> = { free: 2, pro: 100, business: 100 };
-
-    if (cameras.length >= limits[tier]) {
+    if (!canAddCamera(tier, countResult.count ?? 0)) {
       throw createAppError(
         'QUOTA_EXCEEDED',
         `Camera limit reached for ${tier} tier`,
-        { userMessage: `Camera limit reached (${limits[tier]}). Upgrade to Pro for unlimited cameras.` }
+        { userMessage: describeCameraLimit(tier) }
       );
     }
 
@@ -383,11 +450,19 @@ export const useCameraStore = create<CameraState>((set, get) => ({
     let encryptedPassword: string | undefined;
     if (cameraData.password) {
       try {
-        encryptedPassword = encryptPassword(cameraData.password, user.id);
+        // Already encrypted (e.g. replayed from the offline queue) — don't double-encrypt
+        encryptedPassword = isEncrypted(cameraData.password)
+          ? cameraData.password
+          : encryptPassword(cameraData.password, user.id);
       } catch (error) {
         logError(error, 'CameraStore.addCamera.encryptPassword');
-        // Store as plain text if encryption fails (shouldn't happen)
-        encryptedPassword = cameraData.password;
+        // 🔒 Never fall back to plaintext — refuse the write rather than
+        // send/store a raw credential.
+        throw createAppError(
+          'CAMERA_ERROR',
+          'Failed to encrypt camera password — not saving.',
+          { userMessage: 'Could not secure the camera password. Please try again.' }
+        );
       }
     }
 
@@ -504,6 +579,13 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         }
       } catch (error) {
         logError(error, 'CameraStore.updateCamera.encryptPassword');
+        // 🔒 Never fall back to plaintext — refuse the write rather than
+        // send/store a raw credential.
+        throw createAppError(
+          'CAMERA_ERROR',
+          'Failed to encrypt camera password — not saving.',
+          { userMessage: 'Could not secure the camera password. Please try again.' }
+        );
       }
     }
 
@@ -759,12 +841,28 @@ export const useCameraStore = create<CameraState>((set, get) => ({
 
   /**
    * Queue an operation for when offline.
+   * 🔒 Passwords in the payload are encrypted before the op touches AsyncStorage
+   * (the on-disk queue is plaintext JSON — never store raw credentials there).
    * The queue is persisted via the shared cache helper so the key/format stay
    * consistent with cameraCache and survive cold starts.
    */
   queueOfflineOperation: async (operation: QueuedOperation) => {
+    let safeOperation = operation;
+    if (
+      operation.data &&
+      typeof operation.data === 'object' &&
+      !Array.isArray(operation.data)
+    ) {
+      safeOperation = {
+        ...operation,
+        data: await encryptQueuedPassword(
+          operation.data as Record<string, unknown>
+        ),
+      };
+    }
+
     const queue = get().offlineQueue;
-    const updatedQueue = [...queue, { ...operation, timestamp: Date.now() }];
+    const updatedQueue = [...queue, { ...safeOperation, timestamp: Date.now() }];
     set({ offlineQueue: updatedQueue, isOffline: true });
 
     // Persist queue to AsyncStorage (best-effort)

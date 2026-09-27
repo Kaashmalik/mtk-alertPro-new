@@ -1,4 +1,4 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, RefreshControl, StyleSheet, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { Bell, Check, Trash2 } from 'lucide-react-native';
@@ -14,6 +14,10 @@ export default function AlertsScreen() {
   const { alerts, fetchAlerts, markAsRead, markAllAsRead, deleteAlert, isLoading, subscribeToAlerts } = useAlertStore();
   const { cameras } = useCameraStore();
   const { show: showInterstitial } = useInterstitialAd();
+  // Counts actual dismissals. The previous trigger read `unreadCount` from a
+  // stale render closure, and `0 % 3 === 0` meant emptying the list fired an
+  // interstitial every single time.
+  const dismissCountRef = useRef(0);
 
   useEffect(() => {
     fetchAlerts();
@@ -21,7 +25,9 @@ export default function AlertsScreen() {
     return unsubscribe;
   }, []);
 
-  const getCameraName = (cameraId: string) => {
+  const getCameraName = (cameraId: string | null, type?: Alert['type']) => {
+    // SOS alerts are raised by the user, so there is no camera to name.
+    if (!cameraId) return type === 'emergency' ? 'Emergency SOS' : 'No camera';
     return cameras.find((c) => c.id === cameraId)?.name || 'Unknown Camera';
   };
 
@@ -32,15 +38,15 @@ export default function AlertsScreen() {
         type={item.type}
         confidence={item.confidence}
         timestamp={new Date(item.createdAt)}
-        cameraName={getCameraName(item.cameraId)}
+        cameraName={getCameraName(item.cameraId, item.type)}
         thumbnailUrl={item.thumbnailUrl} // Ensure Alert type supports this, or pass undefined
         isRead={item.isRead}
         onPress={() => markAsRead(item.id)}
         onDismiss={async () => {
           await deleteAlert(item.id);
+          dismissCountRef.current += 1;
           // Trigger interstitial every 3 dismissals
-          const unreadCount = alerts.filter(a => !a.isRead).length;
-          if (unreadCount % 3 === 0) {
+          if (dismissCountRef.current % 3 === 0) {
             await showInterstitial();
           }
         }}

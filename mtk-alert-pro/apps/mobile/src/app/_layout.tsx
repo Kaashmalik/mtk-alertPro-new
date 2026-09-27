@@ -13,6 +13,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import * as SplashScreen from 'expo-splash-screen';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { useAuthStore, useAlertStore } from '@/stores';
+import { AppLockOverlay } from '@/components/security/AppLockOverlay';
 import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
 import {
   logError,
@@ -168,6 +169,8 @@ const queryClient = new QueryClient({
 import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
 import { useAutomationStore } from '@/stores/automationStore';
 import { refreshMediaEdgeHealth } from '@/lib/streaming/mediaServerHealth';
+import { initializeEncryption } from '@/lib/crypto';
+import { ensureNotificationChannels } from '@/lib/notifications/service';
 
 function DetectionWatcher() {
   useDetectionCoordinator();
@@ -177,15 +180,17 @@ function DetectionWatcher() {
 function AutomationWatcher() {
   const fetchAutomations = useAutomationStore((s) => s.fetchAutomations);
   const checkAutomations = useAutomationStore((s) => s.checkAutomations);
+  const isAuthenticated = useAuthStore((s) => s.isAuthenticated);
 
   useEffect(() => {
+    if (!isAuthenticated) return;
     void fetchAutomations();
     const id = setInterval(() => {
       void checkAutomations();
     }, 60_000);
     void checkAutomations();
     return () => clearInterval(id);
-  }, [fetchAutomations, checkAutomations]);
+  }, [fetchAutomations, checkAutomations, isAuthenticated]);
 
   return null;
 }
@@ -210,6 +215,17 @@ export default function RootLayout() {
 
         // The actual initialization logic
         const initPromise = (async () => {
+          // Encryption key must be loaded before any camera credential is read
+          // or written. Previously the key was read from an EXPO_PUBLIC_ env
+          // var, which means it shipped inside the bundle and was extractable.
+          await initializeEncryption();
+
+          // Create the Android notification channel. On Android 8+ an alert
+          // posted to a channel that does not exist is silently dropped, so
+          // this must happen before the first notification, not on first push
+          // registration.
+          await ensureNotificationChannels();
+
           // Initialize auth and wait for completion
           await initialize();
 
@@ -220,7 +236,20 @@ export default function RootLayout() {
           // Fire and forget - don't block app startup
           (async () => {
             try {
-              await consentManager.requestConsent();
+              const consented = await consentManager.requestConsent();
+              // Do not initialise the ad SDK without a resolved consent state:
+              // on an error the consent request returns false, and initialising
+              // anyway serves personalised ads to EEA users with no consent.
+              if (!consented) {
+                console.log('[AdMob] Skipping init - no resolved ad consent');
+                adMobService.setConsentGranted(false);
+                return;
+              }
+              // `consented` is only true for OBTAINED / NOT_REQUIRED, so it is
+              // exactly the "personalised ads permitted" signal. Without this,
+              // every ad request was made with non-personalized flag hard-coded
+              // to false regardless of what the user chose.
+              adMobService.setConsentGranted(true);
               await adMobService.initialize();
               console.log('[AdMob] Initialized in background');
             } catch (adError) {
@@ -306,6 +335,8 @@ export default function RootLayout() {
               animation: 'slide_from_right',
             }}
           />
+          {/* Rendered last so it paints above every route. */}
+          <AppLockOverlay />
         </QueryClientProvider>
       </GestureHandlerRootView>
     </ErrorBoundary>

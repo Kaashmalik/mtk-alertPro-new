@@ -122,6 +122,68 @@ export function generateUrgentAlarm(volume: number = 0.5): string {
 }
 
 /**
+ * Generate the international SOS distress pattern (... --- ...) as tones.
+ *
+ * Dot = 150ms, dash = 450ms, intra-character gap = 150ms,
+ * inter-character gap = 450ms, letter gap = 900ms.
+ */
+export function generateSos(volume: number = 1.0): string {
+  const DOT = 150;
+  const DASH = 450;
+  const INTRA_GAP = 150;
+  const LETTER_GAP = 900;
+  const FREQ = 1200; // High, piercing tone that carries on a phone speaker
+
+  // "SOS" = ... --- ...
+  const letter: number[][] = [
+    [DOT, DOT, DOT],
+    [DASH, DASH, DASH],
+    [DOT, DOT, DOT],
+  ];
+
+  const amplitude = Math.floor(32767 * Math.min(1, Math.max(0, volume)));
+
+  // Pre-compute total length so the buffer is allocated exactly once.
+  const totalMs = letter.reduce(
+    (sum, marks) =>
+      sum + marks.reduce((s, m) => s + m, 0) + INTRA_GAP * (marks.length - 1) + LETTER_GAP,
+    0
+  );
+
+  const samples = new Int16Array(Math.floor((SAMPLE_RATE * totalMs) / 1000));
+  let sampleIndex = 0;
+
+  const writeTone = (durationMs: number): void => {
+    const count = Math.floor((SAMPLE_RATE * durationMs) / 1000);
+    for (let i = 0; i < count && sampleIndex < samples.length; i++) {
+      const t = i / SAMPLE_RATE;
+      // Short attack/release ramps avoid an audible click at note edges.
+      const envelope = Math.min(1, Math.min(i, count - i) / (SAMPLE_RATE * 0.005));
+      samples[sampleIndex++] = Math.floor(
+        amplitude * envelope * Math.sin(2 * Math.PI * FREQ * t)
+      );
+    }
+  };
+
+  const writeSilence = (durationMs: number): void => {
+    const count = Math.floor((SAMPLE_RATE * durationMs) / 1000);
+    for (let i = 0; i < count && sampleIndex < samples.length; i++) {
+      samples[sampleIndex++] = 0;
+    }
+  };
+
+  letter.forEach((marks, letterIndex) => {
+    marks.forEach((mark, markIndex) => {
+      writeTone(mark);
+      if (markIndex < marks.length - 1) writeSilence(INTRA_GAP);
+    });
+    if (letterIndex < letter.length - 1) writeSilence(LETTER_GAP);
+  });
+
+  return createWavBase64(samples);
+}
+
+/**
  * Generate a gentle chime sound
  */
 export function generateChime(volume: number = 0.3): string {
@@ -203,46 +265,62 @@ function writeString(view: DataView, offset: number, str: string): void {
   }
 }
 
-// Pre-generated sounds cache
-let soundCache: Record<string, string> = {};
+// Pre-generated sounds cache.
+//
+// Sounds are synthesised at FULL amplitude and cached once per type. Volume is
+// applied at the audio player, not baked into the PCM. Previously volume was
+// baked in AND passed to the player, which multiplied to volume^2 (a 0.8
+// setting played at 0.64), and caching per volume re-synthesised the whole
+// waveform for every distinct level.
+let soundCache: Partial<Record<AlarmSoundType, string>> = {};
 
 /**
- * Get or generate a sound by type
+ * Get or generate a sound by type.
+ *
+ * @param type - Sound to produce
+ * @param volume - Retained for backwards compatibility and ignored. Playback
+ *                 volume is controlled by the audio player via setVolumeAsync,
+ *                 which allows live changes without re-synthesis.
  */
-export function getSound(type: AlarmSoundType, volume: number = 0.5): string {
-  const cacheKey = `${type}-${volume}`;
-
-  if (soundCache[cacheKey]) {
-    return soundCache[cacheKey];
+export function getSound(type: AlarmSoundType, _volume?: number): string {
+  const cached = soundCache[type];
+  if (cached) {
+    return cached;
   }
 
   let sound: string;
 
   switch (type) {
     case 'urgent':
-      sound = generateUrgentAlarm(volume);
+      sound = generateUrgentAlarm(1.0);
       break;
     case 'siren':
-      sound = generateSiren(400, 800, 1000, volume);
+      sound = generateSiren(400, 800, 1000, 1.0);
       break;
     case 'alert':
-      sound = generateBeepSequence(660, 200, 100, 3, volume);
+      sound = generateBeepSequence(660, 200, 100, 3, 1.0);
       break;
     case 'chime':
-      sound = generateChime(volume);
+      sound = generateChime(1.0);
       break;
     case 'beep':
-      sound = generateTone(880, 300, volume);
+      sound = generateTone(880, 300, 1.0);
       break;
     case 'heavy':
-      // Heavy alarm: intense dual-tone siren with maximum intensity
-      sound = generateSiren(300, 1200, 1500, Math.min(1.0, volume * 1.2));
+      // Heavy alarm: intense dual-tone siren at maximum intensity.
+      sound = generateSiren(300, 1200, 1500, 1.0);
+      break;
+    case 'sos':
+      // SOS: the international distress morse pattern (... --- ...) rendered
+      // as tones. Deliberately distinct from every detection alarm so a user
+      // can identify an emergency trigger by ear alone.
+      sound = generateSos(1.0);
       break;
     default:
-      sound = generateTone(440, 200, volume);
+      sound = generateTone(440, 200, 1.0);
   }
 
-  soundCache[cacheKey] = sound;
+  soundCache[type] = sound;
   return sound;
 }
 
