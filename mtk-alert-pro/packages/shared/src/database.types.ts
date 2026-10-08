@@ -344,6 +344,7 @@ export type Database = {
           email: string
           fcm_token: string | null
           id: string
+          is_admin: boolean
           last_payment_date: string | null
           subscription_auto_renew: boolean | null
           subscription_expires_at: string | null
@@ -358,6 +359,7 @@ export type Database = {
           email: string
           fcm_token?: string | null
           id: string
+          is_admin?: boolean
           last_payment_date?: string | null
           subscription_auto_renew?: boolean | null
           subscription_expires_at?: string | null
@@ -372,6 +374,7 @@ export type Database = {
           email?: string
           fcm_token?: string | null
           id?: string
+          is_admin?: boolean
           last_payment_date?: string | null
           subscription_auto_renew?: boolean | null
           subscription_expires_at?: string | null
@@ -412,6 +415,18 @@ export type Database = {
     Functions: {
       confirm_payment: {
         Args: { p_payment_request_id: string; p_transaction_id?: string }
+        Returns: Json
+      }
+      admin_confirm_payment: {
+        Args: { p_payment_request_id: string; p_transaction_id?: string }
+        Returns: Json
+      }
+      admin_reject_payment: {
+        Args: { p_payment_request_id: string; p_reason?: string }
+        Returns: Json
+      }
+      admin_set_subscription: {
+        Args: { p_user_id: string; p_tier: string; p_months?: number }
         Returns: Json
       }
     }
