@@ -342,6 +342,10 @@ export default function AlarmSoundsScreen() {
                     {/* Master Toggles */}
                     <Animated.View entering={FadeInDown.duration(600)} style={styles.section}>
                         <Text style={styles.sectionTitle}>Master Controls</Text>
+                        <Text style={styles.sectionHint}>
+                            Alarm sound is off by default — detections still alert you with
+                            push notifications and vibration. Turn it on for an audible alarm.
+                        </Text>
 
                         <View style={styles.toggleRow}>
                             <View style={styles.toggleInfo}>
@@ -610,6 +614,13 @@ const styles = StyleSheet.create({
         marginBottom: 12,
         textTransform: 'uppercase',
         letterSpacing: 0.5,
+    },
+    sectionHint: {
+        fontSize: 13,
+        lineHeight: 18,
+        color: designSystem.colors.text.muted,
+        marginTop: -4,
+        marginBottom: 12,
     },
     toggleRow: {
         flexDirection: 'row',

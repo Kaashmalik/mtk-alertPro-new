@@ -34,8 +34,8 @@ export async function handleDetectionAlarm(
     const settings = useSettingsStore.getState();
     const { notifications, detection } = settings;
 
-    // Check if alarms are enabled globally
-    if (!notifications.enabled || !notifications.sound) {
+    // Alerts fully disabled — nothing fires.
+    if (!notifications.enabled) {
         return;
     }
 
@@ -45,35 +45,40 @@ export async function handleDetectionAlarm(
         return;
     }
 
+    // Sound is opt-in (silent by default). When it's off we still alert through
+    // vibration + the push-notification pipeline — we only skip the audible
+    // alarm. This keeps "silent mode" genuinely useful instead of going fully
+    // dark on detections.
+    const soundOn = notifications.sound === true;
+    const vibrate = notifications.vibration === true;
+
     // Determine if this is a high-priority detection
     const hasPersonDetection = detections.some(d => d.type === 'person' && d.confidence >= 0.60);
     const hasVehicleDetection = detections.some(d => d.type === 'vehicle' && d.confidence >= 0.65);
+    const highPriority = hasPersonDetection || hasVehicleDetection;
 
-    // Red alert mode: immediate alarm for any detection
-    if (detection.redAlertMode) {
-        await triggerAlarm({
-            enabled: true,
-            redAlertMode: true,
-            alarmSound: notifications.alarmSound,
-            alarmVolume: notifications.alarmVolume,
-            repeatAlarm: notifications.repeatAlarm,
-            repeatCount: notifications.repeatCount,
-        }, notifications.vibration);
+    // Red alert mode fires on any detection; otherwise only high-confidence ones.
+    const immediate = detection.redAlertMode || highPriority;
+
+    if (immediate) {
+        if (soundOn) {
+            await triggerAlarm({
+                enabled: true,
+                redAlertMode: detection.redAlertMode,
+                alarmSound: notifications.alarmSound,
+                alarmVolume: notifications.alarmVolume,
+                repeatAlarm: notifications.repeatAlarm,
+                repeatCount: notifications.repeatCount,
+            }, vibrate);
+        } else if (vibrate) {
+            // Silent mode — strong haptic only, no audible alarm.
+            hapticNotification();
+        }
         return;
     }
 
-    // Normal mode: alarm only for high-confidence detections
-    if (hasPersonDetection || hasVehicleDetection) {
-        await triggerAlarm({
-            enabled: true,
-            redAlertMode: false,
-            alarmSound: notifications.alarmSound,
-            alarmVolume: notifications.alarmVolume,
-            repeatAlarm: notifications.repeatAlarm,
-            repeatCount: notifications.repeatCount,
-        }, notifications.vibration);
-    } else if (notifications.vibration) {
-        // Low-priority detection: just haptic feedback
+    // Low-priority detection: just haptic feedback (when enabled).
+    if (vibrate) {
         hapticNotification();
     }
 }

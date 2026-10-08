@@ -74,7 +74,7 @@ export const SCENE_PROFILES: SceneProfileDefinition[] = [
     id: 'parking',
     label: 'Parking',
     description: 'People and vehicles in lots. Animals ignored.',
-    freeTier: false,
+    freeTier: true,
     settings: {
       person: true,
       vehicle: true,
@@ -89,7 +89,7 @@ export const SCENE_PROFILES: SceneProfileDefinition[] = [
     id: 'warehouse',
     label: 'Warehouse',
     description: 'Staff and vehicle activity. Animals ignored.',
-    freeTier: false,
+    freeTier: true,
     settings: {
       person: true,
       vehicle: true,
@@ -104,7 +104,7 @@ export const SCENE_PROFILES: SceneProfileDefinition[] = [
     id: 'construction',
     label: 'Construction',
     description: 'Workers and machinery. Animals ignored.',
-    freeTier: false,
+    freeTier: true,
     settings: {
       person: true,
       vehicle: true,
@@ -119,7 +119,7 @@ export const SCENE_PROFILES: SceneProfileDefinition[] = [
     id: 'school',
     label: 'School',
     description: 'People-focused campus safety. Vehicles off by default.',
-    freeTier: false,
+    freeTier: true,
     settings: {
       person: true,
       vehicle: false,
@@ -198,11 +198,21 @@ export function shouldAlert(
   }
 }
 
-/** Free-tier profile IDs */
+/**
+ * Every scene mode ships on every tier.
+ * Detection presets are a core safety feature, not a paywall lever — so Home,
+ * School, Farm, Shop, Parking, Warehouse, Construction and Custom are all
+ * available to every user. (Pro differentiates on capacity/cloud, not safety.)
+ */
 export const FREE_SCENE_PROFILES: SceneProfileId[] = SCENE_PROFILES.filter(
   (p) => p.freeTier
 ).map((p) => p.id);
 
-export function isAdvancedSceneProfile(id: SceneProfileId): boolean {
-  return !getSceneProfile(id).freeTier;
+/**
+ * Whether a scene profile is gated behind Pro.
+ * Always `false`: scene modes are universal. Kept as a stable export so callers
+ * (pickers, screens) don't need to change if gating is ever reintroduced.
+ */
+export function isAdvancedSceneProfile(_id: SceneProfileId): boolean {
+  return false;
 }

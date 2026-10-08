@@ -88,6 +88,29 @@ class StreamingService {
   private lastHealthCheck = 0;
   private readonly HEALTH_CACHE_TTL = 10000;
 
+  /** Default per-request timeout so the UI never hangs on a dead media server */
+  private readonly REQUEST_TIMEOUT_MS = 8000;
+
+  /**
+   * fetch() with an abort-based timeout. A camera/media-server that stops
+   * responding mid-request would otherwise leave the promise pending forever,
+   * freezing spinners in the UI. Every network call in this service goes
+   * through here so playback failures surface fast and can be retried.
+   */
+  private async fetchWithTimeout(
+    input: string,
+    init: RequestInit = {},
+    timeoutMs: number = this.REQUEST_TIMEOUT_MS
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(input, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   /**
    * Check if the media edge (API + MediaMTX) is reachable
    */
@@ -151,7 +174,7 @@ class StreamingService {
   async testConnection(rtspUrl: string): Promise<ConnectionTest> {
     try {
       const response = await withRetry(
-        () => fetch(`${MEDIA_SERVER_URL}/api/cameras/test-connection`, {
+        () => this.fetchWithTimeout(`${MEDIA_SERVER_URL}/api/cameras/test-connection`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ rtspUrl }),
@@ -196,11 +219,17 @@ class StreamingService {
     userId: string
   ): Promise<StreamRegistration> {
     try {
-      const response = await fetch(`${MEDIA_SERVER_URL}/api/cameras/register`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cameraId, rtspUrl, userId }),
-      });
+      // Registration kicks off the RTSP→HLS pipeline and is the single most
+      // important call for playback to work, so it gets a bounded retry.
+      const response = await withRetry(
+        () =>
+          this.fetchWithTimeout(`${MEDIA_SERVER_URL}/api/cameras/register`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ cameraId, rtspUrl, userId }),
+          }),
+        { maxRetries: 2, delayMs: 1000 }
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -245,7 +274,7 @@ class StreamingService {
    */
   async unregisterCamera(cameraId: string): Promise<boolean> {
     try {
-      const response = await fetch(
+      const response = await this.fetchWithTimeout(
         `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/unregister`,
         { method: 'DELETE' }
       );
@@ -281,7 +310,7 @@ class StreamingService {
     }
 
     try {
-      const response = await fetch(
+      const response = await this.fetchWithTimeout(
         `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/status`
       );
 
@@ -357,7 +386,7 @@ class StreamingService {
    */
   async captureSnapshot(cameraId: string): Promise<string | null> {
     try {
-      const response = await fetch(
+      const response = await this.fetchWithTimeout(
         `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/snapshot`,
         { method: 'POST' }
       );
@@ -391,7 +420,7 @@ class StreamingService {
     durationSeconds: number = 30
   ): Promise<boolean> {
     try {
-      const response = await fetch(
+      const response = await this.fetchWithTimeout(
         `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/start`,
         {
           method: 'POST',
@@ -415,7 +444,7 @@ class StreamingService {
    */
   async stopRecording(cameraId: string): Promise<boolean> {
     try {
-      const response = await fetch(
+      const response = await this.fetchWithTimeout(
         `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/stop`,
         { method: 'POST' }
       );

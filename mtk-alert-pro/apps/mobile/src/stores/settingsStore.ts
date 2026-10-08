@@ -17,9 +17,11 @@ const defaultSettings: AppSettings = {
   notifications: {
     enabled: true,
     push: true,
-    sound: true,
+    // Silent by default: detections still alert via push + vibration + visual.
+    // Users can opt back into alarm audio from Settings → Alarm Sounds.
+    sound: false,
     vibration: true,
-    // Sound settings
+    // Sound settings (used only when `sound` is re-enabled)
     alarmSound: 'alert',
     alarmVolume: 0.8,
     repeatAlarm: true,
