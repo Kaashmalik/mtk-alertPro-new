@@ -1,8 +1,8 @@
+import * as Notifications from 'expo-notifications';
+import * as Device from 'expo-device';
+import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase/client';
 import type { Alert } from '@/types';
-import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
-import { Platform } from 'react-native';
 
 /**
  * Android notification channel id.
@@ -16,6 +16,14 @@ import { Platform } from 'react-native';
  * Urgency is instead expressed per-notification via `priority` and `vibrate`.
  */
 export const ALERTS_CHANNEL_ID = 'default';
+
+/**
+ * Channel id used by REMOTE push notifications (the `push-on-alert` Supabase
+ * edge function sends `channelId: 'alerts-critical'`). It must exist on the
+ * device or Android drops the push, so it is created alongside the default
+ * channel below. This is what makes away-from-home alerts actually arrive.
+ */
+export const CRITICAL_CHANNEL_ID = 'alerts-critical';
 
 // Configure notification behavior
 Notifications.setNotificationHandler({
@@ -50,6 +58,19 @@ export async function ensureNotificationChannels(): Promise<void> {
       lightColor: '#EF4444',
       sound: 'default',
       lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+    });
+
+    // Remote push channel. The server/edge function targets this channel id,
+    // so without it an away-from-home intruder push is silently dropped on
+    // Android 8+.
+    await Notifications.setNotificationChannelAsync(CRITICAL_CHANNEL_ID, {
+      name: 'Critical Intruder Alerts',
+      importance: Notifications.AndroidImportance.MAX,
+      vibrationPattern: [0, 400, 200, 400],
+      lightColor: '#EF4444',
+      sound: 'default',
+      lockscreenVisibility: Notifications.AndroidNotificationVisibility.PUBLIC,
+      bypassDnd: true,
     });
   } catch (error) {
     console.error('[Notifications] Failed to create channel:', error);
@@ -115,20 +136,34 @@ export async function savePushToken(userId: string, token: string) {
   }
 }
 
+/**
+ * Register for push notifications and persist the Expo token to the user's
+ * profile, so the `push-on-alert` edge function can reach this device while the
+ * app is closed. Safe to call on every authenticated launch ??? Expo returns a
+ * stable token and the write is an idempotent upsert of a single column.
+ *
+ * @returns the Expo push token, or null when unavailable (simulator, denied
+ *          permission, no network).
+ */
+export async function registerAndSavePushToken(userId: string): Promise<string | null> {
+  try {
+    const token = await registerForPushNotifications();
+    if (token) {
+      await savePushToken(userId, token);
+      console.log('[Notifications] Push token registered for user');
+    }
+    return token;
+  } catch (error) {
+    console.error('[Notifications] registerAndSavePushToken failed:', error);
+    return null;
+  }
+}
+
+export async function sendLocalNotification(alert: Alert, cameraName: string): Promise<void>;
+export async function sendLocalNotification(options: { title: string; body: string; data?: Record<string, unknown> }): Promise<void>;
 export async function sendLocalNotification(
-  alert: Alert,
-  cameraName: string,
-): Promise<void>;
-export async function sendLocalNotification(options: {
-  title: string;
-  body: string;
-  data?: Record<string, unknown>;
-}): Promise<void>;
-export async function sendLocalNotification(
-  alertOrOptions:
-    | Alert
-    | { title: string; body: string; data?: Record<string, unknown> },
-  cameraName?: string,
+  alertOrOptions: Alert | { title: string; body: string; data?: Record<string, unknown> },
+  cameraName?: string
 ): Promise<void> {
   // Handle simple notification object
   if ('title' in alertOrOptions && 'body' in alertOrOptions) {
@@ -167,11 +202,9 @@ export async function sendLocalNotification(
  */
 export async function sendEmergencyNotification(
   message: string,
-  cameraName?: string,
+  cameraName?: string
 ): Promise<void> {
-  const body = cameraName
-    ? `${message} — triggered from ${cameraName}`
-    : message;
+  const body = cameraName ? `${message} — triggered from ${cameraName}` : message;
 
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -191,13 +224,13 @@ export async function sendEmergencyNotification(
 }
 
 export function addNotificationReceivedListener(
-  callback: (notification: Notifications.Notification) => void,
+  callback: (notification: Notifications.Notification) => void
 ) {
   return Notifications.addNotificationReceivedListener(callback);
 }
 
 export function addNotificationResponseListener(
-  callback: (response: Notifications.NotificationResponse) => void,
+  callback: (response: Notifications.NotificationResponse) => void
 ) {
   return Notifications.addNotificationResponseReceivedListener(callback);
 }

@@ -3,8 +3,9 @@
  */
 
 import {
-  type StreamUrls,
+  streamingService,
   StreamingService,
+  type StreamUrls,
 } from '@/lib/streaming/streamingService';
 
 describe('Streaming Service', () => {
@@ -26,9 +27,7 @@ describe('Streaming Service', () => {
         json: async () => ({ connected: true, streamInfo: { ready: true } }),
       });
 
-      const result = await service.testConnection(
-        'rtsp://192.168.1.100:554/stream',
-      );
+      const result = await service.testConnection('rtsp://192.168.1.100:554/stream');
 
       expect(result.connected).toBe(true);
       expect(result.streamInfo).toBeDefined();
@@ -40,9 +39,7 @@ describe('Streaming Service', () => {
         json: async () => ({ connected: false, error: 'Camera not reachable' }),
       });
 
-      const result = await service.testConnection(
-        'rtsp://192.168.1.100:554/stream',
-      );
+      const result = await service.testConnection('rtsp://192.168.1.100:554/stream');
 
       expect(result.connected).toBe(false);
       expect(result.error).toBeDefined();
@@ -54,22 +51,16 @@ describe('Streaming Service', () => {
         status: 500,
       });
 
-      const result = await service.testConnection(
-        'rtsp://192.168.1.100:554/stream',
-      );
+      const result = await service.testConnection('rtsp://192.168.1.100:554/stream');
 
       expect(result.connected).toBe(false);
       expect(result.error).toContain('500');
     });
 
     it('should handle network error', async () => {
-      (global.fetch as jest.Mock).mockRejectedValueOnce(
-        new Error('Network failed'),
-      );
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network failed'));
 
-      const result = await service.testConnection(
-        'rtsp://192.168.1.100:554/stream',
-      );
+      const result = await service.testConnection('rtsp://192.168.1.100:554/stream');
 
       expect(result.connected).toBe(false);
       // Error handling - may be undefined or contain message
@@ -99,7 +90,7 @@ describe('Streaming Service', () => {
       const result = await service.registerCamera(
         'camera-123',
         'rtsp://192.168.1.100:554/stream',
-        'user-1',
+        'user-1'
       );
 
       expect(result.success).toBe(true);
@@ -118,7 +109,7 @@ describe('Streaming Service', () => {
       const result = await service.registerCamera(
         'camera-123',
         'invalid-url',
-        'user-1',
+        'user-1'
       );
 
       expect(result.success).toBe(false);
@@ -126,15 +117,15 @@ describe('Streaming Service', () => {
       expect(service.isRegistered('camera-123')).toBe(false);
     });
 
-    it('should handle network error', async () => {
-      (global.fetch as jest.Mock).mockRejectedValueOnce(
-        new Error('Connection failed'),
-      );
+    it('should handle network error (after exhausting retries)', async () => {
+      // registerCamera retries transient failures, so a persistent network
+      // error must keep failing on every attempt before it surfaces.
+      (global.fetch as jest.Mock).mockRejectedValue(new Error('Connection failed'));
 
       const result = await service.registerCamera(
         'camera-123',
         'rtsp://192.168.1.100:554/stream',
-        'user-1',
+        'user-1'
       );
 
       expect(result.success).toBe(false);
@@ -155,11 +146,7 @@ describe('Streaming Service', () => {
         }),
       });
 
-      await service.registerCamera(
-        'camera-123',
-        'rtsp://192.168.1.100:554/stream',
-        'user-1',
-      );
+      await service.registerCamera('camera-123', 'rtsp://192.168.1.100:554/stream', 'user-1');
 
       // getHlsUrl should return cached URL
       const hlsUrl = service.getHlsUrl('camera-123');
@@ -176,19 +163,11 @@ describe('Streaming Service', () => {
       (global.fetch as jest.Mock)
         .mockResolvedValueOnce({
           ok: true,
-          json: async () => ({
-            success: true,
-            pathName: 'cam_123',
-            streams: {},
-          }),
+          json: async () => ({ success: true, pathName: 'cam_123', streams: {} }),
         })
         .mockResolvedValueOnce({ ok: true });
 
-      await service.registerCamera(
-        'camera-123',
-        'rtsp://192.168.1.100:554/stream',
-        'user-1',
-      );
+      await service.registerCamera('camera-123', 'rtsp://192.168.1.100:554/stream', 'user-1');
       expect(service.isRegistered('camera-123')).toBe(true);
 
       const result = await service.unregisterCamera('camera-123');
@@ -222,11 +201,7 @@ describe('Streaming Service', () => {
         })
         .mockResolvedValueOnce({ ok: true });
 
-      await service.registerCamera(
-        'camera-123',
-        'rtsp://192.168.1.100:554/stream',
-        'user-1',
-      );
+      await service.registerCamera('camera-123', 'rtsp://192.168.1.100:554/stream', 'user-1');
       await service.unregisterCamera('camera-123');
 
       // URL should now be generated, not cached
@@ -286,9 +261,7 @@ describe('Streaming Service', () => {
     });
 
     it('should return offline for failed request', async () => {
-      (global.fetch as jest.Mock).mockRejectedValueOnce(
-        new Error('Network error'),
-      );
+      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
 
       const status = await service.getStreamStatus('camera-123');
 
@@ -303,21 +276,21 @@ describe('Streaming Service', () => {
   describe('URL generation', () => {
     it('should generate HLS URL for unregistered camera', () => {
       const url = service.getHlsUrl('test-camera-id');
-
+      
       expect(url).toContain('testcameraid');
       expect(url).toContain('.m3u8');
     });
 
     it('should generate WebRTC URL', () => {
       const url = service.getWebRtcUrl('test-camera-id');
-
+      
       expect(url).toContain('testcameraid');
       expect(url).toContain('8889');
     });
 
     it('should handle camera ID with hyphens', () => {
       const url = service.getHlsUrl('camera-with-many-hyphens');
-
+      
       // Hyphens should be removed
       expect(url).not.toContain('-');
       expect(url).toContain('camerawithmanyhyphens');
@@ -366,7 +339,7 @@ describe('Streaming Service', () => {
         expect.objectContaining({
           method: 'POST',
           body: expect.stringContaining('30'),
-        }),
+        })
       );
     });
 
@@ -378,7 +351,7 @@ describe('Streaming Service', () => {
       expect(result).toBe(true);
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining('/record/stop'),
-        expect.objectContaining({ method: 'POST' }),
+        expect.objectContaining({ method: 'POST' })
       );
     });
   });
@@ -413,3 +386,4 @@ describe('Streaming Service', () => {
     });
   });
 });
+

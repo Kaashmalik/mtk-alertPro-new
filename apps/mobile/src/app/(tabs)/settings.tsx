@@ -1,42 +1,30 @@
-import { disableBiometricAuth, enableBiometricAuth } from '@/lib/biometric';
-import { profileService } from '@/lib/profile/profileService';
-import {
-  useAuthStore,
-  useIsPremium,
-  useSettingsStore,
-  useSubscriptionStore,
-} from '@/stores';
-import { designSystem } from '@/theme/design-system';
+import { useState, useEffect } from 'react';
+import { View, Text, Switch, TouchableOpacity, ScrollView, Alert, StyleSheet, StatusBar } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
 import {
-  Bell,
-  ChevronRight,
-  CreditCard,
-  HelpCircle,
-  Info,
-  Lock,
-  LogOut,
-  Moon,
-  Shield,
-  Smartphone,
   User,
-  Users,
-  Volume2,
+  Bell,
+  Shield,
+  HelpCircle,
+  LogOut,
+  ChevronRight,
+  Moon,
+  Smartphone,
+  Info,
+  CreditCard,
+  Lock,
+  Eye,
   Zap,
+  Volume2,
+  Users,
 } from 'lucide-react-native';
-import { useState } from 'react';
-import {
-  Alert,
-  ScrollView,
-  StatusBar,
-  StyleSheet,
-  Switch,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
 import Animated, { FadeInDown } from 'react-native-reanimated';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useAuthStore, useSettingsStore, useSubscriptionStore, useIsPremium } from '@/stores';
+import { profileService } from '@/lib/profile/profileService';
+import { enableBiometricAuth, disableBiometricAuth } from '@/lib/biometric';
+import { fetchIsAdmin } from '@/lib/admin/adminService';
+import { designSystem } from '@/theme/design-system';
 
 export default function SettingsScreen() {
   const { signOut, user } = useAuthStore();
@@ -48,27 +36,37 @@ export default function SettingsScreen() {
     setTheme,
     setNotifications,
     setDetection,
-    setSecurity,
+    setSecurity
   } = useSettingsStore();
-  const { checkFeatureAccess } = useSubscriptionStore();
+  const { currentTier } = useSubscriptionStore();
   const isPremium = useIsPremium();
-  const canUseRedAlert = checkFeatureAccess('hasRedAlertMode');
-  const [, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Surface the admin console only to admin accounts. Server RPCs re-check
+  // admin status, so this is a UI convenience, not the security boundary.
+  useEffect(() => {
+    let active = true;
+    if (!user?.id) return;
+    fetchIsAdmin(user.id).then((admin) => {
+      if (active) setIsAdmin(admin);
+    });
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
 
   const handleBiometricToggle = async (v: boolean) => {
     if (v) {
       if (!user?.email) {
-        Alert.alert(
-          'Biometric Login',
-          'Sign in with your email first to enable biometric login.',
-        );
+        Alert.alert('Biometric Login', 'Sign in with your email first to enable biometric login.');
         return;
       }
       const enabled = await enableBiometricAuth(user.email);
       if (!enabled) {
         Alert.alert(
           'Biometric Unavailable',
-          'Fingerprint/Face ID is not supported or no biometrics are enrolled on this device. Set one up in your device settings first.',
+          'Fingerprint/Face ID is not supported or no biometrics are enrolled on this device. Set one up in your device settings first.'
         );
         return;
       }
@@ -80,37 +78,36 @@ export default function SettingsScreen() {
   };
 
   const handleSignOut = async () => {
-    Alert.alert('Sign Out', 'Are you sure you want to sign out?', [
-      { text: 'Cancel', style: 'cancel' },
-      {
-        text: 'Sign Out',
-        style: 'destructive',
-        onPress: async () => {
-          setIsLoading(true);
-          try {
-            await signOut();
-            router.replace('/(auth)/login');
-          } catch {
-            Alert.alert('Error', 'Failed to sign out');
-          } finally {
-            setIsLoading(false);
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            setIsLoading(true);
+            try {
+              await signOut();
+              router.replace('/(auth)/login');
+            } catch (error) {
+              Alert.alert('Error', 'Failed to sign out');
+            } finally {
+              setIsLoading(false);
+            }
           }
         },
-      },
-    ]);
+      ]
+    );
   };
 
-  const SettingSection = ({
-    title,
-    children,
-    delay,
-  }: { title: string; children: React.ReactNode; delay: number }) => (
-    <Animated.View
-      entering={FadeInDown.delay(delay).duration(600)}
-      style={styles.section}
-    >
+  const SettingSection = ({ title, children, delay }: { title: string; children: React.ReactNode, delay: number }) => (
+    <Animated.View entering={FadeInDown.delay(delay).duration(600)} style={styles.section}>
       <Text style={styles.sectionTitle}>{title}</Text>
-      <View style={styles.sectionContent}>{children}</View>
+      <View style={styles.sectionContent}>
+        {children}
+      </View>
     </Animated.View>
   );
 
@@ -121,7 +118,7 @@ export default function SettingsScreen() {
     value,
     type = 'link',
     onPress,
-    onToggle,
+    onToggle
   }: any) => (
     <TouchableOpacity
       style={styles.settingItem}
@@ -129,7 +126,7 @@ export default function SettingsScreen() {
       activeOpacity={type === 'link' ? 0.7 : 1}
       disabled={type === 'toggle'}
     >
-      <View style={[styles.iconContainer, { backgroundColor: `${color}20` }]}>
+      <View style={[styles.iconContainer, { backgroundColor: color + '20' }]}>
         <Icon size={20} color={color} />
       </View>
       <Text style={styles.settingLabel}>{label}</Text>
@@ -138,16 +135,8 @@ export default function SettingsScreen() {
         <Switch
           value={value}
           onValueChange={onToggle}
-          trackColor={{
-            false: designSystem.colors.background.tertiary,
-            true: designSystem.colors.primary[500],
-          }}
+          trackColor={{ false: designSystem.colors.background.tertiary, true: designSystem.colors.primary[500] }}
           thumbColor={'white'}
-          // The row's visible label is a sibling, not a native <label>, so the
-          // switch announced as an unnamed toggle. Bind the label and the
-          // on/off state so it is operable by screen reader and TalkBack.
-          accessibilityLabel={label}
-          accessibilityState={{ checked: value }}
         />
       ) : type === 'value' ? (
         <Text style={styles.valueText}>{value}</Text>
@@ -159,60 +148,40 @@ export default function SettingsScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor={designSystem.colors.background.primary}
-      />
+      <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
 
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         {/* Header */}
-        <Animated.View
-          entering={FadeInDown.duration(600)}
-          style={styles.header}
-        >
+        <Animated.View entering={FadeInDown.duration(600)} style={styles.header}>
           <Text style={styles.headerTitle}>Settings</Text>
         </Animated.View>
 
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={styles.content}
-        >
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={styles.content}>
+
           {/* Profile Section */}
-          <Animated.View
-            entering={FadeInDown.delay(100).duration(600)}
-            style={styles.profileCard}
-          >
+          <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.profileCard}>
             <View style={styles.avatar}>
               <Text style={styles.avatarText}>
                 {user?.displayName?.charAt(0).toUpperCase() || 'U'}
               </Text>
             </View>
             <View style={styles.profileInfo}>
-              <Text style={styles.profileName}>
-                {user?.displayName || 'User'}
-              </Text>
+              <Text style={styles.profileName}>{user?.displayName || 'User'}</Text>
               <Text style={styles.profileEmail}>{user?.email}</Text>
-              <View
-                style={[
-                  styles.badge,
-                  isPremium ? styles.badgePremium : styles.badgeFree,
-                ]}
-              >
-                <Text
-                  style={[
-                    styles.badgeText,
-                    isPremium ? styles.badgeTextPremium : styles.badgeTextFree,
-                  ]}
-                >
+              <View style={[
+                styles.badge,
+                isPremium ? styles.badgePremium : styles.badgeFree
+              ]}>
+                <Text style={[
+                  styles.badgeText,
+                  isPremium ? styles.badgeTextPremium : styles.badgeTextFree
+                ]}>
                   {isPremium ? 'PRO PLAN' : 'FREE PLAN'}
                 </Text>
               </View>
             </View>
             <TouchableOpacity onPress={() => router.push('/profile/edit')}>
-              <ChevronRight
-                size={20}
-                color={designSystem.colors.text.secondary}
-              />
+              <ChevronRight size={20} color={designSystem.colors.text.secondary} />
             </TouchableOpacity>
           </Animated.View>
 
@@ -232,9 +201,7 @@ export default function SettingsScreen() {
               label="Push Notifications"
               type="toggle"
               value={notifications.push}
-              onToggle={(v: boolean) =>
-                setNotifications({ ...notifications, push: v })
-              }
+              onToggle={(v: boolean) => setNotifications({ ...notifications, push: v })}
             />
             <SettingItem
               icon={Volume2}
@@ -251,30 +218,12 @@ export default function SettingsScreen() {
               onPress={() => router.push('/settings/emergency-contacts')}
             />
             <SettingItem
-              icon={Lock}
-              color="#A855F7"
-              label="Known People"
-              type="link"
-              onPress={() => router.push('/settings/known-people')}
-            />
-            {/*
-              Red Alert Mode is sold as a Pro bullet. Turning it on from a free
-              account is a no-op that then reads as broken, so route to the
-              paywall instead of silently ignoring the tap.
-            */}
-            <SettingItem
               icon={Zap}
               color={designSystem.colors.status.danger}
               label="Red Alert Mode"
               type="toggle"
-              value={canUseRedAlert && detection.redAlertMode}
-              onToggle={(v: boolean) => {
-                if (!canUseRedAlert) {
-                  router.push('/subscription');
-                  return;
-                }
-                setDetection({ redAlertMode: v });
-              }}
+              value={detection.redAlertMode}
+              onToggle={(v: boolean) => setDetection({ redAlertMode: v })}
             />
           </SettingSection>
 
@@ -296,10 +245,7 @@ export default function SettingsScreen() {
                 Alert.alert('Restoring...', 'Looking for your purchases...');
                 const result = await profileService.restorePurchases();
                 if (result.restored) {
-                  Alert.alert(
-                    'Success!',
-                    `Your ${result.tier?.toUpperCase()} subscription has been restored.`,
-                  );
+                  Alert.alert('Success!', `Your ${result.tier?.toUpperCase()} subscription has been restored.`);
                 } else {
                   Alert.alert('No Purchases', 'No previous purchases found.');
                 }
@@ -331,6 +277,18 @@ export default function SettingsScreen() {
             />
           </SettingSection>
 
+          {/* Admin (admins only) */}
+          {isAdmin && (
+            <SettingSection title="Admin" delay={450}>
+              <SettingItem
+                icon={Shield}
+                color={'#10B981'}
+                label="Admin Console"
+                onPress={() => router.push('/admin')}
+              />
+            </SettingSection>
+          )}
+
           {/* Support */}
           <SettingSection title="Support" delay={500}>
             <SettingItem
@@ -349,23 +307,16 @@ export default function SettingsScreen() {
           </SettingSection>
 
           {/* Sign Out */}
-          <Animated.View
-            entering={FadeInDown.delay(600).duration(600)}
-            style={styles.logoutContainer}
-          >
-            <TouchableOpacity
-              style={styles.logoutButton}
-              onPress={handleSignOut}
-            >
+          <Animated.View entering={FadeInDown.delay(600).duration(600)} style={styles.logoutContainer}>
+            <TouchableOpacity style={styles.logoutButton} onPress={handleSignOut}>
               <LogOut size={20} color={designSystem.colors.status.danger} />
               <Text style={styles.logoutText}>Sign Out</Text>
             </TouchableOpacity>
-            <Text style={styles.versionText}>
-              MTK AlertPro v1.0.0 (Build 102)
-            </Text>
+            <Text style={styles.versionText}>MTK AlertPro v1.0.0 (Build 102)</Text>
           </Animated.View>
 
           <View style={{ height: designSystem.spacing.xxxl }} />
+
         </ScrollView>
       </SafeAreaView>
     </View>

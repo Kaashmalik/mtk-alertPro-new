@@ -1,47 +1,33 @@
-import {
-  Component,
-  type ErrorInfo,
-  type ReactNode,
-  useEffect,
-  useState,
-} from 'react';
-import {
-  Alert,
-  AppState,
-  type AppStateStatus,
-  Clipboard,
-  LogBox,
-} from 'react-native';
+import { useEffect, useState, Component, type ReactNode, type ErrorInfo } from 'react';
+import { AppState, AppStateStatus, Alert, Clipboard, LogBox } from 'react-native';
 
 // Ignore specific warnings that are expected in Expo Go
 LogBox.ignoreLogs([
   'expo-notifications: Android Push notifications',
   '[expo-notifications]',
 ]);
+import { Stack } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { View, ActivityIndicator, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { GestureHandlerRootView } from 'react-native-gesture-handler';
+import * as SplashScreen from 'expo-splash-screen';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useAuthStore, useAlertStore } from '@/stores';
 import { AppLockOverlay } from '@/components/security/AppLockOverlay';
+import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
+import {
+  logError,
+  retryWithBackoff,
+  isOnline
+} from '@/lib/utils/cn';
 import { adMobService } from '@/lib/ads/adMobService';
 import { consentManager } from '@/lib/ads/consentManager';
-import { borderRadius, colors, fontSize, spacing } from '@/lib/theme';
-import { logError } from '@/lib/utils/cn';
-import { useAlertStore, useAuthStore } from '@/stores';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { Stack } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
-import {
-  ActivityIndicator,
-  StyleSheet,
-  Text,
-  TouchableOpacity,
-  View,
-} from 'react-native';
-import { GestureHandlerRootView } from 'react-native-gesture-handler';
 
 // Conditionally import Sentry if available
 let Sentry: any = null;
 try {
   Sentry = require('@sentry/react-native');
-} catch (_error) {
+} catch (error) {
   console.warn('[Sentry] Not installed - error tracking disabled');
 }
 
@@ -51,10 +37,7 @@ interface ErrorBoundaryState {
   error: Error | null;
 }
 
-class ErrorBoundary extends Component<
-  { children: ReactNode },
-  ErrorBoundaryState
-> {
+class ErrorBoundary extends Component<{ children: ReactNode }, ErrorBoundaryState> {
   constructor(props: { children: ReactNode }) {
     super(props);
     this.state = { hasError: false, error: null };
@@ -65,30 +48,10 @@ class ErrorBoundary extends Component<
   }
 
   componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    // Log the full error + component stack. This is the single most useful
-    // line of diagnostics when a boundary trips on device, and Sentry is not
-    // always configured in a sideload build.
-    console.error(
-      'App Error:',
-      error?.message,
-      error?.stack,
-      errorInfo?.componentStack,
-    );
-    console.log(
-      'App Error Boundary:',
-      JSON.stringify(
-        {
-          message: error?.message,
-          name: error?.name,
-          stack: error?.stack,
-        },
-        null,
-        2,
-      ),
-    );
+    console.error('App Error:', error, errorInfo);
 
     // Log to Sentry if configured
-    if (Sentry?.getCurrentHub?.().getClient()) {
+    if (Sentry && Sentry.getCurrentHub && Sentry.getCurrentHub().getClient()) {
       Sentry.captureException(error, {
         contexts: {
           react: {
@@ -103,17 +66,6 @@ class ErrorBoundary extends Component<
 
     // Log to custom error handler
     logError(error, 'ErrorBoundary.root');
-
-    // Auto-copy the details so a crash on a sideload build is diagnosable even
-    // if the user never taps "Report Issue". Best-effort: a clipboard failure
-    // must not mask the original error.
-    try {
-      Clipboard.setString(
-        `Error: ${error?.message}\nName: ${error?.name}\nStack: ${error?.stack}\nComponent: ${errorInfo?.componentStack}\nTime: ${new Date().toISOString()}`,
-      );
-    } catch {
-      // ignore clipboard errors
-    }
   }
 
   handleRestart = () => {
@@ -122,23 +74,19 @@ class ErrorBoundary extends Component<
 
   handleReportIssue = () => {
     if (this.state.error) {
-      this.copyDetails();
-      Alert.alert(
-        'Error Copied',
-        'Error details have been copied to clipboard. Please send to support.',
-        [{ text: 'OK' }],
-      );
-    }
-  };
-
-  copyDetails = () => {
-    if (!this.state.error) return;
-    const errorDetails = `
+      const errorDetails = `
 Error: ${this.state.error.message}
 Stack: ${this.state.error.stack}
 Time: ${new Date().toISOString()}
-    `.trim();
-    Clipboard.setString(errorDetails);
+      `.trim();
+
+      Clipboard.setString(errorDetails);
+      Alert.alert(
+        'Error Copied',
+        'Error details have been copied to clipboard. Please send to support.',
+        [{ text: 'OK' }]
+      );
+    }
   };
 
   render() {
@@ -146,14 +94,11 @@ Time: ${new Date().toISOString()}
       return (
         <View style={errorStyles.container}>
           <Text style={errorStyles.title}>Something went wrong</Text>
-          <Text style={errorStyles.message} selectable>
+          <Text style={errorStyles.message}>
             {this.state.error?.message || 'An unexpected error occurred'}
           </Text>
           <View style={errorStyles.buttonContainer}>
-            <TouchableOpacity
-              style={errorStyles.button}
-              onPress={this.handleRestart}
-            >
+            <TouchableOpacity style={errorStyles.button} onPress={this.handleRestart}>
               <Text style={errorStyles.buttonText}>Try Again</Text>
             </TouchableOpacity>
             <TouchableOpacity
@@ -221,23 +166,15 @@ const queryClient = new QueryClient({
   },
 });
 
-import { useAdEntitlementSync } from '@/hooks/useAdEntitlement';
 import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
-import { initializeEncryption } from '@/lib/crypto';
-import { ensureNotificationChannels } from '@/lib/notifications/service';
-import { refreshMediaEdgeHealth } from '@/lib/streaming/mediaServerHealth';
 import { useAutomationStore } from '@/stores/automationStore';
+import { refreshMediaEdgeHealth } from '@/lib/streaming/mediaServerHealth';
+import { initializeEncryption } from '@/lib/crypto';
+import { ensureNotificationChannels, registerAndSavePushToken } from '@/lib/notifications/service';
+import { initializeBackgroundTasks } from '@/lib/background';
 
 function DetectionWatcher() {
   useDetectionCoordinator();
-  return null;
-}
-
-function AdEntitlementWatcher() {
-  // Pushes the subscription tier into adMobService so premium subscribers stop
-  // seeing ads. Mounted at the root so it stays correct across purchase,
-  // restore, downgrade and expiry.
-  useAdEntitlementSync();
   return null;
 }
 
@@ -262,11 +199,10 @@ function AutomationWatcher() {
 export default function RootLayout() {
   const initialize = useAuthStore((state) => state.initialize);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const userId = useAuthStore((state) => state.user?.id);
   const subscribeToAlerts = useAlertStore((state) => state.subscribeToAlerts);
   const [appReady, setAppReady] = useState(false);
-  const [appState, setAppState] = useState<AppStateStatus>(
-    AppState.currentState,
-  );
+  const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
 
   useEffect(() => {
     const init = async () => {
@@ -294,26 +230,6 @@ export default function RootLayout() {
 
           // Initialize auth and wait for completion
           await initialize();
-
-          // Bring up the subscription service so Play Billing availability is
-          // resolved before the user ever opens the paywall.
-          //
-          // This was never called anywhere, and `playBillingAvailable` is only
-          // ever set by `initPlayBilling()` inside this method -- so
-          // `getAvailableProviders()` filtered out `google_play` forever and
-          // the Google Play option could never appear, even once a RevenueCat
-          // key was configured. Fire and forget so a slow network cannot block
-          // startup; the paywall re-reads the provider list when it opens.
-          void (async () => {
-            try {
-              const { subscriptionService } = await import(
-                '@/lib/subscription/subscriptionService'
-              );
-              await subscriptionService.initialize();
-            } catch (subError) {
-              console.error('[Subscription] Background init failed:', subError);
-            }
-          })();
 
           // Probe media edge in background
           void refreshMediaEdgeHealth();
@@ -346,16 +262,15 @@ export default function RootLayout() {
 
         // Race the initialization against the safety timeout
         await Promise.race([initPromise, timeoutPromise]);
+
       } catch (error) {
         console.error('Initialization error:', error);
       } finally {
         // Small delay to ensure state is settled
-        await new Promise((resolve) => setTimeout(resolve, 100));
+        await new Promise(resolve => setTimeout(resolve, 100));
         setAppReady(true);
         // Hide splash screen only when truly ready
-        await SplashScreen.hideAsync().catch((err) =>
-          console.warn('Splash hide error:', err),
-        );
+        await SplashScreen.hideAsync().catch(err => console.warn('Splash hide error:', err));
       }
     };
     init();
@@ -363,7 +278,6 @@ export default function RootLayout() {
 
   // Handle app state changes (foreground/background)
   // Note: Cleanup handlers simplified to avoid module resolution issues in Expo Go
-  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     const subscription = AppState.addEventListener('change', (nextAppState) => {
       console.log('[AppState] Changed from', appState, 'to', nextAppState);
@@ -371,16 +285,12 @@ export default function RootLayout() {
       if (appState.match(/inactive|background/) && nextAppState === 'active') {
         // App came to foreground - refresh auth session
         console.log('[AppState] App came to foreground');
-        initialize().catch((err) =>
-          console.warn('[AppState] Foreground init error:', err),
-        );
+        initialize().catch(err => console.warn('[AppState] Foreground init error:', err));
 
-        // Deliberately NOT re-subscribing here. The realtime channel below is
-        // owned for the lifetime of the authenticated session and the socket
-        // reconnects on its own. Calling subscribeToAlerts() on every
-        // foreground leaked a new 'alerts-realtime' channel each time (the
-        // unsubscribe was discarded), and duplicate topics are what made
-        // Supabase reject the postgres_changes binding.
+        // Re-subscribe to alerts if authenticated
+        if (isAuthenticated) {
+          subscribeToAlerts();
+        }
       }
       // Note: Background cleanup removed to avoid Expo Go module errors
       // In production builds, this would stop camera streams and detection
@@ -391,7 +301,7 @@ export default function RootLayout() {
     return () => {
       subscription.remove();
     };
-  }, [appState, isAuthenticated, initialize]);
+  }, [appState, isAuthenticated, initialize, subscribeToAlerts]);
 
   // Subscribe to real-time alerts when authenticated
   useEffect(() => {
@@ -403,18 +313,25 @@ export default function RootLayout() {
     }
   }, [isAuthenticated, appReady, subscribeToAlerts]);
 
+  // Once signed in, register this device for push + start background monitoring.
+  //
+  // This is what makes the app work when you're AWAY from home: the Expo push
+  // token is saved to the user's profile so the `push-on-alert` edge function
+  // can reach this device while the app is closed, and background monitoring
+  // surfaces camera-offline events. Fire-and-forget ??? never block the UI, and
+  // never crash startup if the device/network can't provide a token.
+  useEffect(() => {
+    if (!isAuthenticated || !appReady || !userId) return;
+
+    void registerAndSavePushToken(userId);
+    void initializeBackgroundTasks();
+  }, [isAuthenticated, appReady, userId]);
+
   // Show loading screen ONLY during initial app load
   // Do NOT depend on isLoading from auth store - that causes blinking
   if (!appReady) {
     return (
-      <View
-        style={{
-          flex: 1,
-          backgroundColor: colors.bg.primary,
-          alignItems: 'center',
-          justifyContent: 'center',
-        }}
-      >
+      <View style={{ flex: 1, backgroundColor: colors.bg.primary, alignItems: 'center', justifyContent: 'center' }}>
         <ActivityIndicator size="large" color={colors.brand.red} />
       </View>
     );
@@ -426,7 +343,6 @@ export default function RootLayout() {
         <QueryClientProvider client={queryClient}>
           <StatusBar style="light" />
           <DetectionWatcher />
-          <AdEntitlementWatcher />
           <AutomationWatcher />
           <Stack
             screenOptions={{
