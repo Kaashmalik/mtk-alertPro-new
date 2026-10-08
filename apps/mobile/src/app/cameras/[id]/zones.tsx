@@ -7,7 +7,10 @@
  * alerts while keeping the driveway sensitive.
  */
 
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import Slider from '@react-native-community/slider';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { ChevronLeft, Layers, Plus, Trash2 } from 'lucide-react-native';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -20,14 +23,9 @@ import {
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { useLocalSearchParams, useRouter } from 'expo-router';
-import Slider from '@react-native-community/slider';
 import Svg, { Circle, Line, Polygon } from 'react-native-svg';
-import { ChevronLeft, Layers, Plus, Trash2 } from 'lucide-react-native';
 
-import { designSystem } from '@/theme/design-system';
 import { MjpegStreamPlayer } from '@/components/camera/MjpegStreamPlayer';
-import { useCameraStore } from '@/stores';
 import {
   MIN_POLYGON_POINTS,
   createZone,
@@ -36,6 +34,8 @@ import {
   normalizePolygon,
   updateZone,
 } from '@/lib/camera/zoneService';
+import { useCameraStore, useSubscriptionStore } from '@/stores';
+import { designSystem } from '@/theme/design-system';
 import type { DetectionZone, ZonePoint } from '@/types';
 
 const { colors, spacing } = designSystem;
@@ -43,9 +43,16 @@ const { colors, spacing } = designSystem;
 export default function ZoneEditorScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ id: string }>();
-  const cameraId = params.id;
+  // useLocalSearchParams types values as string | string[]; a duplicated or
+  // malformed deep-link param arrives as an array, which would reach
+  // .eq('camera_id', ...) and silently match nothing.
+  const cameraId = Array.isArray(params.id) ? params.id[0] : params.id;
+  const checkFeatureAccess = useSubscriptionStore((s) => s.checkFeatureAccess);
+  const canUseCustomZones = checkFeatureAccess('hasCustomZones');
 
-  const camera = useCameraStore((s) => s.cameras.find((c) => c.id === cameraId));
+  const camera = useCameraStore((s) =>
+    s.cameras.find((c) => c.id === cameraId),
+  );
 
   const [zones, setZones] = useState<DetectionZone[]>([]);
   const [loading, setLoading] = useState(true);
@@ -66,11 +73,6 @@ export default function ZoneEditorScreen() {
     void refresh();
   }, [refresh]);
 
-  const selected = useMemo(
-    () => zones.find((z) => z.id === selectedId) ?? null,
-    [zones, selectedId]
-  );
-
   const startDraft = useCallback(() => {
     setSelectedId(null);
     setDraft([]);
@@ -83,29 +85,58 @@ export default function ZoneEditorScreen() {
   const handleSaveDraft = useCallback(async () => {
     if (!cameraId || !draft) return;
     if (draft.length < MIN_POLYGON_POINTS) {
-      Alert.alert('Zone too small', `Add at least ${MIN_POLYGON_POINTS} points on the frame.`);
+      Alert.alert(
+        'Zone too small',
+        `Add at least ${MIN_POLYGON_POINTS} points on the frame.`,
+      );
       return;
     }
     setSaving(true);
-    const created = await createZone(cameraId, draftName, normalizePolygon(draft), draftSensitivity);
+    const created = await createZone(
+      cameraId,
+      draftName,
+      normalizePolygon(draft),
+      draftSensitivity,
+    );
     setSaving(false);
     if (!created) {
-      Alert.alert('Could not save zone', 'Please try again.');
+      // createZone returns null for both "invalid polygon" and "not entitled",
+      // so distinguish them rather than telling the user to retry blindly.
+      if (!canUseCustomZones) {
+        Alert.alert(
+          'Pro feature',
+          'Custom detection zones are part of the Pro plan.',
+          [
+            { text: 'Not now', style: 'cancel' },
+            {
+              text: 'See plans',
+              onPress: () => router.replace('/subscription'),
+            },
+          ],
+        );
+      } else {
+        Alert.alert('Could not save zone', 'Please try again.');
+      }
       return;
     }
     setDraft(null);
     await refresh();
-  }, [cameraId, draft, draftName, draftSensitivity, refresh]);
+  }, [
+    cameraId,
+    canUseCustomZones,
+    draft,
+    draftName,
+    draftSensitivity,
+    refresh,
+    router,
+  ]);
 
-  const handleToggle = useCallback(
-    async (zone: DetectionZone) => {
-      const updated = await updateZone(zone.id, { isActive: !zone.isActive });
-      if (updated) {
-        setZones((prev) => prev.map((z) => (z.id === zone.id ? updated : z)));
-      }
-    },
-    []
-  );
+  const handleToggle = useCallback(async (zone: DetectionZone) => {
+    const updated = await updateZone(zone.id, { isActive: !zone.isActive });
+    if (updated) {
+      setZones((prev) => prev.map((z) => (z.id === zone.id ? updated : z)));
+    }
+  }, []);
 
   const handleDelete = useCallback(
     (zone: DetectionZone) => {
@@ -122,22 +153,33 @@ export default function ZoneEditorScreen() {
         },
       ]);
     },
-    [refresh, selectedId]
+    [refresh, selectedId],
   );
 
-  const handleRename = useCallback(async (zone: DetectionZone, name: string) => {
-    const updated = await updateZone(zone.id, { name });
-    if (updated) setZones((prev) => prev.map((z) => (z.id === zone.id ? updated : z)));
-  }, []);
+  const handleRename = useCallback(
+    async (zone: DetectionZone, name: string) => {
+      const updated = await updateZone(zone.id, { name });
+      if (updated)
+        setZones((prev) => prev.map((z) => (z.id === zone.id ? updated : z)));
+    },
+    [],
+  );
 
-  const handleSensitivity = useCallback(async (zone: DetectionZone, sensitivity: number) => {
-    const updated = await updateZone(zone.id, { sensitivity });
-    if (updated) setZones((prev) => prev.map((z) => (z.id === zone.id ? updated : z)));
-  }, []);
+  const handleSensitivity = useCallback(
+    async (zone: DetectionZone, sensitivity: number) => {
+      const updated = await updateZone(zone.id, { sensitivity });
+      if (updated)
+        setZones((prev) => prev.map((z) => (z.id === zone.id ? updated : z)));
+    },
+    [],
+  );
 
   // While drawing, a tap on the frame appends a vertex.
   const handleFramePress = useCallback(
-    (e: { nativeEvent: { locationX: number; locationY: number } }, size: { width: number; height: number }) => {
+    (
+      e: { nativeEvent: { locationX: number; locationY: number } },
+      size: { width: number; height: number },
+    ) => {
       if (!draft || size.width <= 0 || size.height <= 0) return;
       const point = {
         x: clamp01(e.nativeEvent.locationX / size.width),
@@ -145,7 +187,7 @@ export default function ZoneEditorScreen() {
       };
       setDraft((prev) => (prev ? [...prev, point] : [point]));
     },
-    [draft]
+    [draft],
   );
 
   if (!cameraId) {
@@ -159,7 +201,12 @@ export default function ZoneEditorScreen() {
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <View style={styles.header}>
-        <Pressable onPress={() => router.back()} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Go back">
+        <Pressable
+          onPress={() => router.back()}
+          style={styles.iconBtn}
+          accessibilityRole="button"
+          accessibilityLabel="Go back"
+        >
           <ChevronLeft size={24} color={colors.text.primary} />
         </Pressable>
         <View style={styles.headerText}>
@@ -169,11 +216,29 @@ export default function ZoneEditorScreen() {
           </Text>
         </View>
         {draft ? (
-          <Pressable onPress={cancelDraft} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Cancel drawing">
+          <Pressable
+            onPress={cancelDraft}
+            style={styles.iconBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Cancel drawing"
+          >
             <Text style={styles.linkText}>Cancel</Text>
           </Pressable>
         ) : (
-          <Pressable onPress={startDraft} style={styles.iconBtn} accessibilityRole="button" accessibilityLabel="Add a zone">
+          <Pressable
+            onPress={() => {
+              // Custom zones are Pro-only. Send the user to the paywall instead
+              // of letting them draw a polygon that cannot be saved.
+              if (!canUseCustomZones) {
+                router.push('/subscription');
+                return;
+              }
+              startDraft();
+            }}
+            style={styles.iconBtn}
+            accessibilityRole="button"
+            accessibilityLabel="Add a zone"
+          >
             <Plus size={22} color={colors.text.primary} />
           </Pressable>
         )}
@@ -197,11 +262,15 @@ export default function ZoneEditorScreen() {
             Tap the frame to outline the area
           </Text>
           <Text style={styles.muted}>
-            {draft.length} point{draft.length === 1 ? '' : 's'} - need at least {MIN_POLYGON_POINTS}
+            {draft.length} point{draft.length === 1 ? '' : 's'} - need at least{' '}
+            {MIN_POLYGON_POINTS}
           </Text>
 
           {draft.length > 0 && (
-            <Pressable onPress={() => setDraft(draft.slice(0, -1))} style={styles.linkBtn}>
+            <Pressable
+              onPress={() => setDraft(draft.slice(0, -1))}
+              style={styles.linkBtn}
+            >
               <Text style={styles.linkText}>Undo last point</Text>
             </Pressable>
           )}
@@ -215,8 +284,12 @@ export default function ZoneEditorScreen() {
             returnKeyType="done"
           />
 
-          <Text style={styles.fieldLabel}>Sensitivity {(draftSensitivity * 100).toFixed(0)}%</Text>
-          <Text style={styles.hint}>Lower reacts to weaker detections; higher ignores noise.</Text>
+          <Text style={styles.fieldLabel}>
+            Sensitivity {(draftSensitivity * 100).toFixed(0)}%
+          </Text>
+          <Text style={styles.hint}>
+            Lower reacts to weaker detections; higher ignores noise.
+          </Text>
           <Slider
             style={styles.slider}
             minimumValue={0.1}
@@ -233,7 +306,8 @@ export default function ZoneEditorScreen() {
             disabled={saving || draft.length < MIN_POLYGON_POINTS}
             style={({ pressed }) => [
               styles.primaryBtn,
-              (saving || draft.length < MIN_POLYGON_POINTS) && styles.primaryBtnDisabled,
+              (saving || draft.length < MIN_POLYGON_POINTS) &&
+                styles.primaryBtnDisabled,
               pressed && styles.pressed,
             ]}
             accessibilityRole="button"
@@ -246,18 +320,28 @@ export default function ZoneEditorScreen() {
           </Pressable>
         </View>
       ) : (
-        <ScrollView style={styles.panel} contentContainerStyle={styles.panelContent}>
+        <ScrollView
+          style={styles.panel}
+          contentContainerStyle={styles.panelContent}
+        >
           {loading ? (
-            <ActivityIndicator color={colors.primary[500]} style={styles.loader} />
+            <ActivityIndicator
+              color={colors.primary[500]}
+              style={styles.loader}
+            />
           ) : zones.length === 0 ? (
             <View style={styles.empty}>
               <Layers size={32} color={colors.text.secondary} />
               <Text style={styles.emptyTitle}>No zones yet</Text>
               <Text style={styles.muted}>
-                Without a zone, every detection in the frame raises an alert. Add a zone to
-                limit alerts to the area you care about.
+                Without a zone, every detection in the frame raises an alert.
+                Add a zone to limit alerts to the area you care about.
               </Text>
-              <Pressable onPress={startDraft} style={styles.primaryBtn} accessibilityRole="button">
+              <Pressable
+                onPress={startDraft}
+                style={styles.primaryBtn}
+                accessibilityRole="button"
+              >
                 <Text style={styles.primaryBtnText}>Add your first zone</Text>
               </Pressable>
             </View>
@@ -265,21 +349,36 @@ export default function ZoneEditorScreen() {
             zones.map((zone) => (
               <View
                 key={zone.id}
-                style={[styles.card, selectedId === zone.id && styles.cardSelected]}
+                style={[
+                  styles.card,
+                  selectedId === zone.id && styles.cardSelected,
+                ]}
               >
-                <Pressable onPress={() => setSelectedId(selectedId === zone.id ? null : zone.id)} accessibilityRole="button">
+                <Pressable
+                  onPress={() =>
+                    setSelectedId(selectedId === zone.id ? null : zone.id)
+                  }
+                  accessibilityRole="button"
+                >
                   <View style={styles.cardHeader}>
                     <View style={styles.cardTitleWrap}>
                       <Text style={styles.cardTitle}>{zone.name}</Text>
                       <Text style={styles.muted}>
-                        {zone.polygon.length} points - {(zone.sensitivity ?? 0.6) * 100 | 0}% sensitivity
+                        {zone.polygon.length} points -{' '}
+                        {((zone.sensitivity ?? 0.6) * 100) | 0}% sensitivity
                       </Text>
                     </View>
                     <Switch
                       value={zone.isActive}
                       onValueChange={() => handleToggle(zone)}
-                      trackColor={{ true: colors.primary[500], false: '#334155' }}
+                      trackColor={{
+                        true: colors.primary[500],
+                        false: '#334155',
+                      }}
                       thumbColor={colors.text.primary}
+                      accessibilityLabel={`${zone.name} zone`}
+                      accessibilityHint="Turns alerting on or off for this detection zone"
+                      accessibilityState={{ checked: zone.isActive }}
                     />
                   </View>
                 </Pressable>
@@ -288,13 +387,18 @@ export default function ZoneEditorScreen() {
                   <View style={styles.cardBody}>
                     <TextInput
                       defaultValue={zone.name}
-                      onEndEditing={(e) => handleRename(zone, e.nativeEvent.text)}
+                      onEndEditing={(e) =>
+                        handleRename(zone, e.nativeEvent.text)
+                      }
                       style={styles.input}
                       placeholder="Zone name"
                       placeholderTextColor={colors.text.secondary}
                     />
 
-                    <Text style={styles.fieldLabel}>Sensitivity {((zone.sensitivity ?? 0.6) * 100).toFixed(0)}%</Text>
+                    <Text style={styles.fieldLabel}>
+                      Sensitivity {((zone.sensitivity ?? 0.6) * 100).toFixed(0)}
+                      %
+                    </Text>
                     <Slider
                       style={styles.slider}
                       minimumValue={0.1}
@@ -360,15 +464,19 @@ function ZoneCanvas({
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   const toPoints = useCallback(
-    (pts: ZonePoint[]) => pts.map((p) => `${p.x * size.width},${p.y * size.height}`).join(' '),
-    [size]
+    (pts: ZonePoint[]) =>
+      pts.map((p) => `${p.x * size.width},${p.y * size.height}`).join(' '),
+    [size],
   );
 
   return (
     <View
       style={styles.canvas}
       onLayout={(e) =>
-        setSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })
+        setSize({
+          width: e.nativeEvent.layout.width,
+          height: e.nativeEvent.layout.height,
+        })
       }
     >
       {streamUrl ? (
@@ -401,7 +509,10 @@ function ZoneCanvas({
 
           {/* box-none lets the polygon children receive presses while the SVG
               root itself stays transparent to touches. */}
-          <Svg style={StyleSheet.absoluteFill} pointerEvents={draft ? 'none' : 'box-none'}>
+          <Svg
+            style={StyleSheet.absoluteFill}
+            pointerEvents={draft ? 'none' : 'box-none'}
+          >
             {zones.map((zone) => {
               if (zone.polygon.length < 3) return null;
               const highlighted = zone.id === selectedId;
@@ -409,7 +520,11 @@ function ZoneCanvas({
                 <Polygon
                   key={zone.id}
                   points={toPoints(zone.polygon)}
-                  fill={zone.isActive ? 'rgba(56,189,248,0.18)' : 'rgba(148,163,184,0.10)'}
+                  fill={
+                    zone.isActive
+                      ? 'rgba(56,189,248,0.18)'
+                      : 'rgba(148,163,184,0.10)'
+                  }
                   stroke={zone.isActive ? '#38BDF8' : '#64748B'}
                   strokeWidth={highlighted ? 3 : 2}
                   strokeDasharray={zone.isActive ? undefined : '6 4'}
@@ -428,6 +543,7 @@ function ZoneCanvas({
                   strokeDasharray="5 4"
                 />
                 {draft.map((p, i) => (
+                  // biome-ignore lint/suspicious/noArrayIndexKey: draft polygon points are append-only
                   <React.Fragment key={`draft-${i}`}>
                     {i > 0 && (
                       <Line
@@ -482,10 +598,20 @@ const styles = StyleSheet.create({
   canvasFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   panel: { flex: 1, padding: spacing.lg },
   panelContent: { paddingBottom: spacing.xxl },
-  panelTitle: { fontSize: 15, fontWeight: '600', color: colors.text.primary, marginBottom: 4 },
+  panelTitle: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: colors.text.primary,
+    marginBottom: 4,
+  },
   muted: { fontSize: 13, color: colors.text.secondary, lineHeight: 19 },
   hint: { fontSize: 12, color: colors.text.secondary, marginTop: 2 },
-  fieldLabel: { fontSize: 13, fontWeight: '600', color: colors.text.primary, marginTop: spacing.md },
+  fieldLabel: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: colors.text.primary,
+    marginTop: spacing.md,
+  },
   slider: { width: '100%', height: 40 },
   input: {
     marginTop: spacing.md,
@@ -533,7 +659,11 @@ const styles = StyleSheet.create({
     borderColor: 'rgba(248,113,113,0.4)',
   },
   dangerText: { color: '#F87171', fontWeight: '600', fontSize: 14 },
-  empty: { alignItems: 'center', gap: spacing.sm, paddingVertical: spacing.xxl },
+  empty: {
+    alignItems: 'center',
+    gap: spacing.sm,
+    paddingVertical: spacing.xxl,
+  },
   emptyTitle: { fontSize: 16, fontWeight: '700', color: colors.text.primary },
   loader: { marginTop: spacing.xxl },
 });

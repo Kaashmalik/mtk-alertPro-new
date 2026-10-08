@@ -10,4 +10,3 @@ export {
   initializeEncryption,
   isEncrypted,
 } from './encryption';
-

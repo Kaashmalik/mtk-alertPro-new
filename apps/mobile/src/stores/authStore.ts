@@ -1,10 +1,15 @@
-import { create } from 'zustand';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase, isSupabaseConfigured, supabaseUrl } from '@/lib/supabase/client';
-import { useCameraStore } from './cameraStore';
+import { getConfirmRedirectUrl } from '@/lib/auth/confirmRedirect';
 import { disableBiometricAuth } from '@/lib/biometric';
+import {
+  isSupabaseConfigured,
+  supabase,
+  supabaseUrl,
+} from '@/lib/supabase/client';
 import type { User } from '@/types';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
+import { useCameraStore } from './cameraStore';
 
 interface AuthState {
   user: User | null;
@@ -15,7 +20,11 @@ interface AuthState {
   initialize: () => Promise<void>;
   setupTokenRefresh: () => () => void;
   signInWithEmail: (email: string, password: string) => Promise<void>;
-  signUpWithEmail: (email: string, password: string, displayName?: string) => Promise<void>;
+  signUpWithEmail: (
+    email: string,
+    password: string,
+    displayName?: string,
+  ) => Promise<void>;
   signOut: () => Promise<void>;
   updateProfile: (updates: Partial<User>) => Promise<void>;
   refreshUser: () => Promise<void>;
@@ -23,17 +32,32 @@ interface AuthState {
 }
 
 const isPlaceholderConfig = () => {
-  const url = (supabase as unknown as { supabaseUrl?: string }).supabaseUrl ?? supabaseUrl;
-  return !isSupabaseConfigured || 
-         url?.includes('your-project') ||
-         url?.includes('example.com');
+  const url =
+    (supabase as unknown as { supabaseUrl?: string }).supabaseUrl ??
+    supabaseUrl;
+  return (
+    !isSupabaseConfigured ||
+    url?.includes('your-project') ||
+    url?.includes('example.com')
+  );
 };
 
-const withTimeout = <T>(promise: Promise<T>, ms: number = 8000, message: string = 'Request timed out'): Promise<T> => {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => setTimeout(() => reject(new Error(message)), ms))
-  ]);
+const withTimeout = <T>(
+  promise: Promise<T>,
+  ms = 8000,
+  message = 'Request timed out',
+): Promise<T> => {
+  // The timer handle has to be retained and cleared. Racing a bare
+  // setTimeout() leaves the handle armed for the full duration even after the
+  // real request resolves, which keeps the event loop (and the jest worker
+  // process) alive for no reason. finally() clears it on both outcomes.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<T>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
 };
 
 export const useAuthStore = create<AuthState>()(
@@ -48,22 +72,32 @@ export const useAuthStore = create<AuthState>()(
         try {
           // Check if Supabase is properly configured
           if (!isSupabaseConfigured) {
-            console.warn('Supabase not configured - skipping auth initialization');
+            console.warn(
+              'Supabase not configured - skipping auth initialization',
+            );
             set({ isLoading: false, error: null });
             return;
           }
 
-          // Add timeout to session fetch to prevent hanging
-          const timeoutPromise = new Promise<{ data: { session: any }, error: any }>((_, reject) =>
-            setTimeout(() => reject(new Error('Auth session fetch timed out')), 5000)
-          );
-
-          const { data: { session }, error: sessionError } = await Promise.race([
-            supabase.auth.getSession(),
-            timeoutPromise
-          ]).catch(err => {
+          // Add timeout to session fetch to prevent hanging. Routed through the
+          // shared helper so the timer is cleared once the fetch settles,
+          // instead of staying armed for the full 5s behind every signed-in user.
+          const {
+            data: { session },
+            error: sessionError,
+          } = await withTimeout(
+            supabase.auth.getSession() as Promise<{
+              data: { session: any };
+              error: any;
+            }>,
+            5000,
+            'Auth session fetch timed out',
+          ).catch((err) => {
             console.warn('Auth session race error:', err);
-            return { data: { session: null }, error: err };
+            return { data: { session: null }, error: err } as {
+              data: { session: any };
+              error: any;
+            };
           });
 
           if (sessionError) {
@@ -87,7 +121,10 @@ export const useAuthStore = create<AuthState>()(
                 user: {
                   id: session.user.id,
                   email: session.user.email || '',
-                  displayName: session.user.user_metadata?.display_name || session.user.email?.split('@')[0] || 'User',
+                  displayName:
+                    session.user.user_metadata?.display_name ||
+                    session.user.email?.split('@')[0] ||
+                    'User',
                   avatarUrl: session.user.user_metadata?.avatar_url || null,
                   subscriptionTier: 'free',
                   subscriptionExpiresAt: null,
@@ -106,7 +143,10 @@ export const useAuthStore = create<AuthState>()(
                   email: profile.email,
                   displayName: profile.display_name,
                   avatarUrl: profile.avatar_url,
-                  subscriptionTier: profile.subscription_tier as 'free' | 'pro' | 'business',
+                  subscriptionTier: profile.subscription_tier as
+                    | 'free'
+                    | 'pro'
+                    | 'business',
                   subscriptionExpiresAt: profile.subscription_expires_at
                     ? new Date(profile.subscription_expires_at)
                     : null,
@@ -119,7 +159,10 @@ export const useAuthStore = create<AuthState>()(
         } catch (error) {
           console.error('Auth initialization error:', error);
           // Don't crash - just mark as not authenticated
-          set({ error: error instanceof Error ? error.message : 'Initialization failed' });
+          set({
+            error:
+              error instanceof Error ? error.message : 'Initialization failed',
+          });
         } finally {
           set({ isLoading: false });
         }
@@ -129,7 +172,9 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           if (isPlaceholderConfig()) {
-            throw new Error('Please configure a valid Supabase URL to sign in.');
+            throw new Error(
+              'Please configure a valid Supabase URL to sign in.',
+            );
           }
 
           const { data, error } = await withTimeout(
@@ -138,7 +183,7 @@ export const useAuthStore = create<AuthState>()(
               password,
             }),
             8000,
-            'Login timed out. Check your internet connection or Supabase configuration.'
+            'Login timed out. Check your internet connection or Supabase configuration.',
           );
 
           if (error) {
@@ -149,7 +194,10 @@ export const useAuthStore = create<AuthState>()(
             if (error.message.includes('Email not confirmed')) {
               throw new Error('Please verify your email before signing in');
             }
-            if (error.message.includes('FetchError') || error.message.includes('Network request failed')) {
+            if (
+              error.message.includes('FetchError') ||
+              error.message.includes('Network request failed')
+            ) {
               throw new Error('Network error. Unable to reach the server.');
             }
             throw error;
@@ -161,7 +209,8 @@ export const useAuthStore = create<AuthState>()(
 
           await get().initialize();
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Login failed';
+          const message =
+            error instanceof Error ? error.message : 'Login failed';
           set({ error: message });
           throw error;
         } finally {
@@ -173,7 +222,9 @@ export const useAuthStore = create<AuthState>()(
         set({ isLoading: true, error: null });
         try {
           if (isPlaceholderConfig()) {
-            throw new Error('Please configure a valid Supabase URL to register.');
+            throw new Error(
+              'Please configure a valid Supabase URL to register.',
+            );
           }
 
           const { data, error } = await withTimeout(
@@ -181,13 +232,18 @@ export const useAuthStore = create<AuthState>()(
               email,
               password,
               options: {
+                // Send the confirmation to the web confirm page so the link
+                // opens a real page in the browser instead of a dead localhost
+                // URL. See lib/auth/confirmRedirect for the dashboard settings
+                // this must be registered under.
+                emailRedirectTo: getConfirmRedirectUrl(),
                 data: {
                   display_name: displayName || email.split('@')[0],
                 },
               },
             }),
             8000,
-            'Registration timed out. Check your internet connection or Supabase configuration.'
+            'Registration timed out. Check your internet connection or Supabase configuration.',
           );
 
           if (error) throw error;
@@ -206,7 +262,8 @@ export const useAuthStore = create<AuthState>()(
             await get().initialize();
           }
         } catch (error) {
-          const message = error instanceof Error ? error.message : 'Registration failed';
+          const message =
+            error instanceof Error ? error.message : 'Registration failed';
           set({ error: message });
           throw error;
         } finally {
@@ -248,7 +305,7 @@ export const useAuthStore = create<AuthState>()(
           user: null,
           isAuthenticated: false,
           isLoading: false,
-          error: null
+          error: null,
         });
       },
 
@@ -291,7 +348,10 @@ export const useAuthStore = create<AuthState>()(
                 email: profile.email,
                 displayName: profile.display_name,
                 avatarUrl: profile.avatar_url,
-                subscriptionTier: profile.subscription_tier as 'free' | 'pro' | 'business',
+                subscriptionTier: profile.subscription_tier as
+                  | 'free'
+                  | 'pro'
+                  | 'business',
                 subscriptionExpiresAt: profile.subscription_expires_at
                   ? new Date(profile.subscription_expires_at)
                   : null,
@@ -312,55 +372,62 @@ export const useAuthStore = create<AuthState>()(
         let refreshFailureCount = 0;
         const MAX_REFRESH_FAILURES = 3;
 
-        const { data: { subscription } } = supabase.auth.onAuthStateChange(
-          async (event, session) => {
-            console.log('[AuthStore] Auth state changed:', event, 'has session:', !!session);
+        const {
+          data: { subscription },
+        } = supabase.auth.onAuthStateChange(async (event, session) => {
+          console.log(
+            '[AuthStore] Auth state changed:',
+            event,
+            'has session:',
+            !!session,
+          );
 
-            if (event === 'TOKEN_REFRESHED') {
-              if (session?.user) {
-                console.log('[AuthStore] Token refreshed successfully');
-                refreshFailureCount = 0; // Reset failure count on success
-                await get().refreshUser();
-              } else {
-                // Token refresh failed - no session after refresh event
-                console.error('[AuthStore] Token refresh failed - no session');
-                refreshFailureCount++;
+          if (event === 'TOKEN_REFRESHED') {
+            if (session?.user) {
+              console.log('[AuthStore] Token refreshed successfully');
+              refreshFailureCount = 0; // Reset failure count on success
+              await get().refreshUser();
+            } else {
+              // Token refresh failed - no session after refresh event
+              console.error('[AuthStore] Token refresh failed - no session');
+              refreshFailureCount++;
 
-                if (refreshFailureCount >= MAX_REFRESH_FAILURES) {
-                  console.error('[AuthStore] Max refresh failures reached - forcing logout');
-                  await get().signOut();
-                  set({
-                    error: 'Session expired. Please sign in again.'
-                  });
-                }
-              }
-            } else if (event === 'SIGNED_OUT') {
-              console.log('[AuthStore] User signed out');
-              // Wipe camera cache/state on ANY supabase-driven sign-out
-              // (session expiry, account deletion, remote sign-out) so no
-              // leftover data survives for the next user on this device.
-              try {
-                await useCameraStore.getState().clearCache();
-              } catch (error) {
-                console.error('Camera cache cleanup error:', error);
-              }
-              set({
-                user: null,
-                isAuthenticated: false,
-                isLoading: false,
-                error: null
-              });
-              refreshFailureCount = 0;
-            } else if (event === 'USER_UPDATED') {
-              console.log('[AuthStore] User updated');
-              refreshFailureCount = 0;
-
-              if (session?.user) {
-                await get().refreshUser();
+              if (refreshFailureCount >= MAX_REFRESH_FAILURES) {
+                console.error(
+                  '[AuthStore] Max refresh failures reached - forcing logout',
+                );
+                await get().signOut();
+                set({
+                  error: 'Session expired. Please sign in again.',
+                });
               }
             }
+          } else if (event === 'SIGNED_OUT') {
+            console.log('[AuthStore] User signed out');
+            // Wipe camera cache/state on ANY supabase-driven sign-out
+            // (session expiry, account deletion, remote sign-out) so no
+            // leftover data survives for the next user on this device.
+            try {
+              await useCameraStore.getState().clearCache();
+            } catch (error) {
+              console.error('Camera cache cleanup error:', error);
+            }
+            set({
+              user: null,
+              isAuthenticated: false,
+              isLoading: false,
+              error: null,
+            });
+            refreshFailureCount = 0;
+          } else if (event === 'USER_UPDATED') {
+            console.log('[AuthStore] User updated');
+            refreshFailureCount = 0;
+
+            if (session?.user) {
+              await get().refreshUser();
+            }
           }
-        );
+        });
 
         return () => {
           subscription.unsubscribe();
@@ -371,6 +438,6 @@ export const useAuthStore = create<AuthState>()(
       name: 'auth-storage',
       storage: createJSONStorage(() => AsyncStorage),
       partialize: (state) => ({ user: state.user }),
-    }
-  )
+    },
+  ),
 );

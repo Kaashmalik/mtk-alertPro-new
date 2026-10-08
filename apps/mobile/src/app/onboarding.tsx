@@ -1,38 +1,37 @@
 /**
  * Onboarding Screen
- * 
+ *
  * Beautiful first-time user experience with app introduction
  */
 
-import React, { useState, useRef } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Dimensions,
-  TouchableOpacity,
-  FlatList,
-  Animated,
-  StatusBar,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { LinearGradient } from 'expo-linear-gradient';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import {
-  Shield,
-  Camera,
-  Bell,
-  Zap,
-  Users,
-  Smartphone,
-  ArrowRight,
-} from 'lucide-react-native';
-import { colors, spacing, fontSize, borderRadius, palette } from '@/lib/theme';
 import { hapticPrimaryAction, hapticSelection } from '@/lib/haptics';
 import { ensureNotificationPermission } from '@/lib/notifications/service';
+import { borderRadius, colors, fontSize, palette, spacing } from '@/lib/theme';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import {
+  ArrowRight,
+  Bell,
+  Camera,
+  Shield,
+  Users,
+  Zap,
+} from 'lucide-react-native';
+import type React from 'react';
+import { useRef, useState } from 'react';
+import {
+  Animated,
+  type FlatList,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
 
 // ============================================================================
@@ -51,35 +50,40 @@ const slides: OnboardingSlide[] = [
   {
     id: '1',
     title: 'Welcome to MTK AlertPro',
-    description: 'AI-powered security monitoring for your home and business. Get instant alerts when motion is detected.',
+    description:
+      'AI-powered security monitoring for your home and business. Get instant alerts when motion is detected.',
     icon: <Shield size={64} color="white" />,
     gradient: [palette.red[500], palette.red[600]] as [string, string],
   },
   {
     id: '2',
     title: 'Connect Your Cameras',
-    description: 'Add any IP camera with RTSP support. View live streams from anywhere in the world.',
+    description:
+      'Add any IP camera with RTSP support. View live streams from anywhere in the world.',
     icon: <Camera size={64} color="white" />,
     gradient: [palette.cyan[500], palette.cyan[600]] as [string, string],
   },
   {
     id: '3',
     title: 'Smart Detection',
-    description: 'AI detects people, vehicles, and faces. Reduce false alarms from pets and moving trees.',
+    description:
+      'AI detects people, vehicles, and faces. Reduce false alarms from pets and moving trees.',
     icon: <Users size={64} color="white" />,
     gradient: [palette.violet[500], palette.violet[600]] as [string, string],
   },
   {
     id: '4',
     title: 'Instant Alerts',
-    description: 'Get push notifications with snapshots when activity is detected. Never miss an important moment.',
+    description:
+      'Get push notifications with snapshots when activity is detected. Never miss an important moment.',
     icon: <Bell size={64} color="white" />,
     gradient: [palette.amber[500], palette.amber[600]] as [string, string],
   },
   {
     id: '5',
     title: 'Red Alert Mode',
-    description: 'Maximum security when you need it. Sound alarms and get priority alerts instantly.',
+    description:
+      'Maximum security when you need it. Sound alarms and get priority alerts instantly.',
     icon: <Zap size={64} color="white" />,
     gradient: [palette.red[600], palette.red[700]] as [string, string],
   },
@@ -93,6 +97,10 @@ export default function OnboardingScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const flatListRef = useRef<FlatList>(null);
   const scrollX = useRef(new Animated.Value(0)).current;
+  // Reactive width. The carousel offsets and the page-index calculation both
+  // read a module-scope Dimensions.get('window'), which was frozen at the boot
+  // width and desynced on rotation.
+  const { width: SCREEN_WIDTH } = useWindowDimensions();
 
   const handleNext = () => {
     hapticSelection();
@@ -124,20 +132,20 @@ export default function OnboardingScreen() {
       await ensureNotificationPermission();
     } catch (error) {
       // Never block onboarding on a permission prompt.
-      console.warn('[Onboarding] Notification permission request failed:', error);
+      console.warn(
+        '[Onboarding] Notification permission request failed:',
+        error,
+      );
     }
 
     await AsyncStorage.setItem(ONBOARDING_COMPLETE_KEY, 'true');
     router.replace('/(auth)/login');
   };
 
-  const renderSlide = ({ item, index }: { item: OnboardingSlide; index: number }) => {
+  const renderSlide = ({ item }: { item: OnboardingSlide }) => {
     return (
       <View style={styles.slide}>
-        <LinearGradient
-          colors={item.gradient}
-          style={styles.iconContainer}
-        >
+        <LinearGradient colors={item.gradient} style={styles.iconContainer}>
           {item.icon}
         </LinearGradient>
         <Text style={styles.title}>{item.title}</Text>
@@ -170,11 +178,9 @@ export default function OnboardingScreen() {
 
           return (
             <Animated.View
+              // biome-ignore lint/suspicious/noArrayIndexKey: static dot indicators never reorder
               key={index}
-              style={[
-                styles.dot,
-                { width: dotWidth, opacity },
-              ]}
+              style={[styles.dot, { width: dotWidth, opacity }]}
             />
           );
         })}
@@ -206,10 +212,12 @@ export default function OnboardingScreen() {
           bounces={false}
           onScroll={Animated.event(
             [{ nativeEvent: { contentOffset: { x: scrollX } } }],
-            { useNativeDriver: false }
+            { useNativeDriver: false },
           )}
           onMomentumScrollEnd={(e) => {
-            const index = Math.round(e.nativeEvent.contentOffset.x / SCREEN_WIDTH);
+            const index = Math.round(
+              e.nativeEvent.contentOffset.x / SCREEN_WIDTH,
+            );
             setCurrentIndex(index);
           }}
           scrollEventThrottle={16}
@@ -277,7 +285,8 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   slide: {
-    width: SCREEN_WIDTH,
+    // Was a module-scope SCREEN_WIDTH snapshot; stretch to the parent instead.
+    width: '100%',
     flex: 1,
     alignItems: 'center',
     justifyContent: 'center',
@@ -348,4 +357,3 @@ const styles = StyleSheet.create({
     color: 'white',
   },
 });
-

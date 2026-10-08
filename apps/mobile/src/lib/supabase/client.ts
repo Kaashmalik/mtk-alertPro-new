@@ -8,12 +8,12 @@
  * - Error handling for production
  */
 
-import { createClient, type SupabaseClient } from '@supabase/supabase-js';
 import type { Database } from '@/types/supabase';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { type SupabaseClient, createClient } from '@supabase/supabase-js';
+import Constants from 'expo-constants';
 import * as SecureStore from 'expo-secure-store';
 import { Platform } from 'react-native';
-import Constants from 'expo-constants';
 
 // ============================================================================
 // 🚨 SECURITY: Environment Configuration
@@ -46,10 +46,10 @@ if (!isConfigValid) {
   throw new Error(
     'Supabase configuration missing. Set EXPO_PUBLIC_SUPABASE_URL and EXPO_PUBLIC_SUPABASE_ANON_KEY in .env or EAS secrets.',
   );
-} else {
-  // Never log actual API keys - only masked version for debugging
-  const maskedKey = supabaseAnonKey.slice(0, 10) + '...[MASKED]';
-  console.log(`✅ Supabase URL configured: ${supabaseUrl}`);
+}
+// Never log actual API keys.
+if (isConfigValid) {
+  console.log(`Supabase URL configured: ${supabaseUrl}`);
 }
 
 // ============================================================================
@@ -130,8 +130,6 @@ const secureStorage = {
 // 🔒 SECURE: Supabase Client with Production Hardening
 // ============================================================================
 
-let supabase: SupabaseClient;
-
 // CRITICAL: No mock client allowed - fail fast if config is invalid
 if (!isConfigValid) {
   throw new Error(
@@ -139,24 +137,32 @@ if (!isConfigValid) {
   );
 }
 
-supabase = createClient<Database>(supabaseUrl, supabaseAnonKey, {
-  auth: {
-    storage: secureStorage,
-    autoRefreshToken: true,
-    persistSession: true,
-    detectSessionInUrl: false,
-  },
-  global: {
-    headers: {
-      'X-App-Version': Constants.expoConfig?.version || '1.0.0',
-      'X-Platform': Platform.OS,
-      'X-Security': 'hardened',
+const supabase: SupabaseClient = createClient<Database>(
+  supabaseUrl,
+  supabaseAnonKey,
+  {
+    auth: {
+      storage: secureStorage,
+      autoRefreshToken: true,
+      persistSession: true,
+      // The confirmation page verifies the token explicitly via verifyOtp(), so
+      // native builds do not want implicit URL parsing. The web build does: when
+      // a user opens a link in their browser, letting supabase-js pick the
+      // session out of the URL is what makes the page land authenticated.
+      detectSessionInUrl: Platform.OS === 'web',
+    },
+    global: {
+      headers: {
+        'X-App-Version': Constants.expoConfig?.version || '1.0.0',
+        'X-Platform': Platform.OS,
+        'X-Security': 'hardened',
+      },
+    },
+    db: {
+      schema: 'public',
     },
   },
-  db: {
-    schema: 'public',
-  },
-});
+);
 
 // ============================================================================
 // 🔒 SECURITY: Certificate Pinning (Production Only)

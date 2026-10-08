@@ -8,8 +8,8 @@
  * - Certificate hash verification
  */
 
-import { Platform } from 'react-native';
 import { logError } from '@/lib/utils/errorHandler';
+import { Platform } from 'react-native';
 
 // ============================================================================
 // Types
@@ -72,9 +72,9 @@ export class CertificatePinningService {
 
   private constructor() {
     this.pinnedCertificates = new Map();
-    PINNED_CERTIFICATES.forEach((cert) => {
+    for (const cert of PINNED_CERTIFICATES) {
       this.pinnedCertificates.set(cert.domain, cert);
-    });
+    }
   }
 
   /**
@@ -182,7 +182,7 @@ export class CertificatePinningService {
         return certificate.getFingerprint({ hash: 'SHA-256' });
       }
 
-      if (certificate.raw && certificate.raw.data) {
+      if (certificate.raw?.data) {
         // React Native environment
         const forge = require('node-forge'); // Would need to install this package
 

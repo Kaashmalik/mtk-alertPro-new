@@ -3,7 +3,11 @@
  * Presets that control which detection types trigger alerts per camera use-case.
  */
 
-import type { DetectionSettings, DetectionResult, SceneProfileId } from '@/types';
+import type {
+  DetectionResult,
+  DetectionSettings,
+  SceneProfileId,
+} from '@/types';
 
 export interface SceneProfileDefinition {
   id: SceneProfileId;
@@ -43,7 +47,8 @@ export const SCENE_PROFILES: SceneProfileDefinition[] = [
   {
     id: 'farm',
     label: 'Farm',
-    description: 'Intruders (people/vehicles) only. Livestock and pets never alert.',
+    description:
+      'Intruders (people/vehicles) only. Livestock and pets never alert.',
     freeTier: true,
     settings: {
       person: true,
@@ -58,7 +63,8 @@ export const SCENE_PROFILES: SceneProfileDefinition[] = [
   {
     id: 'shop',
     label: 'Shop',
-    description: 'People-focused for theft risk. Higher sensitivity, shorter cooldown.',
+    description:
+      'People-focused for theft risk. Higher sensitivity, shorter cooldown.',
     freeTier: true,
     settings: {
       person: true,
@@ -147,7 +153,9 @@ export const SCENE_PROFILES: SceneProfileDefinition[] = [
   },
 ];
 
-export function getSceneProfile(id: SceneProfileId | undefined): SceneProfileDefinition {
+export function getSceneProfile(
+  id: SceneProfileId | undefined,
+): SceneProfileDefinition {
   const found = SCENE_PROFILES.find((p) => p.id === (id || 'home'));
   return found || SCENE_PROFILES[0];
 }
@@ -157,7 +165,7 @@ export function getSceneProfile(id: SceneProfileId | undefined): SceneProfileDef
  */
 export function applySceneProfile(
   profileId: SceneProfileId,
-  current?: Partial<DetectionSettings>
+  current?: Partial<DetectionSettings>,
 ): DetectionSettings {
   const profile = getSceneProfile(profileId);
   return {
@@ -169,15 +177,39 @@ export function applySceneProfile(
   };
 }
 
-export type AlertableType = 'person' | 'vehicle' | 'face' | 'animal' | 'motion' | 'unknown';
+export type AlertableType =
+  | 'person'
+  | 'vehicle'
+  | 'face'
+  | 'animal'
+  | 'motion'
+  | 'unknown';
+
+/**
+ * Plan-level gates for the detection types that are premium-only.
+ *
+ * These are resolved once and passed in (rather than read from the store inside
+ * this pure function) so the detection hot path stays synchronous and
+ * unit-testable, and so callers that already know the entitlement don't pay for
+ * a store lookup per frame.
+ */
+export interface DetectionEntitlements {
+  /** Plan grants face recognition (PlanLimits.hasFaceRecognition). */
+  face?: boolean;
+}
 
 /**
  * Whether this detection should raise an alert for the camera settings.
  * Animals are suppressed unless settings.animal === true (farm never enables this).
+ *
+ * Face detection additionally requires the plan to include face recognition:
+ * a free account with the per-camera `face` toggle on used to receive face
+ * alerts, because that flag was only ever counted on the paywall.
  */
 export function shouldAlert(
   detection: Pick<DetectionResult, 'type'> | { type: AlertableType },
-  settings: DetectionSettings
+  settings: DetectionSettings,
+  entitlements: DetectionEntitlements = {},
 ): boolean {
   const type = detection.type === 'unknown' ? 'motion' : detection.type;
 
@@ -187,7 +219,9 @@ export function shouldAlert(
     case 'vehicle':
       return settings.vehicle === true;
     case 'face':
-      return settings.face === true;
+      // Default to allowed when no entitlement is supplied, so existing callers
+      // and tests that don't model the plan keep their previous behaviour.
+      return settings.face === true && entitlements.face !== false;
     case 'animal':
       // Explicit opt-in only — farm/shop/home presets keep this false
       return settings.animal === true;
@@ -200,7 +234,7 @@ export function shouldAlert(
 
 /** Free-tier profile IDs */
 export const FREE_SCENE_PROFILES: SceneProfileId[] = SCENE_PROFILES.filter(
-  (p) => p.freeTier
+  (p) => p.freeTier,
 ).map((p) => p.id);
 
 export function isAdvancedSceneProfile(id: SceneProfileId): boolean {

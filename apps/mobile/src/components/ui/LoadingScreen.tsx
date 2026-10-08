@@ -1,31 +1,34 @@
 /**
  * Loading Screen Component
- * 
+ *
  * Beautiful loading state with branding
  */
 
-import React, { useEffect, useRef } from 'react';
+import { colors, fontSize, palette, shadows, spacing } from '@/lib/theme';
+import { LinearGradient } from 'expo-linear-gradient';
+import { Shield } from 'lucide-react-native';
+import { useEffect, useRef } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
   ActivityIndicator,
   Animated,
   Easing,
+  StyleSheet,
+  Text,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Shield } from 'lucide-react-native';
-import { colors, spacing, fontSize, shadows, palette } from '@/lib/theme';
 
 interface LoadingScreenProps {
   message?: string;
   showLogo?: boolean;
 }
 
-export function LoadingScreen({ message = 'Loading...', showLogo = true }: LoadingScreenProps) {
+export function LoadingScreen({
+  message = 'Loading...',
+  showLogo = true,
+}: LoadingScreenProps) {
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeAnim = useRef(new Animated.Value(0)).current;
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     // Fade in animation
     Animated.timing(fadeAnim, {
@@ -49,14 +52,16 @@ export function LoadingScreen({ message = 'Loading...', showLogo = true }: Loadi
           easing: Easing.inOut(Easing.ease),
           useNativeDriver: true,
         }),
-      ])
+      ]),
     ).start();
   }, []);
 
   return (
     <Animated.View style={[styles.container, { opacity: fadeAnim }]}>
       {showLogo && (
-        <Animated.View style={[styles.logoContainer, { transform: [{ scale: pulseAnim }] }]}>
+        <Animated.View
+          style={[styles.logoContainer, { transform: [{ scale: pulseAnim }] }]}
+        >
           <LinearGradient
             colors={[palette.red[500], palette.red[600]]}
             style={styles.logoGradient}
@@ -105,4 +110,3 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
-

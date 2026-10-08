@@ -10,4 +10,3 @@ export { LiveCameraGrid } from './LiveCameraGrid';
 export { QrCameraScanner } from './QrCameraScanner';
 export type { QrScanResult } from './QrCameraScanner';
 export { SceneProfilePicker } from './SceneProfilePicker';
-

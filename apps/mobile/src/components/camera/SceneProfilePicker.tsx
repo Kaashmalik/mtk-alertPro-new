@@ -1,22 +1,17 @@
-/**
- * Horizontal scene profile chip picker (Farm, Shop, Home, …)
- */
-
-import React from 'react';
-import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-} from 'react-native';
 import {
   SCENE_PROFILES,
-  isAdvancedSceneProfile,
   type SceneProfileDefinition,
+  isAdvancedSceneProfile,
 } from '@/features/detection/sceneProfiles';
-import type { SceneProfileId } from '@/types';
 import { designSystem } from '@/theme/design-system';
+import type { SceneProfileId } from '@/types';
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 interface SceneProfilePickerProps {
   selected: SceneProfileId | undefined;
@@ -33,7 +28,8 @@ export function SceneProfilePicker({
   onLocked,
 }: SceneProfilePickerProps) {
   const activeId = selected || 'home';
-  const active = SCENE_PROFILES.find((p) => p.id === activeId) || SCENE_PROFILES[0];
+  const active =
+    SCENE_PROFILES.find((p) => p.id === activeId) || SCENE_PROFILES[0];
 
   return (
     <View style={styles.wrap}>
@@ -65,10 +61,7 @@ export function SceneProfilePicker({
               activeOpacity={0.85}
             >
               <Text
-                style={[
-                  styles.chipLabel,
-                  isSelected && styles.chipLabelActive,
-                ]}
+                style={[styles.chipLabel, isSelected && styles.chipLabelActive]}
               >
                 {profile.label}
               </Text>

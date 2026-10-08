@@ -19,4 +19,3 @@ export {
   type DetectionEvent,
   type DetectionManagerConfig,
 } from './detectionManager';
-

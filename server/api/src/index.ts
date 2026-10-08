@@ -1,33 +1,42 @@
 /**
  * MTK AlertPro API Server
  * Handles camera management, streaming control, and media server integration
- * 
+ *
  * @module api/index
  */
 
-import express, { Request, Response, NextFunction } from 'express';
+import { spawn } from 'node:child_process';
+import fs from 'node:fs';
+import path from 'node:path';
+import { type SupabaseClient, createClient } from '@supabase/supabase-js';
+import axios, { type AxiosInstance } from 'axios';
 import cors from 'cors';
-import helmet from 'helmet';
+import express, {
+  type Request,
+  type Response,
+  type NextFunction,
+} from 'express';
 import rateLimit from 'express-rate-limit';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import axios, { AxiosInstance } from 'axios';
+import helmet from 'helmet';
 import { v4 as uuidv4 } from 'uuid';
-import { spawn } from 'child_process';
-import fs from 'fs';
-import path from 'path';
 import 'dotenv/config';
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-const PORT = parseInt(process.env.PORT || '3001', 10);
-const MEDIAMTX_API_URL = process.env.MEDIAMTX_API_URL || 'http://localhost:9997';
-const MEDIAMTX_HLS_URL = process.env.MEDIAMTX_HLS_URL || 'http://localhost:8888';
-const MEDIAMTX_RTSP_URL = process.env.MEDIAMTX_RTSP_URL || 'rtsp://localhost:8554';
+const PORT = Number.parseInt(process.env.PORT || '3001', 10);
+const MEDIAMTX_API_URL =
+  process.env.MEDIAMTX_API_URL || 'http://localhost:9997';
+const MEDIAMTX_HLS_URL =
+  process.env.MEDIAMTX_HLS_URL || 'http://localhost:8888';
+const MEDIAMTX_RTSP_URL =
+  process.env.MEDIAMTX_RTSP_URL || 'rtsp://localhost:8554';
 const CORS_ORIGIN = process.env.CORS_ORIGIN || '*';
-const SNAPSHOTS_DIR = process.env.SNAPSHOTS_DIR || path.join(process.cwd(), 'snapshots');
-const RECORDINGS_DIR = process.env.RECORDINGS_DIR || path.join(process.cwd(), 'recordings');
+const SNAPSHOTS_DIR =
+  process.env.SNAPSHOTS_DIR || path.join(process.cwd(), 'snapshots');
+const RECORDINGS_DIR =
+  process.env.RECORDINGS_DIR || path.join(process.cwd(), 'recordings');
 const FFMPEG_PATH = process.env.FFMPEG_PATH || 'ffmpeg';
 
 // Ensure media directories exist
@@ -55,7 +64,7 @@ const app = express();
 // Supabase client with service key (admin access)
 const supabase: SupabaseClient = createClient(
   process.env.SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_KEY!
+  process.env.SUPABASE_SERVICE_KEY!,
 );
 
 // MediaMTX API client
@@ -70,16 +79,20 @@ const mediamtx: AxiosInstance = axios.create({
 // ============================================================================
 
 // Security headers
-app.use(helmet({
-  crossOriginResourcePolicy: { policy: 'cross-origin' },
-}));
+app.use(
+  helmet({
+    crossOriginResourcePolicy: { policy: 'cross-origin' },
+  }),
+);
 
 // CORS configuration
-app.use(cors({
-  origin: CORS_ORIGIN,
-  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
-  allowedHeaders: ['Content-Type', 'Authorization'],
-}));
+app.use(
+  cors({
+    origin: CORS_ORIGIN,
+    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+  }),
+);
 
 // Body parsing
 app.use(express.json({ limit: '10mb' }));
@@ -103,15 +116,6 @@ app.use((req: Request, _res: Response, next: NextFunction) => {
 // ============================================================================
 // Types
 // ============================================================================
-
-interface CameraPathConfig {
-  source: string;
-  sourceOnDemand: boolean;
-  sourceOnDemandStartTimeout: string;
-  sourceOnDemandCloseAfter: string;
-  record?: boolean;
-  recordPath?: string;
-}
 
 interface StreamUrls {
   hls: string;
@@ -147,7 +151,7 @@ function buildStreamUrls(pathName: string): StreamUrls {
  */
 async function validateCameraOwnership(
   cameraId: string,
-  userId: string
+  userId: string,
 ): Promise<boolean> {
   const { data, error } = await supabase
     .from('cameras')
@@ -165,15 +169,19 @@ async function validateCameraOwnership(
 function captureFrameWithFfmpeg(
   sourceUrl: string,
   outputPath: string,
-  timeoutMs = 15000
+  timeoutMs = 15000,
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const args = [
       '-y',
-      '-rtsp_transport', 'tcp',
-      '-i', sourceUrl,
-      '-frames:v', '1',
-      '-q:v', '2',
+      '-rtsp_transport',
+      'tcp',
+      '-i',
+      sourceUrl,
+      '-frames:v',
+      '1',
+      '-q:v',
+      '2',
       outputPath,
     ];
 
@@ -212,8 +220,12 @@ function findLatestRecording(pathName: string): string | null {
   if (!fs.existsSync(cameraDir)) {
     // Also search flat recordings dir for matching prefix
     if (!fs.existsSync(RECORDINGS_DIR)) return null;
-    const files = fs.readdirSync(RECORDINGS_DIR)
-      .filter((f) => f.startsWith(pathName) && (f.endsWith('.mp4') || f.endsWith('.mkv')))
+    const files = fs
+      .readdirSync(RECORDINGS_DIR)
+      .filter(
+        (f) =>
+          f.startsWith(pathName) && (f.endsWith('.mp4') || f.endsWith('.mkv')),
+      )
       .map((f) => ({
         name: f,
         mtime: fs.statSync(path.join(RECORDINGS_DIR, f)).mtimeMs,
@@ -228,7 +240,8 @@ function findLatestRecording(pathName: string): string | null {
     for (const e of entries) {
       const full = path.join(dir, e.name);
       if (e.isDirectory()) out.push(...walk(full));
-      else if (e.name.endsWith('.mp4') || e.name.endsWith('.mkv')) out.push(full);
+      else if (e.name.endsWith('.mp4') || e.name.endsWith('.mkv'))
+        out.push(full);
     }
     return out;
   };
@@ -254,7 +267,7 @@ app.get('/health', async (_req: Request, res: Response) => {
   try {
     // Check MediaMTX connection
     await mediamtx.get('/v3/paths/list');
-    
+
     res.json({
       status: 'ok',
       timestamp: new Date().toISOString(),
@@ -263,7 +276,7 @@ app.get('/health', async (_req: Request, res: Response) => {
         supabase: 'configured',
       },
     });
-  } catch (error) {
+  } catch (_error) {
     res.status(503).json({
       status: 'degraded',
       timestamp: new Date().toISOString(),
@@ -279,69 +292,78 @@ app.get('/health', async (_req: Request, res: Response) => {
  * Test camera connection
  * POST /api/cameras/test-connection
  */
-app.post('/api/cameras/test-connection', async (req: Request, res: Response) => {
-  try {
-    const { rtspUrl } = req.body;
-
-    if (!rtspUrl || typeof rtspUrl !== 'string') {
-      return res.status(400).json({ error: 'rtspUrl is required' });
-    }
-
-    // Validate RTSP URL format
-    if (!rtspUrl.startsWith('rtsp://')) {
-      return res.status(400).json({
-        connected: false,
-        error: 'Invalid URL format. Must start with rtsp://',
-      });
-    }
-
-    // Create a temporary path for testing
-    const tempPath = `test_${uuidv4().replace(/-/g, '')}`;
-
+app.post(
+  '/api/cameras/test-connection',
+  async (req: Request, res: Response) => {
     try {
-      // Add temporary path to MediaMTX
-      await mediamtx.post(`/v3/config/paths/add/${tempPath}`, {
-        source: rtspUrl,
-        sourceOnDemand: true,
-        sourceOnDemandStartTimeout: '5s',
-        sourceOnDemandCloseAfter: '5s',
-      });
+      const { rtspUrl } = req.body;
 
-      // Wait for stream to initialize
-      await new Promise(resolve => setTimeout(resolve, 3000));
+      if (!rtspUrl || typeof rtspUrl !== 'string') {
+        return res.status(400).json({ error: 'rtspUrl is required' });
+      }
 
-      // Check if stream is ready
-      const pathResponse = await mediamtx.get(`/v3/paths/get/${tempPath}`);
-      const isReady = pathResponse.data?.ready === true;
+      // Validate RTSP URL format
+      if (!rtspUrl.startsWith('rtsp://')) {
+        return res.status(400).json({
+          connected: false,
+          error: 'Invalid URL format. Must start with rtsp://',
+        });
+      }
 
-      // Clean up temporary path
-      await mediamtx.delete(`/v3/config/paths/delete/${tempPath}`).catch(() => {});
+      // Create a temporary path for testing
+      const tempPath = `test_${uuidv4().replace(/-/g, '')}`;
 
-      return res.json({
-        connected: isReady,
-        streamInfo: isReady ? {
-          ready: true,
-          tracks: pathResponse.data?.tracks || [],
-        } : null,
-      });
+      try {
+        // Add temporary path to MediaMTX
+        await mediamtx.post(`/v3/config/paths/add/${tempPath}`, {
+          source: rtspUrl,
+          sourceOnDemand: true,
+          sourceOnDemandStartTimeout: '5s',
+          sourceOnDemandCloseAfter: '5s',
+        });
+
+        // Wait for stream to initialize
+        await new Promise((resolve) => setTimeout(resolve, 3000));
+
+        // Check if stream is ready
+        const pathResponse = await mediamtx.get(`/v3/paths/get/${tempPath}`);
+        const isReady = pathResponse.data?.ready === true;
+
+        // Clean up temporary path
+        await mediamtx
+          .delete(`/v3/config/paths/delete/${tempPath}`)
+          .catch(() => {});
+
+        return res.json({
+          connected: isReady,
+          streamInfo: isReady
+            ? {
+                ready: true,
+                tracks: pathResponse.data?.tracks || [],
+              }
+            : null,
+        });
+      } catch (error) {
+        // Clean up on error
+        await mediamtx
+          .delete(`/v3/config/paths/delete/${tempPath}`)
+          .catch(() => {});
+
+        console.error('Connection test error:', error);
+        return res.json({
+          connected: false,
+          error: 'Failed to connect to camera stream',
+        });
+      }
     } catch (error) {
-      // Clean up on error
-      await mediamtx.delete(`/v3/config/paths/delete/${tempPath}`).catch(() => {});
-
       console.error('Connection test error:', error);
-      return res.json({
+      return res.status(500).json({
         connected: false,
-        error: 'Failed to connect to camera stream',
+        error: 'Internal server error',
       });
     }
-  } catch (error) {
-    console.error('Connection test error:', error);
-    return res.status(500).json({
-      connected: false,
-      error: 'Internal server error',
-    });
-  }
-});
+  },
+);
 
 /**
  * Register camera stream with MediaMTX
@@ -406,235 +428,258 @@ app.post('/api/cameras/register', async (req: Request, res: Response) => {
  * Unregister camera stream
  * DELETE /api/cameras/:cameraId/unregister
  */
-app.delete('/api/cameras/:cameraId/unregister', async (req: Request, res: Response) => {
-  try {
-    const { cameraId } = req.params;
-    const pathName = getCameraPathName(cameraId);
-
+app.delete(
+  '/api/cameras/:cameraId/unregister',
+  async (req: Request, res: Response) => {
     try {
-      await mediamtx.delete(`/v3/config/paths/delete/${pathName}`);
-    } catch {
-      // Path might not exist, that's okay
-    }
+      const { cameraId } = req.params;
+      const pathName = getCameraPathName(cameraId);
 
-    return res.json({ success: true });
-  } catch (error) {
-    console.error('Camera unregistration error:', error);
-    return res.status(500).json({
-      error: 'Failed to unregister camera',
-    });
-  }
-});
+      try {
+        await mediamtx.delete(`/v3/config/paths/delete/${pathName}`);
+      } catch {
+        // Path might not exist, that's okay
+      }
+
+      return res.json({ success: true });
+    } catch (error) {
+      console.error('Camera unregistration error:', error);
+      return res.status(500).json({
+        error: 'Failed to unregister camera',
+      });
+    }
+  },
+);
 
 /**
  * Get stream status
  * GET /api/cameras/:cameraId/status
  */
-app.get('/api/cameras/:cameraId/status', async (req: Request, res: Response) => {
-  try {
-    const { cameraId } = req.params;
-    const pathName = getCameraPathName(cameraId);
-
+app.get(
+  '/api/cameras/:cameraId/status',
+  async (req: Request, res: Response) => {
     try {
-      const response = await mediamtx.get(`/v3/paths/get/${pathName}`);
+      const { cameraId } = req.params;
+      const pathName = getCameraPathName(cameraId);
 
-      return res.json({
-        online: response.data?.ready === true,
-        readers: response.data?.readers?.length || 0,
-        source: response.data?.source ? {
-          type: response.data.source.type,
-        } : null,
-        tracks: response.data?.tracks || [],
-      });
-    } catch {
-      return res.json({
-        online: false,
-        readers: 0,
-        source: null,
-        tracks: [],
-      });
+      try {
+        const response = await mediamtx.get(`/v3/paths/get/${pathName}`);
+
+        return res.json({
+          online: response.data?.ready === true,
+          readers: response.data?.readers?.length || 0,
+          source: response.data?.source
+            ? {
+                type: response.data.source.type,
+              }
+            : null,
+          tracks: response.data?.tracks || [],
+        });
+      } catch {
+        return res.json({
+          online: false,
+          readers: 0,
+          source: null,
+          tracks: [],
+        });
+      }
+    } catch (error) {
+      console.error('Status check error:', error);
+      return res.json({ online: false, readers: 0 });
     }
-  } catch (error) {
-    console.error('Status check error:', error);
-    return res.json({ online: false, readers: 0 });
-  }
-});
+  },
+);
 
 /**
  * Capture snapshot from stream
  * POST /api/cameras/:cameraId/snapshot
  */
-app.post('/api/cameras/:cameraId/snapshot', async (req: Request, res: Response) => {
-  try {
-    const { cameraId } = req.params;
-    const pathName = getCameraPathName(cameraId);
-
-    // Check if stream is available
+app.post(
+  '/api/cameras/:cameraId/snapshot',
+  async (req: Request, res: Response) => {
     try {
-      const pathResponse = await mediamtx.get(`/v3/paths/get/${pathName}`);
-      if (!pathResponse.data?.ready) {
+      const { cameraId } = req.params;
+      const pathName = getCameraPathName(cameraId);
+
+      // Check if stream is available
+      try {
+        const pathResponse = await mediamtx.get(`/v3/paths/get/${pathName}`);
+        if (!pathResponse.data?.ready) {
+          return res.status(404).json({
+            error: 'Stream not available',
+          });
+        }
+      } catch {
         return res.status(404).json({
-          error: 'Stream not available',
+          error: 'Camera not registered',
         });
       }
-    } catch {
-      return res.status(404).json({
-        error: 'Camera not registered',
+
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const filename = `${cameraId}_${timestamp}.jpg`;
+      const outputPath = path.join(SNAPSHOTS_DIR, filename);
+
+      // Prefer local MediaMTX RTSP re-publish (stable for FFmpeg)
+      const rtspSource = `${MEDIAMTX_RTSP_URL}/${pathName}`;
+      const hlsSource = `${MEDIAMTX_HLS_URL}/${pathName}/index.m3u8`;
+
+      try {
+        await captureFrameWithFfmpeg(rtspSource, outputPath);
+      } catch (rtspErr) {
+        console.warn('[Snapshot] RTSP grab failed, trying HLS:', rtspErr);
+        await captureFrameWithFfmpeg(hlsSource, outputPath);
+      }
+
+      return res.json({
+        success: true,
+        snapshotUrl: `/snapshots/${filename}`,
+        absoluteUrl: `http://localhost:${PORT}/snapshots/${filename}`,
+        timestamp: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('Snapshot error:', error);
+      return res.status(500).json({
+        error: 'Failed to capture snapshot',
+        detail: error instanceof Error ? error.message : 'unknown',
       });
     }
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `${cameraId}_${timestamp}.jpg`;
-    const outputPath = path.join(SNAPSHOTS_DIR, filename);
-
-    // Prefer local MediaMTX RTSP re-publish (stable for FFmpeg)
-    const rtspSource = `${MEDIAMTX_RTSP_URL}/${pathName}`;
-    const hlsSource = `${MEDIAMTX_HLS_URL}/${pathName}/index.m3u8`;
-
-    try {
-      await captureFrameWithFfmpeg(rtspSource, outputPath);
-    } catch (rtspErr) {
-      console.warn('[Snapshot] RTSP grab failed, trying HLS:', rtspErr);
-      await captureFrameWithFfmpeg(hlsSource, outputPath);
-    }
-
-    return res.json({
-      success: true,
-      snapshotUrl: `/snapshots/${filename}`,
-      absoluteUrl: `http://localhost:${PORT}/snapshots/${filename}`,
-      timestamp: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('Snapshot error:', error);
-    return res.status(500).json({
-      error: 'Failed to capture snapshot',
-      detail: error instanceof Error ? error.message : 'unknown',
-    });
-  }
-});
+  },
+);
 
 /**
  * Start recording
  * POST /api/cameras/:cameraId/record/start
  */
-app.post('/api/cameras/:cameraId/record/start', async (req: Request, res: Response) => {
-  try {
-    const { cameraId } = req.params;
-    const { durationSeconds = 30 } = req.body;
-    const pathName = getCameraPathName(cameraId);
+app.post(
+  '/api/cameras/:cameraId/record/start',
+  async (req: Request, res: Response) => {
+    try {
+      const { cameraId } = req.params;
+      const { durationSeconds = 30 } = req.body;
+      const pathName = getCameraPathName(cameraId);
 
-    // Validate duration (max 5 minutes)
-    const duration = Math.min(Math.max(durationSeconds, 5), 300);
+      // Validate duration (max 5 minutes)
+      const duration = Math.min(Math.max(durationSeconds, 5), 300);
 
-    // Enable recording for this path
-    await mediamtx.patch(`/v3/config/paths/patch/${pathName}`, {
-      record: true,
-      recordPath: `${RECORDINGS_DIR}/${pathName}/%Y-%m-%d_%H-%M-%S`,
-      recordFormat: 'mp4',
-    });
+      // Enable recording for this path
+      await mediamtx.patch(`/v3/config/paths/patch/${pathName}`, {
+        record: true,
+        recordPath: `${RECORDINGS_DIR}/${pathName}/%Y-%m-%d_%H-%M-%S`,
+        recordFormat: 'mp4',
+      });
 
-    // Ensure camera recording subdirectory exists
-    const cameraRecDir = path.join(RECORDINGS_DIR, pathName);
-    if (!fs.existsSync(cameraRecDir)) {
-      fs.mkdirSync(cameraRecDir, { recursive: true });
-    }
-
-    // Schedule recording stop
-    const stopRecordingTimeout = setTimeout(async () => {
-      try {
-        await mediamtx.patch(`/v3/config/paths/patch/${pathName}`, {
-          record: false,
-        });
-      } catch (error) {
-        console.error('Failed to stop recording:', error);
+      // Ensure camera recording subdirectory exists
+      const cameraRecDir = path.join(RECORDINGS_DIR, pathName);
+      if (!fs.existsSync(cameraRecDir)) {
+        fs.mkdirSync(cameraRecDir, { recursive: true });
       }
-    }, duration * 1000);
 
-    // Store timeout reference (in production, use Redis or similar)
-    // For now, we just fire and forget
+      // Schedule recording stop
+      const _stopRecordingTimeout = setTimeout(async () => {
+        try {
+          await mediamtx.patch(`/v3/config/paths/patch/${pathName}`, {
+            record: false,
+          });
+        } catch (error) {
+          console.error('Failed to stop recording:', error);
+        }
+      }, duration * 1000);
 
-    return res.json({
-      success: true,
-      durationSeconds: duration,
-      startedAt: new Date().toISOString(),
-    });
-  } catch (error) {
-    console.error('Recording start error:', error);
-    return res.status(500).json({
-      error: 'Failed to start recording',
-    });
-  }
-});
+      // Store timeout reference (in production, use Redis or similar)
+      // For now, we just fire and forget
+
+      return res.json({
+        success: true,
+        durationSeconds: duration,
+        startedAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      console.error('Recording start error:', error);
+      return res.status(500).json({
+        error: 'Failed to start recording',
+      });
+    }
+  },
+);
 
 /**
  * Stop recording
  * POST /api/cameras/:cameraId/record/stop
  */
-app.post('/api/cameras/:cameraId/record/stop', async (req: Request, res: Response) => {
-  try {
-    const { cameraId } = req.params;
-    const pathName = getCameraPathName(cameraId);
+app.post(
+  '/api/cameras/:cameraId/record/stop',
+  async (req: Request, res: Response) => {
+    try {
+      const { cameraId } = req.params;
+      const pathName = getCameraPathName(cameraId);
 
-    await mediamtx.patch(`/v3/config/paths/patch/${pathName}`, {
-      record: false,
-    });
+      await mediamtx.patch(`/v3/config/paths/patch/${pathName}`, {
+        record: false,
+      });
 
-    // Brief wait for MediaMTX to finalize the file
-    await new Promise((r) => setTimeout(r, 1500));
-    const latest = findLatestRecording(pathName);
+      // Brief wait for MediaMTX to finalize the file
+      await new Promise((r) => setTimeout(r, 1500));
+      const latest = findLatestRecording(pathName);
 
-    return res.json({
-      success: true,
-      stoppedAt: new Date().toISOString(),
-      recordingPath: latest
-        ? `/recordings/${path.relative(RECORDINGS_DIR, latest).replace(/\\/g, '/')}`
-        : null,
-    });
-  } catch (error) {
-    console.error('Recording stop error:', error);
-    return res.status(500).json({
-      error: 'Failed to stop recording',
-    });
-  }
-});
+      return res.json({
+        success: true,
+        stoppedAt: new Date().toISOString(),
+        recordingPath: latest
+          ? `/recordings/${path.relative(RECORDINGS_DIR, latest).replace(/\\/g, '/')}`
+          : null,
+      });
+    } catch (error) {
+      console.error('Recording stop error:', error);
+      return res.status(500).json({
+        error: 'Failed to stop recording',
+      });
+    }
+  },
+);
 
 /**
  * Download latest (or named) recording
  * GET /api/cameras/:cameraId/record/download
  */
-app.get('/api/cameras/:cameraId/record/download', async (req: Request, res: Response) => {
-  try {
-    const { cameraId } = req.params;
-    const filename = typeof req.query.file === 'string' ? req.query.file : undefined;
-    const pathName = getCameraPathName(cameraId);
+app.get(
+  '/api/cameras/:cameraId/record/download',
+  async (req: Request, res: Response) => {
+    try {
+      const { cameraId } = req.params;
+      const filename =
+        typeof req.query.file === 'string' ? req.query.file : undefined;
+      const pathName = getCameraPathName(cameraId);
 
-    let filePath: string | null = null;
-    if (filename) {
-      const candidate = path.join(RECORDINGS_DIR, pathName, filename);
-      const flat = path.join(RECORDINGS_DIR, filename);
-      if (fs.existsSync(candidate)) filePath = candidate;
-      else if (fs.existsSync(flat)) filePath = flat;
-    } else {
-      filePath = findLatestRecording(pathName);
+      let filePath: string | null = null;
+      if (filename) {
+        const candidate = path.join(RECORDINGS_DIR, pathName, filename);
+        const flat = path.join(RECORDINGS_DIR, filename);
+        if (fs.existsSync(candidate)) filePath = candidate;
+        else if (fs.existsSync(flat)) filePath = flat;
+      } else {
+        filePath = findLatestRecording(pathName);
+      }
+
+      if (!filePath || !fs.existsSync(filePath)) {
+        return res.status(404).json({ error: 'No recording found' });
+      }
+
+      const relative = path
+        .relative(RECORDINGS_DIR, filePath)
+        .replace(/\\/g, '/');
+      return res.json({
+        success: true,
+        downloadUrl: `/recordings/${relative}`,
+        absoluteUrl: `http://localhost:${PORT}/recordings/${relative}`,
+        filename: path.basename(filePath),
+        sizeBytes: fs.statSync(filePath).size,
+      });
+    } catch (error) {
+      console.error('Recording download error:', error);
+      return res.status(500).json({ error: 'Failed to resolve recording' });
     }
-
-    if (!filePath || !fs.existsSync(filePath)) {
-      return res.status(404).json({ error: 'No recording found' });
-    }
-
-    const relative = path.relative(RECORDINGS_DIR, filePath).replace(/\\/g, '/');
-    return res.json({
-      success: true,
-      downloadUrl: `/recordings/${relative}`,
-      absoluteUrl: `http://localhost:${PORT}/recordings/${relative}`,
-      filename: path.basename(filePath),
-      sizeBytes: fs.statSync(filePath).size,
-    });
-  } catch (error) {
-    console.error('Recording download error:', error);
-    return res.status(500).json({ error: 'Failed to resolve recording' });
-  }
-});
+  },
+);
 
 /**
  * List all registered paths
@@ -694,4 +739,3 @@ process.on('SIGINT', () => {
   console.log('SIGINT received, shutting down gracefully...');
   process.exit(0);
 });
-

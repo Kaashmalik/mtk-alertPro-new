@@ -32,7 +32,13 @@ export type SceneProfileId =
   | 'school'
   | 'custom';
 
-export type DetectionType = 'person' | 'vehicle' | 'face' | 'animal' | 'motion' | 'unknown';
+export type DetectionType =
+  | 'person'
+  | 'vehicle'
+  | 'face'
+  | 'animal'
+  | 'motion'
+  | 'unknown';
 
 export interface DetectionSettings {
   /** Scene preset controlling alert rules (farm ignores animals, shop focuses on people, etc.) */
@@ -93,6 +99,36 @@ export type AlarmSoundType =
   | 'heavy'
   | 'sos'
   | 'custom';
+
+/**
+ * Canonical detection defaults.
+ *
+ * `cameras.detection_settings` is nullable JSONB, so every read has to tolerate
+ * a null or partial object. Single source of truth for those defaults so the
+ * store and the detection manager cannot drift apart.
+ */
+export const DEFAULT_DETECTION_SETTINGS: Required<
+  Pick<
+    DetectionSettings,
+    | 'person'
+    | 'vehicle'
+    | 'notificationsEnabled'
+    | 'alarmEnabled'
+    | 'sensitivity'
+  >
+> &
+  DetectionSettings = {
+  sceneProfile: 'home',
+  person: true,
+  vehicle: true,
+  face: false,
+  animal: false,
+  motion: false,
+  sensitivity: 0.7,
+  cooldownSeconds: 30,
+  notificationsEnabled: true,
+  alarmEnabled: true,
+};
 
 export interface AppSettings {
   notifications: {

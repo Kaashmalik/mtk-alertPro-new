@@ -33,8 +33,10 @@ export const CAMERA_BRANDS: CameraBrand[] = [
     name: 'Dahua',
     rtspPort: 554,
     httpPort: 80,
-    mainStream: 'rtsp://{user}:{pass}@{ip}:{port}/cam/realmonitor?channel=1&subtype=0',
-    subStream: 'rtsp://{user}:{pass}@{ip}:{port}/cam/realmonitor?channel=1&subtype=1',
+    mainStream:
+      'rtsp://{user}:{pass}@{ip}:{port}/cam/realmonitor?channel=1&subtype=0',
+    subStream:
+      'rtsp://{user}:{pass}@{ip}:{port}/cam/realmonitor?channel=1&subtype=1',
     defaultUser: 'admin',
     defaultPass: '',
   },
@@ -54,7 +56,8 @@ export const CAMERA_BRANDS: CameraBrand[] = [
     rtspPort: 554,
     httpPort: 80,
     mainStream: 'rtsp://{user}:{pass}@{ip}:{port}/axis-media/media.amp',
-    subStream: 'rtsp://{user}:{pass}@{ip}:{port}/axis-media/media.amp?videocodec=h264&resolution=640x480',
+    subStream:
+      'rtsp://{user}:{pass}@{ip}:{port}/axis-media/media.amp?videocodec=h264&resolution=640x480',
     defaultUser: 'root',
     defaultPass: '',
   },
@@ -93,8 +96,10 @@ export const CAMERA_BRANDS: CameraBrand[] = [
     name: 'Amcrest',
     rtspPort: 554,
     httpPort: 80,
-    mainStream: 'rtsp://{user}:{pass}@{ip}:{port}/cam/realmonitor?channel=1&subtype=0',
-    subStream: 'rtsp://{user}:{pass}@{ip}:{port}/cam/realmonitor?channel=1&subtype=1',
+    mainStream:
+      'rtsp://{user}:{pass}@{ip}:{port}/cam/realmonitor?channel=1&subtype=0',
+    subStream:
+      'rtsp://{user}:{pass}@{ip}:{port}/cam/realmonitor?channel=1&subtype=1',
     defaultUser: 'admin',
     defaultPass: '',
   },
@@ -148,7 +153,7 @@ export function generateRtspUrl(
     password?: string;
     channel?: number;
     useSubStream?: boolean;
-  } = {}
+  } = {},
 ): string {
   const brand = CAMERA_BRANDS.find((b) => b.id === brandId);
   if (!brand) return '';
@@ -209,7 +214,7 @@ export function parseRtspUrl(url: string): {
       username: match[1] ? decodeURIComponent(match[1]) : undefined,
       password: match[2] ? decodeURIComponent(match[2]) : undefined,
       ip: match[3],
-      port: match[4] ? parseInt(match[4], 10) : 554,
+      port: match[4] ? Number.parseInt(match[4], 10) : 554,
       path: match[5] || '/',
     };
   } catch {
@@ -265,7 +270,7 @@ export function parseQrCodeData(data: string): {
     if (data.includes(';')) {
       const parts = data.split(';');
       const result: Record<string, string> = {};
-      
+
       parts.forEach((part) => {
         const [key, value] = part.split(':');
         if (key && value) {
@@ -305,15 +310,18 @@ export function parseQrCodeData(data: string): {
 /**
  * Get suggested brand based on IP or serial number patterns
  */
-export function detectCameraBrand(ip: string, serialNumber?: string): string | null {
+export function detectCameraBrand(
+  _ip: string,
+  serialNumber?: string,
+): string | null {
   // Hikvision serial numbers often start with DS-
   if (serialNumber?.toUpperCase().startsWith('DS-')) return 'hikvision';
-  
+
   // Dahua serial numbers pattern
   if (serialNumber?.toUpperCase().match(/^[A-Z]{3}[A-Z0-9]+/)) return 'dahua';
-  
+
   // Reolink patterns
   if (serialNumber?.toUpperCase().startsWith('RLC-')) return 'reolink';
-  
+
   return null;
 }

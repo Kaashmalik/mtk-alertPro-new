@@ -1,43 +1,47 @@
 /**
  * Camera Store
  * Manages camera state with Zustand
- * 
+ *
  * @module stores/cameraStore
  */
 
-import { create } from 'zustand';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
-import { encryptPassword, decryptPassword, isEncrypted } from '@/lib/crypto';
+import {
+  clearCameraCache,
+  loadCamerasCache,
+  loadHealthCache,
+  loadOfflineQueue,
+  saveCamerasCache,
+  saveHealthCache,
+  saveOfflineQueue,
+} from '@/lib/camera/cameraCache';
+import {
+  type CameraHealth,
+  type ConnectionTestResult,
+  createHealthMonitor,
+  testCameraConnection,
+} from '@/lib/camera/connectionService';
+import { sanitizeRtspUrl } from '@/lib/camera/rtspHelper';
+import { decryptPassword, encryptPassword, isEncrypted } from '@/lib/crypto';
+import { reviewManager } from '@/lib/reviews/reviewManager';
 import {
   canAddCamera,
   describeCameraLimit,
+  isTierActive,
   normalizeTier,
 } from '@/lib/subscription/planLimits';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase/client';
 import {
-  testCameraConnection,
-  createHealthMonitor,
-  type ConnectionTestResult,
-  type CameraHealth
-} from '@/lib/camera/connectionService';
-import { sanitizeRtspUrl } from '@/lib/camera/rtspHelper';
-import {
-  saveCamerasCache,
-  loadCamerasCache,
-  saveHealthCache,
-  loadHealthCache,
-  loadOfflineQueue,
-  saveOfflineQueue,
-  clearCameraCache,
-} from '@/lib/camera/cameraCache';
-import {
-  withRetry,
-  logError,
   createAppError,
   isAppError,
-  type AppError,
+  logError,
+  withRetry,
 } from '@/lib/utils/errorHandler';
-import { reviewManager } from '@/lib/reviews/reviewManager';
-import type { Camera, DetectionSettings } from '@/types';
+import {
+  type Camera,
+  DEFAULT_DETECTION_SETTINGS,
+  type DetectionSettings,
+} from '@/types';
+import { create } from 'zustand';
 
 /**
  * Camera store state interface
@@ -63,7 +67,9 @@ interface CameraState {
   /** Load cameras + health + offline queue from AsyncStorage (stale-while-revalidate step 1) */
   hydrateFromCache: () => Promise<void>;
   fetchCameras: () => Promise<void>;
-  addCamera: (camera: Omit<Camera, 'id' | 'userId' | 'createdAt' | 'updatedAt'>) => Promise<Camera>;
+  addCamera: (
+    camera: Omit<Camera, 'id' | 'userId' | 'createdAt' | 'updatedAt'>,
+  ) => Promise<Camera>;
   updateCamera: (id: string, updates: Partial<Camera>) => Promise<void>;
   deleteCamera: (id: string) => Promise<void>;
   selectCamera: (camera: Camera | null) => void;
@@ -112,6 +118,16 @@ export const OFFLINE_QUEUE_RETRY = {
 } as const;
 
 /** True when a thrown error means loss of connectivity, not an app/DB error */
+function normalizeDetectionSettings(value: unknown): DetectionSettings {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return { ...DEFAULT_DETECTION_SETTINGS };
+  }
+  return {
+    ...DEFAULT_DETECTION_SETTINGS,
+    ...(value as Partial<DetectionSettings>),
+  };
+}
+
 function isNetworkError(error: unknown): boolean {
   // fetch failures surface as TypeError in React Native (and in node/jest)
   if (error instanceof TypeError) return true;
@@ -145,7 +161,7 @@ let offlineQueueRetryTimer: ReturnType<typeof setTimeout> | null = null;
  * and the user is prompted to re-enter them — never a plaintext leak).
  */
 async function encryptQueuedPassword<T extends Record<string, unknown>>(
-  data: T
+  data: T,
 ): Promise<T> {
   const password = data.password;
   if (typeof password !== 'string' || !password || isEncrypted(password)) {
@@ -172,7 +188,7 @@ async function encryptQueuedPassword<T extends Record<string, unknown>>(
 
   if (!userId) {
     console.warn(
-      '[CameraStore] Could not resolve user for offline password encryption — stripping password from queued op'
+      '[CameraStore] Could not resolve user for offline password encryption — stripping password from queued op',
     );
     const { password: _dropped, ...rest } = data;
     return rest as T;
@@ -253,13 +269,13 @@ export const useCameraStore = create<CameraState>((set, get) => ({
    */
   fetchCameras: async () => {
     if (!isSupabaseConfigured) {
-      console.warn('[CameraStore] Supabase not configured - using empty cameras list');
+      console.warn(
+        '[CameraStore] Supabase not configured - using empty cameras list',
+      );
       set({ cameras: [], isLoading: false, isHydrated: true });
       return;
     }
 
-    // Only block the UI when we have nothing to show yet
-    const hasVisibleData = get().cameras.length > 0;
     set({ isLoading: true, error: null });
 
     try {
@@ -273,7 +289,7 @@ export const useCameraStore = create<CameraState>((set, get) => ({
           if (result.error) throw result.error;
           return result;
         },
-        { maxRetries: 2 }
+        { maxRetries: 2 },
       );
 
       if (error) throw error;
@@ -299,19 +315,7 @@ export const useCameraStore = create<CameraState>((set, get) => ({
           password: c.password || undefined,
           isActive: c.is_active ?? true,
           thumbnailUrl: c.thumbnail_url || undefined,
-          detectionSettings: {
-            sceneProfile: 'home',
-            person: true,
-            vehicle: true,
-            face: false,
-            animal: false,
-            motion: false,
-            sensitivity: 0.7,
-            cooldownSeconds: 30,
-            notificationsEnabled: true,
-            alarmEnabled: true,
-            ...(c.detection_settings as Partial<DetectionSettings>),
-          },
+          detectionSettings: normalizeDetectionSettings(c.detection_settings),
           createdAt: new Date(c.created_at),
           updatedAt: new Date(c.updated_at || c.created_at),
         };
@@ -327,9 +331,12 @@ export const useCameraStore = create<CameraState>((set, get) => ({
           dirtyRows.map(({ id, rtspUrl }) =>
             supabase
               .from('cameras')
-              .update({ rtsp_url: rtspUrl, updated_at: new Date().toISOString() })
-              .eq('id', id)
-          )
+              .update({
+                rtsp_url: rtspUrl,
+                updated_at: new Date().toISOString(),
+              })
+              .eq('id', id),
+          ),
         );
       }
 
@@ -380,9 +387,15 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         return;
       }
 
-      const message = error instanceof Error ? error.message : 'Failed to fetch cameras';
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch cameras';
       logError(error, 'CameraStore.fetchCameras');
-      set({ error: message, isLoading: false, isHydrated: true, isOffline: true });
+      set({
+        error: message,
+        isLoading: false,
+        isHydrated: true,
+        isOffline: true,
+      });
     } finally {
       set({ isLoading: false });
     }
@@ -396,7 +409,9 @@ export const useCameraStore = create<CameraState>((set, get) => ({
     // instead of silently dropping the camera the user just configured.
     let user: { id: string } | null = null;
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
       user = authUser;
     } catch (error) {
       if (!isNetworkError(error)) throw error;
@@ -406,10 +421,13 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       logError(error, 'CameraStore.addCamera.offline');
       throw createAppError(
         'NETWORK_ERROR',
-        error instanceof Error ? error.message : 'Network error — camera queued for sync',
+        error instanceof Error
+          ? error.message
+          : 'Network error — camera queued for sync',
         {
-          userMessage: 'No network — camera queued and will sync when you\'re back online.',
-        }
+          userMessage:
+            "No network — camera queued and will sync when you're back online.",
+        },
       );
     }
     if (!user) {
@@ -427,7 +445,10 @@ export const useCameraStore = create<CameraState>((set, get) => ({
     const [profileResult, countResult] = await Promise.all([
       supabase
         .from('profiles')
-        .select('subscription_tier')
+        // subscription_expires_at must be read too: without it a lapsed Pro
+        // row still evaluated as Pro here, while the UI (which does apply
+        // expiry) said the opposite. Two answers for one account.
+        .select('subscription_tier, subscription_expires_at')
         .eq('id', user.id)
         .single(),
       supabase
@@ -436,13 +457,15 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         .eq('user_id', user.id),
     ]);
 
-    const tier = normalizeTier(profileResult.data?.subscription_tier);
+    const rawTier = normalizeTier(profileResult.data?.subscription_tier);
+    const rawExpiry = profileResult.data?.subscription_expires_at ?? null;
+    const tier = isTierActive(rawTier, rawExpiry) ? rawTier : 'free';
 
     if (!canAddCamera(tier, countResult.count ?? 0)) {
       throw createAppError(
         'QUOTA_EXCEEDED',
         `Camera limit reached for ${tier} tier`,
-        { userMessage: describeCameraLimit(tier) }
+        { userMessage: describeCameraLimit(tier) },
       );
     }
 
@@ -461,7 +484,10 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         throw createAppError(
           'CAMERA_ERROR',
           'Failed to encrypt camera password — not saving.',
-          { userMessage: 'Could not secure the camera password. Please try again.' }
+          {
+            userMessage:
+              'Could not secure the camera password. Please try again.',
+          },
         );
       }
     }
@@ -497,7 +523,7 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         logError(error, 'CameraStore.addCamera');
         throw createAppError(
           'CAMERA_ERROR',
-          (error as { message?: string })?.message ?? 'Failed to add camera'
+          (error as { message?: string })?.message ?? 'Failed to add camera',
         );
       }
       // Network failure → queue the write so it's replayed (not dropped)
@@ -506,10 +532,13 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       }
       throw createAppError(
         'NETWORK_ERROR',
-        error instanceof Error ? error.message : 'Network error — camera queued for sync',
+        error instanceof Error
+          ? error.message
+          : 'Network error — camera queued for sync',
         {
-          userMessage: 'No network — camera queued and will sync when you\'re back online.',
-        }
+          userMessage:
+            "No network — camera queued and will sync when you're back online.",
+        },
       );
     }
 
@@ -526,7 +555,7 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       password: data.password || undefined,
       isActive: data.is_active,
       thumbnailUrl: data.thumbnail_url || undefined,
-      detectionSettings: data.detection_settings as DetectionSettings,
+      detectionSettings: normalizeDetectionSettings(data.detection_settings),
       createdAt: new Date(data.created_at),
       updatedAt: new Date(data.updated_at),
     };
@@ -549,24 +578,33 @@ export const useCameraStore = create<CameraState>((set, get) => ({
     // instead of dropping the user's edit.
     let user: { id: string } | null = null;
     try {
-      const { data: { user: authUser } } = await supabase.auth.getUser();
+      const {
+        data: { user: authUser },
+      } = await supabase.auth.getUser();
       user = authUser;
     } catch (error) {
       if (!isNetworkError(error)) throw error;
       if (!isReplayingQueue) {
-        await get().queueOfflineOperation({ type: 'update', id, data: updates });
+        await get().queueOfflineOperation({
+          type: 'update',
+          id,
+          data: updates,
+        });
       }
       throw createAppError(
         'NETWORK_ERROR',
-        error instanceof Error ? error.message : 'Network error — update queued for sync',
+        error instanceof Error
+          ? error.message
+          : 'Network error — update queued for sync',
         {
-          userMessage: 'No network — update queued and will sync when you\'re back online.',
-        }
+          userMessage:
+            "No network — update queued and will sync when you're back online.",
+        },
       );
     }
 
     // Handle password encryption for updates
-    let processedUpdates = { ...updates };
+    const processedUpdates = { ...updates };
     // 🔒 Never store a credential-bearing URL — strip any user:pass@ first.
     if (typeof updates.rtspUrl === 'string') {
       processedUpdates.rtspUrl = sanitizeRtspUrl(updates.rtspUrl);
@@ -575,7 +613,10 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       try {
         // Only encrypt if not already encrypted
         if (!isEncrypted(updates.password)) {
-          processedUpdates.password = encryptPassword(updates.password, user.id);
+          processedUpdates.password = encryptPassword(
+            updates.password,
+            user.id,
+          );
         }
       } catch (error) {
         logError(error, 'CameraStore.updateCamera.encryptPassword');
@@ -584,7 +625,10 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         throw createAppError(
           'CAMERA_ERROR',
           'Failed to encrypt camera password — not saving.',
-          { userMessage: 'Could not secure the camera password. Please try again.' }
+          {
+            userMessage:
+              'Could not secure the camera password. Please try again.',
+          },
         );
       }
     }
@@ -609,19 +653,26 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         logError(error, 'CameraStore.updateCamera');
         throw createAppError(
           'CAMERA_ERROR',
-          (error as { message?: string })?.message ?? 'Failed to update camera'
+          (error as { message?: string })?.message ?? 'Failed to update camera',
         );
       }
       // Network failure → queue the change so it's replayed (not dropped)
       if (!isReplayingQueue) {
-        await get().queueOfflineOperation({ type: 'update', id, data: updates });
+        await get().queueOfflineOperation({
+          type: 'update',
+          id,
+          data: updates,
+        });
       }
       throw createAppError(
         'NETWORK_ERROR',
-        error instanceof Error ? error.message : 'Network error — update queued for sync',
+        error instanceof Error
+          ? error.message
+          : 'Network error — update queued for sync',
         {
-          userMessage: 'No network — update queued and will sync when you\'re back online.',
-        }
+          userMessage:
+            "No network — update queued and will sync when you're back online.",
+        },
       );
     }
 
@@ -637,7 +688,7 @@ export const useCameraStore = create<CameraState>((set, get) => ({
                   : c.rtspUrl,
               updatedAt: new Date(),
             }
-          : c
+          : c,
       ),
     });
     await saveCamerasCache(get().cameras);
@@ -655,7 +706,7 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         logError(error, 'CameraStore.deleteCamera');
         throw createAppError(
           'CAMERA_ERROR',
-          (error as { message?: string })?.message ?? 'Failed to delete camera'
+          (error as { message?: string })?.message ?? 'Failed to delete camera',
         );
       }
       // Network failure → queue the deletion so it isn't silently lost
@@ -664,16 +715,20 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       }
       throw createAppError(
         'NETWORK_ERROR',
-        error instanceof Error ? error.message : 'Network error — deletion queued for sync',
+        error instanceof Error
+          ? error.message
+          : 'Network error — deletion queued for sync',
         {
-          userMessage: 'No network — deletion queued and will sync when you\'re back online.',
-        }
+          userMessage:
+            "No network — deletion queued and will sync when you're back online.",
+        },
       );
     }
 
     set({
       cameras: get().cameras.filter((c) => c.id !== id),
-      selectedCamera: get().selectedCamera?.id === id ? null : get().selectedCamera,
+      selectedCamera:
+        get().selectedCamera?.id === id ? null : get().selectedCamera,
     });
     await saveCamerasCache(get().cameras);
   },
@@ -702,7 +757,7 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       const parsed = new URL(cleanUrl.replace('rtsp://', 'http://'));
       const key = `${parsed.hostname}:${parsed.port || '554'}`;
 
-      set(state => ({
+      set((state) => ({
         connectionTests: {
           ...state.connectionTests,
           [key]: result,
@@ -714,7 +769,8 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       logError(error, 'CameraStore.testConnection');
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Connection test failed',
+        error:
+          error instanceof Error ? error.message : 'Connection test failed',
         timestamp: new Date(),
       };
     } finally {
@@ -738,14 +794,14 @@ export const useCameraStore = create<CameraState>((set, get) => ({
 
     if (cameras.length === 0) {
       set({ healthMonitorCleanup: null });
-      return () => { }; // No cameras to monitor
+      return () => {}; // No cameras to monitor
     }
 
     const cleanup = createHealthMonitor(
-      cameras.map(c => ({ id: c.id, rtspUrl: c.rtspUrl })),
+      cameras.map((c) => ({ id: c.id, rtspUrl: c.rtspUrl })),
       (cameraId, health) => {
         // Update health state
-        set(state => ({
+        set((state) => ({
           cameraHealth: {
             ...state.cameraHealth,
             [cameraId]: health,
@@ -757,21 +813,21 @@ export const useCameraStore = create<CameraState>((set, get) => ({
 
         // Reflect settled results in the camera's isActive flag.
         // 'reconnecting' is transient — don't flip isActive on blips.
-        const camera = get().cameras.find(c => c.id === cameraId);
+        const camera = get().cameras.find((c) => c.id === cameraId);
         if (
           camera &&
           (health.status === 'online' || health.status === 'offline') &&
           camera.isActive !== health.isOnline
         ) {
           // Update locally without hitting the database every time
-          set(state => ({
-            cameras: state.cameras.map(c =>
-              c.id === cameraId ? { ...c, isActive: health.isOnline } : c
+          set((state) => ({
+            cameras: state.cameras.map((c) =>
+              c.id === cameraId ? { ...c, isActive: health.isOnline } : c,
             ),
           }));
         }
       },
-      30000 // Heartbeat every 30 seconds
+      30000, // Heartbeat every 30 seconds
     );
 
     set({ healthMonitorCleanup: cleanup });
@@ -856,13 +912,16 @@ export const useCameraStore = create<CameraState>((set, get) => ({
       safeOperation = {
         ...operation,
         data: await encryptQueuedPassword(
-          operation.data as Record<string, unknown>
+          operation.data as Record<string, unknown>,
         ),
       };
     }
 
     const queue = get().offlineQueue;
-    const updatedQueue = [...queue, { ...safeOperation, timestamp: Date.now() }];
+    const updatedQueue = [
+      ...queue,
+      { ...safeOperation, timestamp: Date.now() },
+    ];
     set({ offlineQueue: updatedQueue, isOffline: true });
 
     // Persist queue to AsyncStorage (best-effort)
@@ -903,10 +962,15 @@ export const useCameraStore = create<CameraState>((set, get) => ({
         try {
           if (operation.type === 'add' && operation.data) {
             // Retry add operation
-            await get().addCamera(operation.data as Parameters<CameraState['addCamera']>[0]);
+            await get().addCamera(
+              operation.data as Parameters<CameraState['addCamera']>[0],
+            );
           } else if (operation.type === 'update' && operation.id) {
             // Retry update operation
-            await get().updateCamera(operation.id, operation.data as Partial<Camera>);
+            await get().updateCamera(
+              operation.id,
+              operation.data as Partial<Camera>,
+            );
           } else if (operation.type === 'delete' && operation.id) {
             // Retry delete operation
             await get().deleteCamera(operation.id);
@@ -935,7 +999,7 @@ export const useCameraStore = create<CameraState>((set, get) => ({
 
           // Exponential backoff: min(base * 2^attempts, cap) ± 20% jitter —
           // mirrors rtspStreamingService.#scheduleReconnect
-          const exponential = OFFLINE_QUEUE_RETRY.baseDelayMs * Math.pow(2, attempts);
+          const exponential = OFFLINE_QUEUE_RETRY.baseDelayMs * 2 ** attempts;
           const capped = Math.min(exponential, OFFLINE_QUEUE_RETRY.maxDelayMs);
           const delayMs = Math.round(capped * (0.8 + Math.random() * 0.4));
 
@@ -979,7 +1043,7 @@ function scheduleOfflineQueueRetry(): void {
 
   const queue = useCameraStore.getState().offlineQueue;
   const now = Date.now();
-  let earliest = Infinity;
+  let earliest = Number.POSITIVE_INFINITY;
 
   for (const op of queue) {
     if (op.nextRetryAt && op.nextRetryAt > now) {
@@ -989,10 +1053,13 @@ function scheduleOfflineQueueRetry(): void {
 
   if (!Number.isFinite(earliest)) return;
 
-  offlineQueueRetryTimer = setTimeout(() => {
-    offlineQueueRetryTimer = null;
-    void useCameraStore.getState().processOfflineQueue();
-  }, Math.max(0, earliest - now));
+  offlineQueueRetryTimer = setTimeout(
+    () => {
+      offlineQueueRetryTimer = null;
+      void useCameraStore.getState().processOfflineQueue();
+    },
+    Math.max(0, earliest - now),
+  );
 }
 
 /**
@@ -1000,12 +1067,14 @@ function scheduleOfflineQueueRetry(): void {
  * Use this when you need the actual password for camera authentication
  */
 export async function getDecryptedCameraPassword(
-  camera: Camera
+  camera: Camera,
 ): Promise<string | undefined> {
   if (!camera.password) return undefined;
 
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return undefined;
 
     // If it looks encrypted, decrypt it

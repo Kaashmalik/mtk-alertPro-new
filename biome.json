@@ -8,7 +8,8 @@
     "rules": {
       "recommended": true,
       "complexity": {
-        "noUselessFragments": "warn"
+        "noUselessFragments": "warn",
+        "noForEach": "off"
       },
       "correctness": {
         "useExhaustiveDependencies": "warn",
@@ -34,6 +35,17 @@
       "semicolons": "always"
     }
   },
+  "overrides": [
+    {
+      "include": ["**/__tests__/**", "**/*.test.ts", "**/*.test.tsx"],
+      "linter": {
+        "rules": {
+          "complexity": { "noForEach": "off" },
+          "suspicious": { "noThenProperty": "off" }
+        }
+      }
+    }
+  ],
   "files": {
     "ignore": [
       "node_modules",
@@ -41,7 +53,9 @@
       "android",
       "ios",
       "dist",
-      "*.d.ts"
+      "*.d.ts",
+
+      "pruned/**"
     ]
   }
 }

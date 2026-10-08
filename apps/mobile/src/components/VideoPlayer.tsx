@@ -1,25 +1,23 @@
-import { useState, useRef, useCallback, useEffect } from 'react';
+import { designSystem } from '@/theme/design-system';
+import { type AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
 import {
-  View,
-  TouchableOpacity,
-  Text,
-  StyleSheet,
-  ActivityIndicator,
-  Dimensions,
-  Share,
-} from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
-import {
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
+  AlertCircle,
   Maximize2,
   Minimize2,
+  Pause,
+  Play,
   RotateCcw,
-  AlertCircle,
+  Volume2,
+  VolumeX,
 } from 'lucide-react-native';
-import { designSystem } from '@/theme/design-system';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 interface VideoPlayerProps {
   source: string;
@@ -174,7 +172,10 @@ export function VideoPlayer({
         {/* Loading Indicator */}
         {isLoading && !error && (
           <View style={styles.overlay}>
-            <ActivityIndicator size="large" color={designSystem.colors.primary[500]} />
+            <ActivityIndicator
+              size="large"
+              color={designSystem.colors.primary[500]}
+            />
             <Text style={styles.loadingText}>Loading stream...</Text>
           </View>
         )}
@@ -216,7 +217,10 @@ export function VideoPlayer({
               <View style={styles.progressContainer}>
                 <View style={styles.progressBar}>
                   <View
-                    style={[styles.progressFill, { width: `${progressPercentage}%` }]}
+                    style={[
+                      styles.progressFill,
+                      { width: `${progressPercentage}%` },
+                    ]}
                   />
                 </View>
                 <Text style={styles.timeText}>
@@ -226,7 +230,10 @@ export function VideoPlayer({
 
               {/* Control Buttons */}
               <View style={styles.controlButtons}>
-                <TouchableOpacity onPress={togglePlayPause} style={styles.controlBtn}>
+                <TouchableOpacity
+                  onPress={togglePlayPause}
+                  style={styles.controlBtn}
+                >
                   {isPlaying ? (
                     <Pause size={24} color="white" />
                   ) : (
@@ -234,7 +241,10 @@ export function VideoPlayer({
                   )}
                 </TouchableOpacity>
 
-                <TouchableOpacity onPress={toggleMute} style={styles.controlBtn}>
+                <TouchableOpacity
+                  onPress={toggleMute}
+                  style={styles.controlBtn}
+                >
                   {isMuted ? (
                     <VolumeX size={24} color="white" />
                   ) : (
@@ -244,7 +254,10 @@ export function VideoPlayer({
 
                 <View style={{ flex: 1 }} />
 
-                <TouchableOpacity onPress={toggleFullscreen} style={styles.controlBtn}>
+                <TouchableOpacity
+                  onPress={toggleFullscreen}
+                  style={styles.controlBtn}
+                >
                   {isFullscreen ? (
                     <Minimize2 size={24} color="white" />
                   ) : (

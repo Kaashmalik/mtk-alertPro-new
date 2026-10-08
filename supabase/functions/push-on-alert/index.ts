@@ -23,7 +23,9 @@ interface AlertRow {
 Deno.serve(async (req) => {
   try {
     if (req.method !== 'POST') {
-      return new Response(JSON.stringify({ error: 'Method not allowed' }), { status: 405 });
+      return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+        status: 405,
+      });
     }
 
     const payload = await req.json();
@@ -31,12 +33,14 @@ Deno.serve(async (req) => {
     const record: AlertRow = payload.record || payload.new || payload;
 
     if (!record?.user_id || !record?.type) {
-      return new Response(JSON.stringify({ error: 'Invalid alert payload' }), { status: 400 });
+      return new Response(JSON.stringify({ error: 'Invalid alert payload' }), {
+        status: 400,
+      });
     }
 
     const supabase = createClient(
       Deno.env.get('SUPABASE_URL')!,
-      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!
+      Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!,
     );
 
     const { data: profile, error: profileError } = await supabase
@@ -48,7 +52,7 @@ Deno.serve(async (req) => {
     if (profileError || !profile?.fcm_token) {
       return new Response(
         JSON.stringify({ ok: true, skipped: 'no_push_token' }),
-        { status: 200 }
+        { status: 200 },
       );
     }
 
@@ -88,15 +92,17 @@ Deno.serve(async (req) => {
 
     const pushJson = await pushRes.json();
 
-    return new Response(
-      JSON.stringify({ ok: true, expo: pushJson }),
-      { status: 200, headers: { 'Content-Type': 'application/json' } }
-    );
+    return new Response(JSON.stringify({ ok: true, expo: pushJson }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
   } catch (error) {
     console.error('push-on-alert error', error);
     return new Response(
-      JSON.stringify({ error: error instanceof Error ? error.message : 'unknown' }),
-      { status: 500 }
+      JSON.stringify({
+        error: error instanceof Error ? error.message : 'unknown',
+      }),
+      { status: 500 },
     );
   }
 });

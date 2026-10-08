@@ -1,15 +1,15 @@
 /**
  * Professional Subscription Service
- * 
+ *
  * Handles subscription management with multiple payment providers,
  * receipt validation, and proper backend synchronization
  */
 
-import { Platform, Linking } from 'react-native';
-import { supabase } from '@/lib/supabase/client';
-import { logError, createAppError } from '@/lib/utils/errorHandler';
 import { isTierActive, normalizeTier } from '@/lib/subscription/planLimits';
 import type { SubscriptionTier } from '@/lib/subscription/planLimits';
+import { supabase } from '@/lib/supabase/client';
+import { logError } from '@/lib/utils/errorHandler';
+import { Linking } from 'react-native';
 
 // ============================================================================
 // Types
@@ -145,14 +145,20 @@ class SubscriptionService {
    */
   private async initPlayBilling(): Promise<void> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
-      const { initRevenueCat, isPlayBillingAvailable } = await import('./revenueCat');
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
+      const { initRevenueCat, isPlayBillingAvailable } = await import(
+        './revenueCat'
+      );
 
       const ok = await initRevenueCat(user?.id);
       if (!ok) return;
 
       this.playBillingAvailable = await isPlayBillingAvailable();
-      console.log(`[SubscriptionService] Play Billing available: ${this.playBillingAvailable}`);
+      console.log(
+        `[SubscriptionService] Play Billing available: ${this.playBillingAvailable}`,
+      );
     } catch (error) {
       console.warn('[SubscriptionService] Play Billing init failed:', error);
     }
@@ -163,8 +169,8 @@ class SubscriptionService {
   // ---------------------------------------------------------------------------
 
   getAvailableProviders(): PaymentProvider[] {
-    return PAYMENT_PROVIDERS.filter(
-      (p) => (p.id === 'google_play' ? this.playBillingAvailable : p.available)
+    return PAYMENT_PROVIDERS.filter((p) =>
+      p.id === 'google_play' ? this.playBillingAvailable : p.available,
     );
   }
 
@@ -174,7 +180,9 @@ class SubscriptionService {
 
   async validateSubscription(): Promise<SubscriptionStatus> {
     try {
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
 
       if (!user) {
         return {
@@ -187,7 +195,9 @@ class SubscriptionService {
 
       const { data: profile, error } = await supabase
         .from('profiles')
-        .select('subscription_tier, subscription_expires_at, subscription_auto_renew')
+        .select(
+          'subscription_tier, subscription_expires_at, subscription_auto_renew',
+        )
         .eq('id', user.id)
         .single();
 
@@ -203,17 +213,12 @@ class SubscriptionService {
       // A paid tier past its expiry is not active.
       const isActive = isTierActive(tier, expiresAt);
 
-      // If expired, downgrade to free
-      if (!isActive && tier !== 'free') {
-        await this.downgradeToFree(user.id);
-        return {
-          tier: 'free',
-          isActive: true,
-          expiresAt: null,
-          autoRenew: false,
-        };
-      }
-
+      // Deliberately NOT writing the downgrade back to the server here.
+      // This used to call downgradeToFree(), which meant a client could
+      // irreversibly cancel its own subscription: if a renewal webhook landed
+      // seconds after expiry, the row was already reset to 'free' and the user
+      // had to pay again. Expiry is the webhook's and the database's business;
+      // the client only reports what it currently sees.
       return {
         tier: isActive ? tier : 'free',
         isActive,
@@ -254,7 +259,10 @@ class SubscriptionService {
         .single();
 
       if (dbError) {
-        console.warn('[SubscriptionService] Failed to create payment record:', dbError);
+        console.warn(
+          '[SubscriptionService] Failed to create payment record:',
+          dbError,
+        );
       }
 
       // Route to appropriate payment handler
@@ -289,7 +297,7 @@ class SubscriptionService {
    */
   private async handleGooglePlayPayment(
     request: PaymentRequest,
-    paymentId?: string
+    paymentId?: string,
   ): Promise<PaymentResult> {
     // The store only sells the two paid plans; 'free' is not purchasable.
     const plan = request.planId as 'pro' | 'business';
@@ -298,14 +306,24 @@ class SubscriptionService {
     }
 
     try {
-      const { purchasePlan, recordPendingPurchase } = await import('./revenueCat');
+      const { purchasePlan, recordPendingPurchase } = await import(
+        './revenueCat'
+      );
       const result = await purchasePlan(plan);
 
       if (result.status === 'cancelled') {
-        return { success: false, message: 'Purchase cancelled', transactionId: paymentId };
+        return {
+          success: false,
+          message: 'Purchase cancelled',
+          transactionId: paymentId,
+        };
       }
       if (result.status === 'error') {
-        return { success: false, message: result.message, transactionId: paymentId };
+        return {
+          success: false,
+          message: result.message,
+          transactionId: paymentId,
+        };
       }
 
       // Record the purchase for server-side verification. The client
@@ -315,7 +333,7 @@ class SubscriptionService {
       const queued = await recordPendingPurchase(
         request.userId,
         result.tier,
-        result.transactionId
+        result.transactionId,
       );
 
       if (!queued) {
@@ -330,7 +348,8 @@ class SubscriptionService {
       return {
         success: true,
         transactionId: result.transactionId,
-        message: 'Purchase received. Your plan activates as soon as payment is verified.',
+        message:
+          'Purchase received. Your plan activates as soon as payment is verified.',
       };
     } catch (error: any) {
       logError(error, 'SubscriptionService.handleGooglePlayPayment');
@@ -344,18 +363,13 @@ class SubscriptionService {
 
   private async handleWhatsAppPayment(
     request: PaymentRequest,
-    paymentId?: string
+    paymentId?: string,
   ): Promise<PaymentResult> {
-    const planName = request.planId.charAt(0).toUpperCase() + request.planId.slice(1);
+    const planName =
+      request.planId.charAt(0).toUpperCase() + request.planId.slice(1);
 
     const message = encodeURIComponent(
-      `🔐 *MTK AlertPro Subscription Request*\n\n` +
-      `📧 Email: ${request.email}\n` +
-      `📱 Plan: *${planName}*\n` +
-      `💰 Amount: Rs. ${request.amount}/month\n` +
-      `🆔 Ref: ${paymentId || 'N/A'}\n\n` +
-      `Hi ${DEVELOPER_NAME}, I want to subscribe to MTK AlertPro ${planName} plan.\n` +
-      `Please guide me through the payment process.`
+      `🔐 *MTK AlertPro Subscription Request*\n\n📧 Email: ${request.email}\n📱 Plan: *${planName}*\n💰 Amount: Rs. ${request.amount}/month\n🆔 Ref: ${paymentId || 'N/A'}\n\nHi ${DEVELOPER_NAME}, I want to subscribe to MTK AlertPro ${planName} plan.\nPlease guide me through the payment process.`,
     );
 
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${message}`;
@@ -372,18 +386,11 @@ class SubscriptionService {
 
   private async handleEasyPaisaPayment(
     request: PaymentRequest,
-    paymentId?: string
+    paymentId?: string,
   ): Promise<PaymentResult> {
     // For EasyPaisa, show account details
     const message = encodeURIComponent(
-      `🔐 *MTK AlertPro - EasyPaisa Payment*\n\n` +
-      `Send Rs. ${request.amount} to:\n` +
-      `📱 Account: 03020718182\n` +
-      `👤 Name: ${DEVELOPER_NAME}\n\n` +
-      `After payment, send screenshot with:\n` +
-      `📧 Email: ${request.email}\n` +
-      `📱 Plan: ${request.planId}\n` +
-      `🆔 Ref: ${paymentId || 'N/A'}`
+      `🔐 *MTK AlertPro - EasyPaisa Payment*\n\nSend Rs. ${request.amount} to:\n📱 Account: 03020718182\n👤 Name: ${DEVELOPER_NAME}\n\nAfter payment, send screenshot with:\n📧 Email: ${request.email}\n📱 Plan: ${request.planId}\n🆔 Ref: ${paymentId || 'N/A'}`,
     );
 
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${message}`;
@@ -399,17 +406,10 @@ class SubscriptionService {
 
   private async handleJazzCashPayment(
     request: PaymentRequest,
-    paymentId?: string
+    paymentId?: string,
   ): Promise<PaymentResult> {
     const message = encodeURIComponent(
-      `🔐 *MTK AlertPro - JazzCash Payment*\n\n` +
-      `Send Rs. ${request.amount} to:\n` +
-      `📱 Account: 03020718182\n` +
-      `👤 Name: ${DEVELOPER_NAME}\n\n` +
-      `After payment, send screenshot with:\n` +
-      `📧 Email: ${request.email}\n` +
-      `📱 Plan: ${request.planId}\n` +
-      `🆔 Ref: ${paymentId || 'N/A'}`
+      `🔐 *MTK AlertPro - JazzCash Payment*\n\nSend Rs. ${request.amount} to:\n📱 Account: 03020718182\n👤 Name: ${DEVELOPER_NAME}\n\nAfter payment, send screenshot with:\n📧 Email: ${request.email}\n📱 Plan: ${request.planId}\n🆔 Ref: ${paymentId || 'N/A'}`,
     );
 
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${message}`;
@@ -425,21 +425,10 @@ class SubscriptionService {
 
   private async handleBankTransfer(
     request: PaymentRequest,
-    paymentId?: string
+    paymentId?: string,
   ): Promise<PaymentResult> {
     const message = encodeURIComponent(
-      `🔐 *MTK AlertPro - Bank Transfer*\n\n` +
-      `Transfer Rs. ${request.amount} to:\n` +
-      `🏦 Bank: Meezan Bank\n` +
-      `👤 Title: ${DEVELOPER_NAME}\n` +
-      `📝 Account: 11330109676650\n` +
-      `🆔 IBAN: PK26MEZN0011330109676650\n` +
-      `🏢 Branch: BHUBTIAN BRANCH LHR\n` +
-      `💳 Raast ID: 03020718182\n\n` +
-      `After transfer, send receipt with:\n` +
-      `📧 Email: ${request.email}\n` +
-      `📱 Plan: ${request.planId}\n` +
-      `🆔 Ref: ${paymentId || 'N/A'}`
+      `🔐 *MTK AlertPro - Bank Transfer*\n\nTransfer Rs. ${request.amount} to:\n🏦 Bank: Meezan Bank\n👤 Title: ${DEVELOPER_NAME}\n📝 Account: 11330109676650\n🆔 IBAN: PK26MEZN0011330109676650\n🏢 Branch: BHUBTIAN BRANCH LHR\n💳 Raast ID: 03020718182\n\nAfter transfer, send receipt with:\n📧 Email: ${request.email}\n📱 Plan: ${request.planId}\n🆔 Ref: ${paymentId || 'N/A'}`,
     );
 
     const url = `https://wa.me/${WHATSAPP_NUMBER}?text=${message}`;
@@ -480,7 +469,9 @@ class SubscriptionService {
 
       const result = data as { success?: boolean; error?: string } | null;
       if (!result?.success) {
-        throw new Error(result?.error ?? 'downgrade_subscription() reported failure');
+        throw new Error(
+          result?.error ?? 'downgrade_subscription() reported failure',
+        );
       }
 
       console.log('[SubscriptionService] Downgraded current user to free');
@@ -495,7 +486,10 @@ class SubscriptionService {
   // Feature Gating
   // ---------------------------------------------------------------------------
 
-  getUpgradePrompt(feature: string, currentTier: SubscriptionTier): UpgradePromptConfig | null {
+  getUpgradePrompt(
+    feature: string,
+    currentTier: SubscriptionTier,
+  ): UpgradePromptConfig | null {
     // NOTE: there is deliberately no 'face_recognition' entry. The current
     // "face" output is a geometric region derived from the person bounding box,
     // not a face model, so hasFaceRecognition is false on every tier and
@@ -510,8 +504,7 @@ class SubscriptionService {
         benefits: [
           'Connect unlimited cameras',
           'Monitor your entire property',
-          'Multi-location support',
-          'HD/4K streaming',
+          'HD (720p) streaming',
         ],
       },
       custom_zones: {
@@ -569,11 +562,14 @@ class SubscriptionService {
   // Pricing
   // ---------------------------------------------------------------------------
 
-  getPlanPrice(tier: SubscriptionTier, currency: 'pkr' | 'usd' = 'pkr'): number {
+  getPlanPrice(
+    tier: SubscriptionTier,
+    currency: 'pkr' | 'usd' = 'pkr',
+  ): number {
     return PLAN_PRICES[tier]?.[currency] || 0;
   }
 
-  formatPrice(amount: number, currency: string = 'PKR'): string {
+  formatPrice(amount: number, currency = 'PKR'): string {
     if (amount === 0) return 'Free';
 
     const formatter = new Intl.NumberFormat('en-PK', {
@@ -589,22 +585,41 @@ class SubscriptionService {
   // Expiration Warnings
   // ---------------------------------------------------------------------------
 
-  getDaysUntilExpiry(expiresAt: Date | null): number | null {
+  /**
+   * Accepts a string as well as a Date on purpose.
+   *
+   * `expiresAt` is persisted to AsyncStorage through zustand's JSON storage,
+   * which rehydrates a Date back as an ISO *string*. The declared type says
+   * `Date | null`, but at runtime the string is what actually arrives, so
+   * calling `.getTime()` on it threw during render and took the whole screen
+   * down with the root ErrorBoundary. Coerce defensively, exactly as
+   * isTierActive() already does.
+   */
+  getDaysUntilExpiry(
+    expiresAt: Date | string | null | undefined,
+  ): number | null {
     if (!expiresAt) return null;
 
+    const expiry = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+    if (Number.isNaN(expiry.getTime())) return null;
+
     const now = new Date();
-    const diff = expiresAt.getTime() - now.getTime();
+    const diff = expiry.getTime() - now.getTime();
     return Math.ceil(diff / (1000 * 60 * 60 * 24));
   }
 
-  shouldShowExpiryWarning(expiresAt: Date | null): boolean {
+  shouldShowExpiryWarning(
+    expiresAt: Date | string | null | undefined,
+  ): boolean {
     const days = this.getDaysUntilExpiry(expiresAt);
     return days !== null && days <= 7 && days > 0;
   }
 
-  isExpired(expiresAt: Date | null): boolean {
+  isExpired(expiresAt: Date | string | null | undefined): boolean {
     if (!expiresAt) return false;
-    return expiresAt < new Date();
+    const expiry = expiresAt instanceof Date ? expiresAt : new Date(expiresAt);
+    if (Number.isNaN(expiry.getTime())) return true;
+    return expiry.getTime() < Date.now();
   }
 }
 
@@ -613,4 +628,3 @@ class SubscriptionService {
 // ============================================================================
 
 export const subscriptionService = new SubscriptionService();
-

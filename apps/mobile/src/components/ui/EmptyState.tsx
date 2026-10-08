@@ -1,37 +1,29 @@
 /**
  * Empty State Component
- * 
+ *
  * Beautiful empty state illustrations and messages
  */
 
-import React from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Dimensions,
-} from 'react-native';
+import { borderRadius, colors, fontSize, palette, spacing } from '@/lib/theme';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
-  Camera,
+  ArrowRight,
   Bell,
-  Shield,
-  Video,
-  Search,
+  Camera,
   CloudOff,
-  WifiOff,
   FileQuestion,
   Inbox,
-  UserX,
   PlayCircle,
   Plus,
   RefreshCw,
-  ArrowRight,
+  Search,
+  Shield,
+  UserX,
+  Video,
+  WifiOff,
 } from 'lucide-react-native';
-import { colors, spacing, fontSize, borderRadius, palette } from '@/lib/theme';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import type React from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 
 // ============================================================================
 // Types
@@ -74,26 +66,29 @@ interface EmptyStateConfig {
 
 const getConfig = (type: EmptyStateType): EmptyStateConfig => {
   const iconSize = 40;
-  
+
   const configs: Record<EmptyStateType, EmptyStateConfig> = {
     cameras: {
       icon: <Camera size={iconSize} color={colors.status.info} />,
       iconBgColor: colors.status.infoBg,
       defaultTitle: 'No Cameras Added',
-      defaultMessage: 'Add your first security camera to start monitoring your property.',
+      defaultMessage:
+        'Add your first security camera to start monitoring your property.',
       defaultActionLabel: 'Add Camera',
     },
     alerts: {
       icon: <Bell size={iconSize} color={colors.status.success} />,
       iconBgColor: colors.status.successBg,
       defaultTitle: 'All Clear!',
-      defaultMessage: 'No alerts to show. Your cameras are monitoring and everything looks good.',
+      defaultMessage:
+        'No alerts to show. Your cameras are monitoring and everything looks good.',
     },
     recordings: {
       icon: <Video size={iconSize} color={palette.violet[500]} />,
       iconBgColor: 'rgba(139, 92, 246, 0.15)',
       defaultTitle: 'No Recordings Yet',
-      defaultMessage: 'Recordings will appear here when motion is detected or you manually record.',
+      defaultMessage:
+        'Recordings will appear here when motion is detected or you manually record.',
     },
     search: {
       icon: <Search size={iconSize} color={colors.text.muted} />,
@@ -138,7 +133,8 @@ const getConfig = (type: EmptyStateType): EmptyStateConfig => {
       icon: <PlayCircle size={iconSize} color={colors.text.muted} />,
       iconBgColor: colors.bg.tertiary,
       defaultTitle: 'Stream Unavailable',
-      defaultMessage: 'Unable to connect to this camera. Please check if the camera is online.',
+      defaultMessage:
+        'Unable to connect to this camera. Please check if the camera is online.',
       defaultActionLabel: 'Retry Connection',
     },
   };
@@ -200,10 +196,12 @@ export function EmptyState({
               style={styles.primaryButtonGradient}
             >
               {type === 'cameras' && <Plus size={18} color="white" />}
-              {(type === 'offline' || type === 'error' || type === 'no-stream') && (
-                <RefreshCw size={18} color="white" />
+              {(type === 'offline' ||
+                type === 'error' ||
+                type === 'no-stream') && <RefreshCw size={18} color="white" />}
+              {type === 'unauthorized' && (
+                <ArrowRight size={18} color="white" />
               )}
-              {type === 'unauthorized' && <ArrowRight size={18} color="white" />}
               <Text style={styles.primaryButtonText}>
                 {actionLabel || config.defaultActionLabel}
               </Text>
@@ -216,7 +214,9 @@ export function EmptyState({
             onPress={onSecondaryAction}
             style={styles.secondaryButton}
           >
-            <Text style={styles.secondaryButtonText}>{secondaryActionLabel}</Text>
+            <Text style={styles.secondaryButtonText}>
+              {secondaryActionLabel}
+            </Text>
           </TouchableOpacity>
         )}
       </View>
@@ -233,7 +233,10 @@ interface NoCamerasEmptyStateProps {
   onHelp?: () => void;
 }
 
-export function NoCamerasEmptyState({ onAddCamera, onHelp }: NoCamerasEmptyStateProps) {
+export function NoCamerasEmptyState({
+  onAddCamera,
+  onHelp,
+}: NoCamerasEmptyStateProps) {
   return (
     <View style={styles.specialContainer}>
       {/* Animated Camera Icon */}
@@ -256,8 +259,8 @@ export function NoCamerasEmptyState({ onAddCamera, onHelp }: NoCamerasEmptyState
           'Real-time video streaming',
           'AI person & vehicle detection',
           'Instant push notifications',
-        ].map((feature, index) => (
-          <View key={index} style={styles.featureItem}>
+        ].map((feature) => (
+          <View key={feature} style={styles.featureItem}>
             <Shield size={14} color={colors.status.success} />
             <Text style={styles.featureText}>{feature}</Text>
           </View>
@@ -293,13 +296,20 @@ interface NoAlertsEmptyStateProps {
   hasActiveDetection?: boolean;
 }
 
-export function NoAlertsEmptyState({ hasActiveDetection = true }: NoAlertsEmptyStateProps) {
+export function NoAlertsEmptyState({
+  hasActiveDetection = true,
+}: NoAlertsEmptyStateProps) {
   return (
     <View style={styles.alertsEmptyContainer}>
-      <View style={[styles.alertsIconContainer, { backgroundColor: colors.status.successBg }]}>
+      <View
+        style={[
+          styles.alertsIconContainer,
+          { backgroundColor: colors.status.successBg },
+        ]}
+      >
         <Shield size={48} color={colors.status.success} />
       </View>
-      
+
       <Text style={styles.alertsTitle}>All Clear!</Text>
       <Text style={styles.alertsMessage}>
         {hasActiveDetection
@@ -520,4 +530,3 @@ const styles = StyleSheet.create({
     color: colors.status.success,
   },
 });
-

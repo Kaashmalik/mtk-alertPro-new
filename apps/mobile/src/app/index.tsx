@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
-import { Redirect } from 'expo-router';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuthStore } from '@/stores';
 import { LoadingScreen } from '@/components/ui';
+import { useAuthStore } from '@/stores';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { Redirect } from 'expo-router';
+import { useEffect, useState } from 'react';
 
 const ONBOARDING_COMPLETE_KEY = 'onboarding_complete';
 

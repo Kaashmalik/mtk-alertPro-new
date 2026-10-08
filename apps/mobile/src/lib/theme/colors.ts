@@ -1,6 +1,6 @@
 /**
  * MTK AlertPro Design System - Colors & Theme
- * 
+ *
  * A premium dark theme inspired by professional security apps
  * with vibrant accent colors for important actions
  */
@@ -23,7 +23,7 @@ export const palette = {
     800: '#991B1B',
     900: '#7F1D1D',
   },
-  
+
   // Slate for backgrounds and text
   slate: {
     50: '#F8FAFC',
@@ -38,26 +38,26 @@ export const palette = {
     900: '#0F172A',
     950: '#020617',
   },
-  
+
   // Accent colors
   cyan: {
     400: '#22D3EE',
     500: '#06B6D4',
     600: '#0891B2',
   },
-  
+
   emerald: {
     400: '#34D399',
     500: '#10B981',
     600: '#059669',
   },
-  
+
   amber: {
     400: '#FBBF24',
     500: '#F59E0B',
     600: '#D97706',
   },
-  
+
   violet: {
     400: '#A78BFA',
     500: '#8B5CF6',
@@ -75,24 +75,24 @@ export const colors = {
     red: palette.red[500],
     redDark: palette.red[700],
     redLight: palette.red[400],
-    primary: '#1A1F2E',     // Deep navy
+    primary: '#1A1F2E', // Deep navy
     accent: palette.cyan[500],
     gradient: {
       start: palette.red[600],
       end: palette.red[400],
     },
   },
-  
+
   // Backgrounds - Deep dark theme
   bg: {
-    primary: '#0A0D14',      // Near black
-    secondary: '#12151E',    // Dark navy
-    tertiary: '#1A1F2E',     // Card background
+    primary: '#0A0D14', // Near black
+    secondary: '#12151E', // Dark navy
+    tertiary: '#1A1F2E', // Card background
     card: '#1A1F2E',
-    elevated: '#222838',     // Elevated cards/modals
+    elevated: '#222838', // Elevated cards/modals
     glass: 'rgba(26, 31, 46, 0.8)', // Glass effect
   },
-  
+
   // Text
   text: {
     primary: '#FFFFFF',
@@ -101,7 +101,7 @@ export const colors = {
     muted: '#475569',
     inverse: '#0F172A',
   },
-  
+
   // Border
   border: {
     default: '#1E293B',
@@ -109,7 +109,7 @@ export const colors = {
     focus: palette.red[500],
     subtle: 'rgba(255, 255, 255, 0.08)',
   },
-  
+
   // Status colors
   status: {
     success: palette.emerald[500],
@@ -121,7 +121,7 @@ export const colors = {
     info: palette.cyan[500],
     infoBg: 'rgba(6, 182, 212, 0.15)',
   },
-  
+
   // Gradient stops for LinearGradient
   gradient: {
     dark: ['#0A0D14', '#12151E'],

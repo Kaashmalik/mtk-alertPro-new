@@ -3,357 +3,398 @@
  * Manages camera automation state with Zustand
  */
 
-import { create } from 'zustand';
-import { supabase, isSupabaseConfigured } from '@/lib/supabase/client';
-import { logError, createAppError } from '@/lib/utils/errorHandler';
 import {
-    isWithinSchedule,
-    getCurrentTime,
-    getCurrentDay,
-    validateSchedule,
+  getCurrentDay,
+  getCurrentTime,
+  isWithinSchedule,
+  validateSchedule,
 } from '@/lib/automation/automationService';
-import { useSettingsStore } from '@/stores/settingsStore';
 import {
-    canCreateAutomation,
-    normalizeTier,
-    MAX_AUTOMATIONS,
+  MAX_AUTOMATIONS,
+  canCreateAutomation,
+  hasFeatureAccess,
+  isTierActive,
+  normalizeTier,
 } from '@/lib/subscription/planLimits';
+import { isSupabaseConfigured, supabase } from '@/lib/supabase/client';
+import { createAppError, logError } from '@/lib/utils/errorHandler';
+import { useSettingsStore } from '@/stores/settingsStore';
 import type {
-    CameraAutomation,
-    CameraAutomationDB,
-    CreateAutomationInput,
-    UpdateAutomationInput,
-    DayOfWeek,
+  CameraAutomation,
+  CameraAutomationDB,
+  CreateAutomationInput,
+  DayOfWeek,
+  UpdateAutomationInput,
 } from '@/types/automation';
+import { create } from 'zustand';
 
 /**
  * Automation store state
  */
 interface AutomationState {
-    // State
-    automations: CameraAutomation[];
-    isLoading: boolean;
-    error: string | null;
-    lastCheckTime: Date | null;
+  // State
+  automations: CameraAutomation[];
+  isLoading: boolean;
+  error: string | null;
+  lastCheckTime: Date | null;
 
-    // Actions
-    fetchAutomations: () => Promise<void>;
-    createAutomation: (input: CreateAutomationInput) => Promise<CameraAutomation>;
-    updateAutomation: (id: string, updates: UpdateAutomationInput) => Promise<void>;
-    deleteAutomation: (id: string) => Promise<void>;
-    toggleAutomation: (id: string) => Promise<void>;
-    checkAutomations: () => Promise<void>;
-    getAutomationsForCamera: (cameraId: string) => CameraAutomation[];
-    clearError: () => void;
-    reset: () => void;
+  // Actions
+  fetchAutomations: () => Promise<void>;
+  createAutomation: (input: CreateAutomationInput) => Promise<CameraAutomation>;
+  updateAutomation: (
+    id: string,
+    updates: UpdateAutomationInput,
+  ) => Promise<void>;
+  deleteAutomation: (id: string) => Promise<void>;
+  toggleAutomation: (id: string) => Promise<void>;
+  checkAutomations: () => Promise<void>;
+  getAutomationsForCamera: (cameraId: string) => CameraAutomation[];
+  clearError: () => void;
+  reset: () => void;
 }
 
 /**
  * Initial state
  */
 const initialState = {
-    automations: [],
-    isLoading: false,
-    error: null,
-    lastCheckTime: null,
+  automations: [],
+  isLoading: false,
+  error: null,
+  lastCheckTime: null,
 };
 
 /**
  * Convert database record to CameraAutomation
  */
 function dbToAutomation(db: CameraAutomationDB): CameraAutomation {
-    return {
-        id: db.id,
-        cameraId: db.camera_id,
-        userId: db.user_id,
-        name: db.name,
-        enabled: db.enabled,
-        schedule: {
-            startTime: db.start_time,
-            endTime: db.end_time,
-            recurring: db.recurring,
-            daysOfWeek: (db.days_of_week as DayOfWeek[]) || undefined,
-        },
-        action: db.action,
-        createdAt: new Date(db.created_at),
-        updatedAt: new Date(db.updated_at),
-    };
+  return {
+    id: db.id,
+    cameraId: db.camera_id,
+    userId: db.user_id,
+    name: db.name,
+    enabled: db.enabled,
+    schedule: {
+      startTime: db.start_time,
+      endTime: db.end_time,
+      recurring: db.recurring,
+      daysOfWeek: (db.days_of_week as DayOfWeek[]) || undefined,
+    },
+    action: db.action,
+    createdAt: new Date(db.created_at),
+    updatedAt: new Date(db.updated_at),
+  };
 }
 
 /**
  * Convert CameraAutomation to database record
  */
-function automationToDb(automation: Partial<CameraAutomation>): Partial<CameraAutomationDB> {
-    const db: Partial<CameraAutomationDB> = {};
+function automationToDb(
+  automation: Partial<CameraAutomation>,
+): Partial<CameraAutomationDB> {
+  const db: Partial<CameraAutomationDB> = {};
 
-    if (automation.cameraId) db.camera_id = automation.cameraId;
-    if (automation.name !== undefined) db.name = automation.name;
-    if (automation.enabled !== undefined) db.enabled = automation.enabled;
-    if (automation.action) db.action = automation.action;
+  if (automation.cameraId) db.camera_id = automation.cameraId;
+  if (automation.name !== undefined) db.name = automation.name;
+  if (automation.enabled !== undefined) db.enabled = automation.enabled;
+  if (automation.action) db.action = automation.action;
 
-    if (automation.schedule) {
-        db.start_time = automation.schedule.startTime;
-        db.end_time = automation.schedule.endTime;
-        db.recurring = automation.schedule.recurring;
-        db.days_of_week = automation.schedule.daysOfWeek || null;
-    }
+  if (automation.schedule) {
+    db.start_time = automation.schedule.startTime;
+    db.end_time = automation.schedule.endTime;
+    db.recurring = automation.schedule.recurring;
+    db.days_of_week = automation.schedule.daysOfWeek || null;
+  }
 
-    return db;
+  return db;
 }
 
 /**
  * Automation Zustand store
  */
 export const useAutomationStore = create<AutomationState>((set, get) => ({
-    ...initialState,
+  ...initialState,
 
-    /**
-     * Fetch all automations for current user
-     */
-    fetchAutomations: async () => {
-        if (!isSupabaseConfigured) {
-            console.warn('[AutomationStore] Supabase not configured');
-            set({ automations: [], isLoading: false });
-            return;
-        }
+  /**
+   * Fetch all automations for current user
+   */
+  fetchAutomations: async () => {
+    if (!isSupabaseConfigured) {
+      console.warn('[AutomationStore] Supabase not configured');
+      set({ automations: [], isLoading: false });
+      return;
+    }
 
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!session?.user) {
-            set({ automations: [], isLoading: false, error: null });
-            return;
-        }
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    if (!session?.user) {
+      set({ automations: [], isLoading: false, error: null });
+      return;
+    }
 
-        set({ isLoading: true, error: null });
+    set({ isLoading: true, error: null });
 
-        try {
-            const { data, error } = await supabase
-                .from('camera_automations')
-                .select('*')
-                .order('created_at', { ascending: false });
+    try {
+      const { data, error } = await supabase
+        .from('camera_automations')
+        .select('*')
+        .order('created_at', { ascending: false });
 
-            if (error) throw error;
+      if (error) throw error;
 
-            const automations = (data || []).map(dbToAutomation);
-            set({ automations, error: null });
-        } catch (error) {
-            const message = error instanceof Error ? error.message : 'Failed to fetch automations';
-            logError(error, 'AutomationStore.fetchAutomations');
-            set({ error: message });
-        } finally {
-            set({ isLoading: false });
-        }
-    },
+      const automations = (data || []).map(dbToAutomation);
+      set({ automations, error: null });
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : 'Failed to fetch automations';
+      logError(error, 'AutomationStore.fetchAutomations');
+      set({ error: message });
+    } finally {
+      set({ isLoading: false });
+    }
+  },
 
-    /**
-     * Create a new automation
-     */
-    createAutomation: async (input) => {
-        // Validate schedule
-        const validationError = validateSchedule(input.schedule);
-        if (validationError) {
-            throw createAppError('VALIDATION_ERROR', validationError);
-        }
+  /**
+   * Create a new automation
+   */
+  createAutomation: async (input) => {
+    // Validate schedule
+    const validationError = validateSchedule(input.schedule);
+    if (validationError) {
+      throw createAppError('VALIDATION_ERROR', validationError);
+    }
 
-        const { data: { user } } = await supabase.auth.getUser();
-        if (!user) {
-            throw createAppError('AUTH_ERROR', 'User not authenticated');
-        }
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!user) {
+      throw createAppError('AUTH_ERROR', 'User not authenticated');
+    }
 
-        // Enforce the automation quota here, in the action, not only in the
-        // list screen. The screen check was trivially bypassed because
-        // /settings/automations/create is directly routable and the store
-        // never validated. Counts are server-authoritative.
-        const [profileResult, countResult] = await Promise.all([
-            supabase
-                .from('profiles')
-                .select('subscription_tier')
-                .eq('id', user.id)
-                .single(),
-            supabase
-                .from('camera_automations')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', user.id),
-        ]);
+    // Enforce the automation quota here, in the action, not only in the
+    // list screen. The screen check was trivially bypassed because
+    // /settings/automations/create is directly routable and the store
+    // never validated. Counts are server-authoritative.
+    const [profileResult, countResult] = await Promise.all([
+      supabase
+        .from('profiles')
+        // Expiry matters here too: a lapsed Pro account kept the
+        // 50-automation allowance.
+        .select('subscription_tier, subscription_expires_at')
+        .eq('id', user.id)
+        .single(),
+      supabase
+        .from('camera_automations')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+    ]);
 
-        const tier = normalizeTier(profileResult.data?.subscription_tier);
-        if (!canCreateAutomation(tier, countResult.count ?? 0)) {
-            const limit = MAX_AUTOMATIONS[tier];
-            throw createAppError(
-                'QUOTA_EXCEEDED',
-                `Automation limit reached for ${tier} tier`,
-                {
-                    userMessage: limit === Infinity
-                        ? 'Automation limit reached.'
-                        : `Automation limit reached (${limit}). Upgrade for more automations.`,
-                }
-            );
-        }
+    const rawTier = normalizeTier(profileResult.data?.subscription_tier);
+    const tier = isTierActive(
+      rawTier,
+      profileResult.data?.subscription_expires_at ?? null,
+    )
+      ? rawTier
+      : 'free';
+    if (!canCreateAutomation(tier, countResult.count ?? 0)) {
+      const limit = MAX_AUTOMATIONS[tier];
+      throw createAppError(
+        'QUOTA_EXCEEDED',
+        `Automation limit reached for ${tier} tier`,
+        {
+          userMessage:
+            limit === Number.POSITIVE_INFINITY
+              ? 'Automation limit reached.'
+              : `Automation limit reached (${limit}). Upgrade for more automations.`,
+        },
+      );
+    }
 
-        const dbData = automationToDb({
-            ...input,
-            userId: user.id,
-        });
+    const dbData = automationToDb({
+      ...input,
+      userId: user.id,
+    });
 
-        const { data, error } = await supabase
-            .from('camera_automations')
-            .insert({
-                ...dbData,
-                user_id: user.id,
-            })
-            .select()
-            .single();
+    const { data, error } = await supabase
+      .from('camera_automations')
+      .insert({
+        ...dbData,
+        user_id: user.id,
+      })
+      .select()
+      .single();
 
-        if (error) {
-            logError(error, 'AutomationStore.createAutomation');
-            throw createAppError('CAMERA_ERROR', error.message);
-        }
+    if (error) {
+      logError(error, 'AutomationStore.createAutomation');
+      throw createAppError('CAMERA_ERROR', error.message);
+    }
 
-        const newAutomation = dbToAutomation(data);
-        set({ automations: [newAutomation, ...get().automations] });
+    const newAutomation = dbToAutomation(data);
+    set({ automations: [newAutomation, ...get().automations] });
 
-        return newAutomation;
-    },
+    return newAutomation;
+  },
 
-    /**
-     * Update an existing automation
-     */
-    updateAutomation: async (id, updates) => {
-        // Validate schedule if provided
-        if (updates.schedule) {
-            const validationError = validateSchedule(updates.schedule);
-            if (validationError) {
-                throw createAppError('VALIDATION_ERROR', validationError);
+  /**
+   * Update an existing automation
+   */
+  updateAutomation: async (id, updates) => {
+    // Validate schedule if provided
+    if (updates.schedule) {
+      const validationError = validateSchedule(updates.schedule);
+      if (validationError) {
+        throw createAppError('VALIDATION_ERROR', validationError);
+      }
+    }
+
+    const dbData = automationToDb(updates);
+
+    const { error } = await supabase
+      .from('camera_automations')
+      .update({
+        ...dbData,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', id);
+
+    if (error) {
+      logError(error, 'AutomationStore.updateAutomation');
+      throw createAppError('CAMERA_ERROR', error.message);
+    }
+
+    set({
+      automations: get().automations.map((a) =>
+        a.id === id ? { ...a, ...updates, updatedAt: new Date() } : a,
+      ),
+    });
+  },
+
+  /**
+   * Delete an automation
+   */
+  deleteAutomation: async (id) => {
+    const { error } = await supabase
+      .from('camera_automations')
+      .delete()
+      .eq('id', id);
+
+    if (error) {
+      logError(error, 'AutomationStore.deleteAutomation');
+      throw createAppError('CAMERA_ERROR', error.message);
+    }
+
+    set({
+      automations: get().automations.filter((a) => a.id !== id),
+    });
+  },
+
+  /**
+   * Toggle automation enabled state
+   */
+  toggleAutomation: async (id) => {
+    const automation = get().automations.find((a) => a.id === id);
+    if (!automation) return;
+
+    await get().updateAutomation(id, { enabled: !automation.enabled });
+  },
+
+  /**
+   * Check all automations and APPLY red_alert / normal actions
+   */
+  checkAutomations: async () => {
+    const currentTime = getCurrentTime();
+    const currentDay = getCurrentDay();
+    const now = new Date();
+
+    const { automations } = get();
+    const settings = useSettingsStore.getState();
+
+    // Red Alert is a paid feature, so the scheduler has to confirm the
+    // account still has it before honouring a red_alert automation.
+    const canUseRedAlert = await hasFeatureAccess('hasRedAlertMode');
+
+    let shouldRedAlert = canUseRedAlert && settings.detection.redAlertMode;
+    let anyActive = false;
+
+    const updatedAutomations = automations.map((automation) => {
+      if (!automation.enabled) {
+        return { ...automation, isCurrentlyActive: false };
+      }
+
+      const shouldBeActive = isWithinSchedule(
+        currentTime,
+        currentDay,
+        automation.schedule,
+      );
+
+      if (shouldBeActive) {
+        anyActive = true;
+        if (automation.action === 'red_alert') {
+          // Red Alert is a paid feature. An automation created while
+          // the account was Pro (or on a hand-edited row) must not
+          // arm it after the subscription lapses.
+          if (canUseRedAlert) {
+            shouldRedAlert = true;
+          } else {
+            shouldRedAlert = false;
+            if (
+              get().automations.some(
+                (a) => a.id === automation.id && a.isCurrentlyActive,
+              )
+            ) {
+              console.warn(
+                '[Automations] red_alert automation skipped: tier no longer includes Red Alert Mode',
+              );
             }
+          }
+        } else if (automation.action === 'normal') {
+          shouldRedAlert = false;
         }
 
-        const dbData = automationToDb(updates);
-
-        const { error } = await supabase
+        // Persist last_triggered_at when transitioning into active
+        if (!automation.isCurrentlyActive) {
+          void supabase
             .from('camera_automations')
-            .update({
-                ...dbData,
-                updated_at: new Date().toISOString(),
-            })
-            .eq('id', id);
-
-        if (error) {
-            logError(error, 'AutomationStore.updateAutomation');
-            throw createAppError('CAMERA_ERROR', error.message);
+            .update({ last_triggered_at: now.toISOString() })
+            .eq('id', automation.id);
         }
+      }
 
-        set({
-            automations: get().automations.map((a) =>
-                a.id === id ? { ...a, ...updates, updatedAt: new Date() } : a
-            ),
-        });
-    },
+      return {
+        ...automation,
+        isCurrentlyActive: shouldBeActive,
+      };
+    });
 
-    /**
-     * Delete an automation
-     */
-    deleteAutomation: async (id) => {
-        const { error } = await supabase
-            .from('camera_automations')
-            .delete()
-            .eq('id', id);
+    if (anyActive && settings.detection.redAlertMode !== shouldRedAlert) {
+      settings.setDetection({ redAlertMode: shouldRedAlert });
+    }
 
-        if (error) {
-            logError(error, 'AutomationStore.deleteAutomation');
-            throw createAppError('CAMERA_ERROR', error.message);
-        }
+    // Ensure armed when any automation is active in window
+    if (anyActive && settings.detection.armed === false) {
+      settings.setDetection({ armed: true });
+    }
 
-        set({
-            automations: get().automations.filter((a) => a.id !== id),
-        });
-    },
+    set({
+      automations: updatedAutomations,
+      lastCheckTime: now,
+    });
+  },
 
-    /**
-     * Toggle automation enabled state
-     */
-    toggleAutomation: async (id) => {
-        const automation = get().automations.find((a) => a.id === id);
-        if (!automation) return;
+  /**
+   * Get all automations for a specific camera
+   */
+  getAutomationsForCamera: (cameraId) => {
+    return get().automations.filter((a) => a.cameraId === cameraId);
+  },
 
-        await get().updateAutomation(id, { enabled: !automation.enabled });
-    },
+  /**
+   * Clear error state
+   */
+  clearError: () => set({ error: null }),
 
-    /**
-     * Check all automations and APPLY red_alert / normal actions
-     */
-    checkAutomations: async () => {
-        const currentTime = getCurrentTime();
-        const currentDay = getCurrentDay();
-        const now = new Date();
-
-        const { automations } = get();
-        const settings = useSettingsStore.getState();
-
-        let shouldRedAlert = settings.detection.redAlertMode;
-        let anyActive = false;
-
-        const updatedAutomations = automations.map((automation) => {
-            if (!automation.enabled) {
-                return { ...automation, isCurrentlyActive: false };
-            }
-
-            const shouldBeActive = isWithinSchedule(
-                currentTime,
-                currentDay,
-                automation.schedule
-            );
-
-            if (shouldBeActive) {
-                anyActive = true;
-                if (automation.action === 'red_alert') {
-                    shouldRedAlert = true;
-                } else if (automation.action === 'normal') {
-                    shouldRedAlert = false;
-                }
-
-                // Persist last_triggered_at when transitioning into active
-                if (!automation.isCurrentlyActive) {
-                    void supabase
-                        .from('camera_automations')
-                        .update({ last_triggered_at: now.toISOString() })
-                        .eq('id', automation.id);
-                }
-            }
-
-            return {
-                ...automation,
-                isCurrentlyActive: shouldBeActive,
-            };
-        });
-
-        if (anyActive && settings.detection.redAlertMode !== shouldRedAlert) {
-            settings.setDetection({ redAlertMode: shouldRedAlert });
-        }
-
-        // Ensure armed when any automation is active in window
-        if (anyActive && settings.detection.armed === false) {
-            settings.setDetection({ armed: true });
-        }
-
-        set({
-            automations: updatedAutomations,
-            lastCheckTime: now,
-        });
-    },
-
-    /**
-     * Get all automations for a specific camera
-     */
-    getAutomationsForCamera: (cameraId) => {
-        return get().automations.filter((a) => a.cameraId === cameraId);
-    },
-
-    /**
-     * Clear error state
-     */
-    clearError: () => set({ error: null }),
-
-    /**
-     * Reset store to initial state
-     */
-    reset: () => set(initialState),
+  /**
+   * Reset store to initial state
+   */
+  reset: () => set(initialState),
 }));

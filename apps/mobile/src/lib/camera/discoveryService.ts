@@ -12,7 +12,11 @@
  */
 
 import NetInfo from '@react-native-community/netinfo';
-import { CAMERA_BRANDS, detectCameraBrand, generateRtspUrl } from './rtspHelper';
+import {
+  CAMERA_BRANDS,
+  detectCameraBrand,
+  generateRtspUrl,
+} from './rtspHelper';
 
 // ============================================================================
 // Types
@@ -83,13 +87,17 @@ const SOAP_TIMEOUT_MS = 4000;
 // ============================================================================
 
 export function ipToInt(ip: string): number {
-  const parts = ip.split('.').map(n => parseInt(n, 10) & 0xff);
-  return ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0;
+  const parts = ip.split('.').map((n) => Number.parseInt(n, 10) & 0xff);
+  return (
+    ((parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]) >>> 0
+  );
 }
 
 export function intToIp(value: number): string {
   const v = value >>> 0;
-  return [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255].join('.');
+  return [(v >>> 24) & 255, (v >>> 16) & 255, (v >>> 8) & 255, v & 255].join(
+    '.',
+  );
 }
 
 /**
@@ -100,7 +108,7 @@ export function generateHostIps(ip: string, subnetMask: string): string[] {
   const ipNum = ipToInt(ip);
   const maskNum = ipToInt(subnetMask);
   const network = (ipNum & maskNum) >>> 0;
-  const invMask = (~maskNum) >>> 0;
+  const invMask = ~maskNum >>> 0;
   const broadcast = (network | invMask) >>> 0;
   const hostCount = invMask + 1;
 
@@ -119,7 +127,7 @@ export function generateHostIps(ip: string, subnetMask: string): string[] {
 /** Map ONVIF Manufacturer/Model strings to a CAMERA_BRANDS id */
 export function mapManufacturerToBrand(
   manufacturer?: string,
-  model?: string
+  model?: string,
 ): string {
   const hay = `${manufacturer ?? ''} ${model ?? ''}`.toLowerCase();
   if (hay.includes('hikvision') || hay.includes('hilook')) return 'hikvision';
@@ -131,7 +139,7 @@ export function mapManufacturerToBrand(
   if (hay.includes('hanwha') || hay.includes('samsung')) return 'hanwha';
   if (hay.includes('vivotek')) return 'vivotek';
   if (hay.includes('foscam')) return 'foscam';
-  if (manufacturer && manufacturer.trim()) return 'generic';
+  if (manufacturer?.trim()) return 'generic';
   return 'generic';
 }
 
@@ -150,7 +158,6 @@ function escapeXml(value: string): string {
  */
 export function buildUsernameToken(username: string, password: string): string {
   // Lazy require keeps crypto-js out of the critical path when unauthenticated
-  // eslint-disable-next-line @typescript-eslint/no-var-requires
   const CryptoJS = require('crypto-js') as typeof import('crypto-js');
 
   const nonce = CryptoJS.lib.WordArray.random(16);
@@ -178,7 +185,7 @@ export function buildUsernameToken(username: string, password: string): string {
  */
 export function buildSoapEnvelope(
   bodyInner: string,
-  credentials?: { username: string; password: string }
+  credentials?: { username: string; password: string },
 ): string {
   const header = credentials
     ? `<s:Header>${buildUsernameToken(credentials.username, credentials.password)}</s:Header>`
@@ -193,7 +200,7 @@ function extractXmlTag(xml: string, tag: string): string | undefined {
   // Match with or without namespace prefix: <tds:Manufacturer> or <Manufacturer>
   const pattern = new RegExp(
     `<((?:[\\w.-]+:)?${tag})(?:\\s[^>]*)?>([\\s\\S]*?)</\\1>`,
-    'i'
+    'i',
   );
   const match = xml.match(pattern);
   if (!match) return undefined;
@@ -210,7 +217,9 @@ export interface OnvifDeviceInformation {
 }
 
 /** Parse ONVIF GetDeviceInformation SOAP response */
-export function parseOnvifDeviceInformation(xml: string): OnvifDeviceInformation {
+export function parseOnvifDeviceInformation(
+  xml: string,
+): OnvifDeviceInformation {
   return {
     manufacturer: extractXmlTag(xml, 'Manufacturer'),
     model: extractXmlTag(xml, 'Model'),
@@ -224,7 +233,7 @@ export function parseOnvifDeviceInformation(xml: string): OnvifDeviceInformation
 export function parseMediaXAddr(xml: string): string | undefined {
   // Prefer the Media section specifically
   const mediaSection = xml.match(
-    /<(?:[\w.-]+:)?Media(?:\s[^>]*)?>([\s\S]*?)<\/(?:[\w.-]+:)?Media>/i
+    /<(?:[\w.-]+:)?Media(?:\s[^>]*)?>([\s\S]*?)<\/(?:[\w.-]+:)?Media>/i,
   );
   const scope = mediaSection ? mediaSection[1] : xml;
   return extractXmlTag(scope, 'XAddr');
@@ -233,7 +242,7 @@ export function parseMediaXAddr(xml: string): string | undefined {
 /** Parse ONVIF GetProfiles response → first profile token */
 export function parseProfileToken(xml: string): string | undefined {
   const profileMatch = xml.match(
-    /<(?:[\w.-]+:)?Profiles(?:\s[^>]*)?[^>]*token="([^"]+)"/i
+    /<(?:[\w.-]+:)?Profiles(?:\s[^>]*)?[^>]*token="([^"]+)"/i,
   );
   if (profileMatch) return profileMatch[1];
   return extractXmlTag(xml, 'token') ?? extractXmlTag(xml, 'Token');
@@ -242,23 +251,30 @@ export function parseProfileToken(xml: string): string | undefined {
 /** Parse ONVIF GetStreamUri response → RTSP URI */
 export function parseStreamUri(xml: string): string | undefined {
   const uri = extractXmlTag(xml, 'Uri');
-  return uri && uri.toLowerCase().startsWith('rtsp') ? uri : undefined;
+  return uri?.toLowerCase().startsWith('rtsp') ? uri : undefined;
 }
 
 // ============================================================================
 // Network helpers
 // ============================================================================
 
-async function getLocalSubnetFromNetInfo(): Promise<{ ip: string; subnetMask: string } | null> {
+async function getLocalSubnetFromNetInfo(): Promise<{
+  ip: string;
+  subnetMask: string;
+} | null> {
   try {
     const state = await NetInfo.fetch();
     if (state.type !== 'wifi' && state.type !== 'ethernet') return null;
-    const details = state.details as { ipAddress?: string; subnet?: string } | null;
+    const details = state.details as {
+      ipAddress?: string;
+      subnet?: string;
+    } | null;
     if (!details?.ipAddress) return null;
     // NetInfo may omit subnet on some platforms — assume /24
-    const subnetMask = details.subnet && /^\d+\.\d+\.\d+\.\d+$/.test(details.subnet)
-      ? details.subnet
-      : '255.255.255.0';
+    const subnetMask =
+      details.subnet && /^\d+\.\d+\.\d+\.\d+$/.test(details.subnet)
+        ? details.subnet
+        : '255.255.255.0';
     return { ip: details.ipAddress, subnetMask };
   } catch {
     return null;
@@ -269,7 +285,7 @@ async function getLocalSubnetFromNetInfo(): Promise<{ ip: string; subnetMask: st
 async function probeHttp(
   ip: string,
   port: number,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<boolean> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -291,17 +307,17 @@ async function probeHttp(
 async function probeHostPorts(
   ip: string,
   ports: readonly number[],
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<number | null> {
-  return new Promise(resolve => {
+  return new Promise((resolve) => {
     let pending = ports.length;
     let resolved = false;
     if (pending === 0) {
       resolve(null);
       return;
     }
-    ports.forEach(port => {
-      probeHttp(ip, port, timeoutMs).then(live => {
+    ports.forEach((port) => {
+      probeHttp(ip, port, timeoutMs).then((live) => {
         if (live && !resolved) {
           resolved = true;
           resolve(port);
@@ -316,7 +332,7 @@ async function probeHostPorts(
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
-  fn: (item: T, index: number) => Promise<R>
+  fn: (item: T, index: number) => Promise<R>,
 ): Promise<R[]> {
   const results = new Array<R>(items.length);
   let next = 0;
@@ -328,9 +344,8 @@ async function mapWithConcurrency<T, R>(
     }
   }
 
-  const workers = Array.from(
-    { length: Math.min(limit, items.length) },
-    () => worker()
+  const workers = Array.from({ length: Math.min(limit, items.length) }, () =>
+    worker(),
   );
   await Promise.all(workers);
   return results;
@@ -344,7 +359,7 @@ async function soapPost(
   endpoint: string,
   bodyInner: string,
   credentials: DiscoveryOptions['credentials'],
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<string | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -372,14 +387,15 @@ async function soapPost(
 async function identifyOnvifHost(
   ip: string,
   httpPort: number,
-  credentials: DiscoveryOptions['credentials']
+  credentials: DiscoveryOptions['credentials'],
 ): Promise<OnvifDeviceInformation | null> {
   const body = '<tds:GetDeviceInformation/>';
 
   for (const path of ONVIF_DEVICE_PATHS) {
     const scheme = httpPort === 443 ? 'https' : 'http';
     const host =
-      (scheme === 'http' && httpPort === 80) || (scheme === 'https' && httpPort === 443)
+      (scheme === 'http' && httpPort === 80) ||
+      (scheme === 'https' && httpPort === 443)
         ? ip
         : `${ip}:${httpPort}`;
     const endpoint = `${scheme}://${host}${path}`;
@@ -403,11 +419,12 @@ async function identifyOnvifHost(
 async function resolveOnvifStreamUri(
   ip: string,
   httpPort: number,
-  credentials: DiscoveryOptions['credentials']
+  credentials: DiscoveryOptions['credentials'],
 ): Promise<string | undefined> {
   const scheme = httpPort === 443 ? 'https' : 'http';
   const host =
-    (scheme === 'http' && httpPort === 80) || (scheme === 'https' && httpPort === 443)
+    (scheme === 'http' && httpPort === 80) ||
+    (scheme === 'https' && httpPort === 443)
       ? ip
       : `${ip}:${httpPort}`;
 
@@ -416,7 +433,7 @@ async function resolveOnvifStreamUri(
     `${scheme}://${host}/onvif/device_service`,
     '<tds:GetCapabilities><tds:Category>All</tds:Category></tds:GetCapabilities>',
     credentials,
-    SOAP_TIMEOUT_MS
+    SOAP_TIMEOUT_MS,
   );
   const mediaXAddr = capsXml ? parseMediaXAddr(capsXml) : undefined;
   if (!mediaXAddr) return undefined;
@@ -426,7 +443,7 @@ async function resolveOnvifStreamUri(
     mediaXAddr,
     '<trt:GetProfiles/>',
     credentials,
-    SOAP_TIMEOUT_MS
+    SOAP_TIMEOUT_MS,
   );
   const profileToken = profilesXml ? parseProfileToken(profilesXml) : undefined;
   if (!profileToken) return undefined;
@@ -442,7 +459,7 @@ async function resolveOnvifStreamUri(
       <trt:ProfileToken>${escapeXml(profileToken)}</trt:ProfileToken>
     </trt:GetStreamUri>`,
     credentials,
-    SOAP_TIMEOUT_MS
+    SOAP_TIMEOUT_MS,
   );
   return streamXml ? parseStreamUri(streamXml) : undefined;
 }
@@ -462,7 +479,7 @@ async function resolveOnvifStreamUri(
  * ```
  */
 export async function discoverCameras(
-  options: DiscoveryOptions = {}
+  options: DiscoveryOptions = {},
 ): Promise<DiscoveredCamera[]> {
   const {
     credentials,
@@ -474,7 +491,7 @@ export async function discoverCameras(
   const subnet = options.subnet ?? (await getLocalSubnetFromNetInfo());
   if (!subnet) {
     throw new Error(
-      'Could not determine local subnet. Connect to Wi-Fi or enter a subnet manually.'
+      'Could not determine local subnet. Connect to Wi-Fi or enter a subnet manually.',
     );
   }
 
@@ -495,7 +512,7 @@ export async function discoverCameras(
 
   // --- Phase 1: HTTP sweep ---
   const liveHosts: Array<{ ip: string; port: number }> = [];
-  await mapWithConcurrency(hosts, PROBE_CONCURRENCY, async ip => {
+  await mapWithConcurrency(hosts, PROBE_CONCURRENCY, async (ip) => {
     if (signal?.aborted) return;
     const port = await probeHostPorts(ip, DEFAULT_HTTP_PORTS, timeoutMs);
     scanned += 1;
@@ -535,7 +552,8 @@ export async function discoverCameras(
 
     const brandId =
       (detectCameraBrand(ip, info.serialNumber) ??
-        mapManufacturerToBrand(info.manufacturer, info.model)) || 'generic';
+        mapManufacturerToBrand(info.manufacturer, info.model)) ||
+      'generic';
 
     let rtspUrl: string | undefined;
     try {
@@ -546,7 +564,7 @@ export async function discoverCameras(
 
     if (!rtspUrl) {
       // Fall back to brand URL template
-      const brand = CAMERA_BRANDS.find(b => b.id === brandId);
+      const brand = CAMERA_BRANDS.find((b) => b.id === brandId);
       if (brand) {
         // 🔒 Never embed credentials into the URL — they stay in the encrypted
         // username/password fields and are supplied separately at connection time.

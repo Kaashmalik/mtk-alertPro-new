@@ -1,21 +1,25 @@
-﻿# Exclude everything except apps/mobile
+﻿# NOTE: patterns with no interior slash match at ANY depth, so `src/` would
+# strip apps/mobile/src (the entire app source) out of the EAS upload. Every
+# entry below that means "this top-level folder only" is anchored with a
+# leading slash. Keep it that way: an unanchored rule here does not fail the
+# build, it silently ships an APK whose Metro bundle has no app code in it.
 node_modules
 **/node_modules
 
 # Other apps and packages
-packages/
+/packages/
 apps/web/
 apps/backend/
 apps/detection-worker/
 
 # Root-level directories
-docs/
-pruned/
-.git/
-.github/
-server/
-supabase/
-src/
+/docs/
+/pruned/
+/.git/
+/.github/
+/server/
+/supabase/
+/src/
 
 # Native folders (nested)
 **/android/

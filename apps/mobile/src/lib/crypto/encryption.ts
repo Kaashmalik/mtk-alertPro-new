@@ -58,7 +58,7 @@ function warnMissingKeyOnce(): void {
   console.warn(
     '[Encryption] No device key available. Falling back to the environment key. ' +
       'Call initializeEncryption() during bootstrap, and note that EXPO_PUBLIC_* ' +
-      'values are extractable from the published bundle.'
+      'values are extractable from the published bundle.',
   );
 }
 
@@ -73,7 +73,10 @@ export async function initializeEncryption(): Promise<void> {
 
   // SecureStore is a native module; the node test environment has no native
   // implementation, so guard rather than crash.
-  if (Platform.OS === 'web' || typeof SecureStore?.setItemAsync !== 'function') {
+  if (
+    Platform.OS === 'web' ||
+    typeof SecureStore?.setItemAsync !== 'function'
+  ) {
     if (!deviceKey) deviceKey = ENV_KEY || null;
     return;
   }
@@ -93,7 +96,10 @@ export async function initializeEncryption(): Promise<void> {
   } catch (error) {
     // A locked or unavailable keystore must not brick the app; degrade to the
     // environment key and surface the failure loudly.
-    console.error('[Encryption] SecureStore unavailable, using environment key:', error);
+    console.error(
+      '[Encryption] SecureStore unavailable, using environment key:',
+      error,
+    );
     deviceKey = ENV_KEY || null;
   }
 }
@@ -109,8 +115,14 @@ function getEncryptionKey(): string {
     throw new Error(
       'CRITICAL SECURITY ERROR: Encryption key not configured. ' +
         'Call initializeEncryption() during bootstrap or set EXPO_PUBLIC_ENCRYPTION_KEY. ' +
-        'Camera passwords cannot be stored without encryption.'
+        'Camera passwords cannot be stored without encryption.',
     );
+  }
+  // Falling back to the env key means the "per-install" device key was never
+  // provisioned, so the ciphertext is only as private as a value baked into
+  // the published bundle. Surface that exactly once.
+  if (!deviceKey) {
+    warnMissingKeyOnce();
   }
   return key;
 }
@@ -154,11 +166,15 @@ export function encryptPassword(password: string, salt: string): string {
     // leaks relationships between plaintexts, so this must not be a constant.
     const iv = CryptoJS.lib.WordArray.random(16);
 
-    const encrypted = CryptoJS.AES.encrypt(CryptoJS.enc.Utf8.parse(`${salt}:${password}`), key, {
-      iv,
-      mode: CryptoJS.mode.CBC,
-      padding: CryptoJS.pad.Pkcs7,
-    });
+    const encrypted = CryptoJS.AES.encrypt(
+      CryptoJS.enc.Utf8.parse(`${salt}:${password}`),
+      key,
+      {
+        iv,
+        mode: CryptoJS.mode.CBC,
+        padding: CryptoJS.pad.Pkcs7,
+      },
+    );
 
     return `${V2_PREFIX}${toBase64(iv)}:${toBase64(encrypted.ciphertext)}`;
   } catch (error) {
@@ -175,7 +191,10 @@ export function encryptPassword(password: string, salt: string): string {
  * @param salt - The same salt used during encryption
  * @returns The original plain text password
  */
-export function decryptPassword(encryptedPassword: string, salt: string): string {
+export function decryptPassword(
+  encryptedPassword: string,
+  salt: string,
+): string {
   if (!encryptedPassword) {
     throw new Error('Encrypted password is required for decryption');
   }
@@ -202,7 +221,7 @@ export function decryptPassword(encryptedPassword: string, salt: string): string
           iv: fromBase64(ivB64),
           mode: CryptoJS.mode.CBC,
           padding: CryptoJS.pad.Pkcs7,
-        }
+        },
       );
 
       const decrypted = decryptedBytes.toString(CryptoJS.enc.Utf8);
@@ -230,7 +249,11 @@ export function decryptPassword(encryptedPassword: string, salt: string): string
     const candidates = legacyKeyCandidates();
 
     for (const candidate of candidates) {
-      const decrypted = tryDecryptLegacy(encryptedPassword, candidate, saltPrefix);
+      const decrypted = tryDecryptLegacy(
+        encryptedPassword,
+        candidate,
+        saltPrefix,
+      );
       if (decrypted !== null) {
         return decrypted;
       }
@@ -267,7 +290,7 @@ function legacyKeyCandidates(): string[] {
 function tryDecryptLegacy(
   encryptedPassword: string,
   key: string,
-  saltPrefix: string
+  saltPrefix: string,
 ): string | null {
   try {
     const bytes = CryptoJS.AES.decrypt(encryptedPassword, key);
@@ -297,7 +320,7 @@ export function hashString(value: string): string {
  *
  * @param length - Length in BYTES (default 32 → 64 hex characters)
  */
-export function generateRandomKey(length: number = 32): string {
+export function generateRandomKey(length = 32): string {
   return CryptoJS.lib.WordArray.random(length).toString(CryptoJS.enc.Hex);
 }
 

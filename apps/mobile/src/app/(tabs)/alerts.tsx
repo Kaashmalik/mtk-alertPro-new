@@ -1,17 +1,35 @@
-import { useEffect, useCallback, useRef } from 'react';
-import { View, Text, FlatList, TouchableOpacity, RefreshControl, StyleSheet, StatusBar } from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Bell, Check, Trash2 } from 'lucide-react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useAlertStore, useCameraStore } from '@/stores';
-import { designSystem } from '@/theme/design-system';
-import { AlertCard } from '@/components/animated';
 import { AdBanner } from '@/components/ads/BannerAd';
 import { useInterstitialAd } from '@/components/ads/InterstitialAd';
+import { AlertCard } from '@/components/animated';
+import { ErrorState } from '@/components/ui/ErrorState';
+import { SkeletonAlertCard } from '@/components/ui/SkeletonLoader';
+import { useAlertStore, useCameraStore } from '@/stores';
+import { designSystem } from '@/theme/design-system';
 import type { Alert } from '@/types';
+import { Bell, Check } from 'lucide-react-native';
+import { useEffect, useRef } from 'react';
+import {
+  FlatList,
+  RefreshControl,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function AlertsScreen() {
-  const { alerts, fetchAlerts, markAsRead, markAllAsRead, deleteAlert, isLoading, subscribeToAlerts } = useAlertStore();
+  const {
+    alerts,
+    fetchAlerts,
+    markAsRead,
+    markAllAsRead,
+    deleteAlert,
+    isLoading,
+    error: alertError,
+  } = useAlertStore();
   const { cameras } = useCameraStore();
   const { show: showInterstitial } = useInterstitialAd();
   // Counts actual dismissals. The previous trigger read `unreadCount` from a
@@ -20,10 +38,12 @@ export default function AlertsScreen() {
   const dismissCountRef = useRef(0);
 
   useEffect(() => {
-    fetchAlerts();
-    const unsubscribe = subscribeToAlerts();
-    return unsubscribe;
-  }, []);
+    void fetchAlerts();
+    // No realtime subscribe here on purpose. The root layout owns one
+    // 'alerts-realtime' channel for the whole authenticated session; opening
+    // this tab used to open a second channel on the same topic, and Supabase
+    // rejects a duplicate postgres_changes registration.
+  }, [fetchAlerts]);
 
   const getCameraName = (cameraId: string | null, type?: Alert['type']) => {
     // SOS alerts are raised by the user, so there is no camera to name.
@@ -39,15 +59,36 @@ export default function AlertsScreen() {
         confidence={item.confidence}
         timestamp={new Date(item.createdAt)}
         cameraName={getCameraName(item.cameraId, item.type)}
+        personName={
+          typeof item.metadata?.personName === 'string'
+            ? item.metadata.personName
+            : undefined
+        }
         thumbnailUrl={item.thumbnailUrl} // Ensure Alert type supports this, or pass undefined
         isRead={item.isRead}
-        onPress={() => markAsRead(item.id)}
+        onPress={() => {
+          // markAsRead/deleteAlert rethrow on a Supabase failure. Unhandled
+          // here they became unhandled rejections on every tap while offline,
+          // and the tap silently did nothing.
+          void markAsRead(item.id).catch(() => {
+            console.warn('[Alerts] markAsRead failed for', item.id);
+          });
+        }}
         onDismiss={async () => {
-          await deleteAlert(item.id);
+          try {
+            await deleteAlert(item.id);
+          } catch {
+            console.warn('[Alerts] deleteAlert failed for', item.id);
+            return;
+          }
           dismissCountRef.current += 1;
           // Trigger interstitial every 3 dismissals
           if (dismissCountRef.current % 3 === 0) {
-            await showInterstitial();
+            try {
+              await showInterstitial();
+            } catch {
+              console.warn('[Alerts] interstitial failed to show');
+            }
           }
         }}
       />
@@ -58,11 +99,17 @@ export default function AlertsScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={designSystem.colors.background.primary}
+      />
 
       <SafeAreaView style={styles.safeArea} edges={['top']}>
         {/* Header */}
-        <Animated.View entering={FadeInDown.duration(600)} style={styles.header}>
+        <Animated.View
+          entering={FadeInDown.duration(600)}
+          style={styles.header}
+        >
           <View>
             <Text style={styles.headerTitle}>Alerts</Text>
             {unreadCount > 0 && (
@@ -70,16 +117,39 @@ export default function AlertsScreen() {
             )}
           </View>
           {unreadCount > 0 && (
-            <TouchableOpacity onPress={markAllAsRead} style={styles.markAllButton}>
+            <TouchableOpacity
+              onPress={() => {
+                // markAllAsRead rethrows on a Supabase failure. Passing it
+                // straight to onPress returned a rejected promise that nothing
+                // awaited, so an offline tap produced an unhandled rejection.
+                void markAllAsRead().catch(() => {
+                  console.warn('[Alerts] markAllAsRead failed');
+                });
+              }}
+              style={styles.markAllButton}
+            >
               <Check size={18} color={designSystem.colors.status.success} />
               <Text style={styles.markAllText}>Mark all read</Text>
             </TouchableOpacity>
           )}
         </Animated.View>
 
-        {alerts.length === 0 ? (
+        {/* A failed load must read as an error, not as "no alerts yet". */}
+        {alertError && alerts.length === 0 ? (
+          <ErrorState
+            kind="generic"
+            title="Couldn't load your alerts"
+            message={alertError}
+            onRetry={fetchAlerts}
+          />
+        ) : alerts.length === 0 && isLoading ? (
+          <SkeletonAlertCard />
+        ) : alerts.length === 0 ? (
           <View style={styles.emptyState}>
-            <Animated.View entering={FadeInDown.delay(200)} style={styles.emptyIcon}>
+            <Animated.View
+              entering={FadeInDown.delay(200)}
+              style={styles.emptyIcon}
+            >
               <Bell size={40} color={designSystem.colors.text.muted} />
             </Animated.View>
             <Text style={styles.emptyTitle}>No Alerts</Text>

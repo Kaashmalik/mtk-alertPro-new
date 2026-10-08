@@ -1,14 +1,14 @@
-import { forwardRef, useCallback, useState, useEffect } from 'react';
-import {
-  View,
-  TextInput,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  type TextInputProps,
-} from 'react-native';
-import { Eye, EyeOff } from 'lucide-react-native';
 import { designSystem } from '@/theme/design-system';
+import { Eye, EyeOff } from 'lucide-react-native';
+import { forwardRef, useCallback, useEffect, useState } from 'react';
+import {
+  StyleSheet,
+  Text,
+  TextInput,
+  type TextInputProps,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 interface InputProps extends TextInputProps {
   label?: string;
@@ -35,7 +35,7 @@ export const Input = forwardRef<TextInput, InputProps>(
       onBlur,
       ...props
     },
-    ref
+    ref,
   ) => {
     const [isSecure, setIsSecure] = useState(Boolean(secureTextEntry));
     const [isFocused, setIsFocused] = useState(false);
@@ -51,7 +51,7 @@ export const Input = forwardRef<TextInput, InputProps>(
         setIsFocused(true);
         onFocus?.(e);
       },
-      [onFocus]
+      [onFocus],
     );
 
     const handleBlur = useCallback(
@@ -59,7 +59,7 @@ export const Input = forwardRef<TextInput, InputProps>(
         setIsFocused(false);
         onBlur?.(e);
       },
-      [onBlur]
+      [onBlur],
     );
 
     const toggleSecure = useCallback(() => {
@@ -87,6 +87,14 @@ export const Input = forwardRef<TextInput, InputProps>(
             secureTextEntry={secureTextEntry !== undefined ? isSecure : false}
             onFocus={handleFocus}
             onBlur={handleBlur}
+            // The visible label above is not announced by a screen reader, so
+            // every input in the app (login, register, camera add, profile,
+            // password change) was an unlabelled "text field". Bridge them, and
+            // let an explicit accessibilityLabel from the caller win.
+            accessibilityLabel={props.accessibilityLabel ?? label}
+            // A validation error is otherwise visual-only: a screen-reader user
+            // submits an empty field and hears nothing about why.
+            accessibilityHint={error ?? props.accessibilityHint}
           />
           {secureTextEntry ? (
             <TouchableOpacity
@@ -95,6 +103,7 @@ export const Input = forwardRef<TextInput, InputProps>(
               hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
               accessibilityRole="button"
               accessibilityLabel={isSecure ? 'Show password' : 'Hide password'}
+              accessibilityState={{ selected: isSecure }}
             >
               {isSecure ? (
                 <Eye size={20} color={designSystem.colors.text.muted} />
@@ -110,7 +119,7 @@ export const Input = forwardRef<TextInput, InputProps>(
         {error ? <Text style={styles.error}>{error}</Text> : null}
       </View>
     );
-  }
+  },
 );
 
 const styles = StyleSheet.create({

@@ -14,7 +14,18 @@
  * discoverable.
  */
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { listContacts } from '@/lib/emergency/contactService';
+import {
+  type EmergencyState,
+  resolveEmergency,
+  subscribeToEmergency,
+  triggerEmergency,
+} from '@/lib/emergency/emergencyService';
+import { hapticSuccess, hapticWarning } from '@/lib/haptics';
+import { designSystem } from '@/theme/design-system';
+import { router } from 'expo-router';
+import { AlertTriangle, ShieldCheck, X } from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   AccessibilityInfo,
   Alert,
@@ -27,17 +38,6 @@ import {
   Text,
   View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { AlertTriangle, ShieldCheck, X } from 'lucide-react-native';
-import { designSystem } from '@/theme/design-system';
-import {
-  resolveEmergency,
-  subscribeToEmergency,
-  triggerEmergency,
-  type EmergencyState,
-} from '@/lib/emergency/emergencyService';
-import { listContacts } from '@/lib/emergency/contactService';
-import { hapticSuccess, hapticWarning } from '@/lib/haptics';
 
 const HOLD_DURATION_MS = 1500;
 
@@ -47,7 +47,10 @@ interface EmergencyButtonProps {
   size?: 'sm' | 'md' | 'lg';
 }
 
-export function EmergencyButton({ cameraName, size = 'md' }: EmergencyButtonProps) {
+export function EmergencyButton({
+  cameraName,
+  size = 'md',
+}: EmergencyButtonProps) {
   const [holding, setHolding] = useState(false);
   const [emergency, setEmergency] = useState<EmergencyState | null>(null);
   const [reduceMotion, setReduceMotion] = useState(false);
@@ -60,7 +63,9 @@ export function EmergencyButton({ cameraName, size = 'md' }: EmergencyButtonProp
   const hasWarnedNoContacts = useRef(false);
 
   useEffect(() => {
-    AccessibilityInfo.isReduceMotionEnabled().then(setReduceMotion).catch(() => {});
+    AccessibilityInfo.isReduceMotionEnabled()
+      .then(setReduceMotion)
+      .catch(() => {});
 
     // Screen-reader state must be read from its own signal. It is unrelated to
     // reduce-motion, and using reduce-motion as a proxy meant a screen-reader
@@ -72,11 +77,11 @@ export function EmergencyButton({ cameraName, size = 'md' }: EmergencyButtonProp
 
     const screenReaderSub = AccessibilityInfo.addEventListener(
       'screenReaderChanged',
-      setScreenReaderEnabled
+      setScreenReaderEnabled,
     );
     const reduceMotionSub = AccessibilityInfo.addEventListener(
       'reduceMotionChanged',
-      setReduceMotion
+      setReduceMotion,
     );
 
     const unsubscribeEmergency = subscribeToEmergency(setEmergency);
@@ -117,8 +122,11 @@ export function EmergencyButton({ cameraName, size = 'md' }: EmergencyButtonProp
         'Nobody will be messaged when you raise an SOS. Add a contact so someone else is told.',
         [
           { text: 'Not now', style: 'cancel' },
-          { text: 'Add contact', onPress: () => router.push('/settings/emergency-contacts') },
-        ]
+          {
+            text: 'Add contact',
+            onPress: () => router.push('/settings/emergency-contacts'),
+          },
+        ],
       );
     } catch {
       // Ignore: the SOS is already in flight.
@@ -127,11 +135,15 @@ export function EmergencyButton({ cameraName, size = 'md' }: EmergencyButtonProp
 
   useEffect(() => clearHold, [clearHold]);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: stable callbacks
   const activate = useCallback(() => {
     setHolding(false);
     clearHold();
     hapticWarning();
-    void triggerEmergency('manual', { cameraName, note: 'Emergency button pressed' });
+    void triggerEmergency('manual', {
+      cameraName,
+      note: 'Emergency button pressed',
+    });
     // The SOS must never be blocked by this check. But an SOS with no trusted
     // contact is a siren nobody hears, so warn once per mount and point at the
     // screen that fixes it.
@@ -184,7 +196,9 @@ export function EmergencyButton({ cameraName, size = 'md' }: EmergencyButtonProp
         onPressOut={onPressOut}
         accessibilityRole="button"
         accessibilityLabel={
-          isActive ? 'Emergency active. Double tap to stop the alarm.' : 'Emergency SOS. Activate alarm'
+          isActive
+            ? 'Emergency active. Double tap to stop the alarm.'
+            : 'Emergency SOS. Activate alarm'
         }
         accessibilityHint={
           instantActivate
@@ -259,7 +273,8 @@ function EmergencyActiveModal({
       setElapsed(0);
       return;
     }
-    const tick = () => setElapsed(Math.floor((Date.now() - startedAt.getTime()) / 1000));
+    const tick = () =>
+      setElapsed(Math.floor((Date.now() - startedAt.getTime()) / 1000));
     tick();
     const id = setInterval(tick, 1000);
     return () => clearInterval(id);
@@ -277,7 +292,11 @@ function EmergencyActiveModal({
       onRequestClose={onResolve}
     >
       <View style={styles.modalBackdrop}>
-        <View style={styles.modalCard} accessibilityViewIsModal accessibilityLiveRegion="assertive">
+        <View
+          style={styles.modalCard}
+          accessibilityViewIsModal
+          accessibilityLiveRegion="assertive"
+        >
           <View style={styles.modalIconWrap}>
             <AlertTriangle size={40} color="#FFFFFF" strokeWidth={2.5} />
           </View>
@@ -286,11 +305,15 @@ function EmergencyActiveModal({
             Emergency Active
           </Text>
           <Text style={styles.modalBody}>
-            The alarm is sounding at full volume and continues until you stop it.
+            The alarm is sounding at full volume and continues until you stop
+            it.
           </Text>
 
           <View style={styles.timerRow}>
-            <Text style={styles.timer} accessibilityLabel={`Elapsed ${minutes} minutes ${seconds} seconds`}>
+            <Text
+              style={styles.timer}
+              accessibilityLabel={`Elapsed ${minutes} minutes ${seconds} seconds`}
+            >
               {minutes}:{String(seconds).padStart(2, '0')}
             </Text>
           </View>
@@ -299,7 +322,10 @@ function EmergencyActiveModal({
             onPress={onResolve}
             accessibilityRole="button"
             accessibilityLabel="Stop the emergency alarm"
-            style={({ pressed }) => [styles.resolveButton, pressed && styles.buttonPressed]}
+            style={({ pressed }) => [
+              styles.resolveButton,
+              pressed && styles.buttonPressed,
+            ]}
           >
             <ShieldCheck size={22} color="#FFFFFF" strokeWidth={2.5} />
             <Text style={styles.resolveButtonText}>Stop Alarm</Text>
@@ -373,7 +399,9 @@ const styles = StyleSheet.create({
     color: designSystem.colors.text.secondary,
     fontSize: designSystem.typography.size.base,
     textAlign: 'center',
-    lineHeight: designSystem.typography.size.base * designSystem.typography.lineHeight.normal,
+    lineHeight:
+      designSystem.typography.size.base *
+      designSystem.typography.lineHeight.normal,
   },
   timerRow: {
     marginVertical: 20,

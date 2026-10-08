@@ -20,6 +20,19 @@ process.env.EXPO_PUBLIC_SUPABASE_ANON_KEY = 'mock-anon-key';
 process.env.EXPO_PUBLIC_APP_ENV = 'test';
 
 // ============================================================================
+// Timer hygiene
+// ============================================================================
+// A scheduled-but-uncleared interval or timeout keeps a jest worker's event
+// loop alive, so the worker is force-exited at the end of a run and the run
+// reports "a worker failed to exit gracefully". Clearing pending timers after
+// every test guarantees that a test which forgets to dispose a timer cannot
+// leak a handle, now or in any test added later. This is belt-and-braces on
+// top of the per-test dispose()/unmount() calls, not a replacement for them.
+afterEach(() => {
+  jest.clearAllTimers();
+});
+
+// ============================================================================
 // Global Mocks
 // ============================================================================
 
@@ -33,7 +46,9 @@ const mockFileSystem = {
   deleteAsync: jest.fn().mockResolvedValue(undefined),
   makeDirectoryAsync: jest.fn().mockResolvedValue(undefined),
   readDirectoryAsync: jest.fn().mockResolvedValue([]),
-  downloadAsync: jest.fn().mockResolvedValue({ status: 200, uri: '/mock/file.mp4' }),
+  downloadAsync: jest
+    .fn()
+    .mockResolvedValue({ status: 200, uri: '/mock/file.mp4' }),
   EncodingType: {
     UTF8: 'utf8',
     Base64: 'base64',
@@ -58,7 +73,9 @@ beforeEach(() => {
 });
 jest.mock('@react-native-async-storage/async-storage', () => {
   const mockStorage = {
-    getItem: jest.fn((key: string) => Promise.resolve(mockAsyncStorageStore[key] ?? null)),
+    getItem: jest.fn((key: string) =>
+      Promise.resolve(mockAsyncStorageStore[key] ?? null),
+    ),
     setItem: jest.fn((key: string, value: string) => {
       mockAsyncStorageStore[key] = value;
       return Promise.resolve(null);
@@ -73,8 +90,12 @@ jest.mock('@react-native-async-storage/async-storage', () => {
       }
       return Promise.resolve(null);
     }),
-    getAllKeys: jest.fn(() => Promise.resolve(Object.keys(mockAsyncStorageStore))),
-    multiGet: jest.fn((keys: string[]) => Promise.resolve(keys.map((k) => [k, mockAsyncStorageStore[k] ?? null]))),
+    getAllKeys: jest.fn(() =>
+      Promise.resolve(Object.keys(mockAsyncStorageStore)),
+    ),
+    multiGet: jest.fn((keys: string[]) =>
+      Promise.resolve(keys.map((k) => [k, mockAsyncStorageStore[k] ?? null])),
+    ),
     multiSet: jest.fn((keyValuePairs: [string, string][]) => {
       keyValuePairs.forEach(([k, v]) => {
         mockAsyncStorageStore[k] = v;
@@ -100,11 +121,17 @@ jest.mock('expo-notifications', () => ({
   requestPermissionsAsync: jest.fn().mockResolvedValue({ status: 'granted' }),
   getExpoPushTokenAsync: jest.fn().mockResolvedValue({ data: 'mock-token' }),
   setNotificationChannelAsync: jest.fn().mockResolvedValue(undefined),
-  scheduleNotificationAsync: jest.fn().mockResolvedValue('mock-notification-id'),
+  scheduleNotificationAsync: jest
+    .fn()
+    .mockResolvedValue('mock-notification-id'),
   cancelAllScheduledNotificationsAsync: jest.fn().mockResolvedValue(undefined),
   setBadgeCountAsync: jest.fn().mockResolvedValue(undefined),
-  addNotificationReceivedListener: jest.fn().mockReturnValue({ remove: jest.fn() }),
-  addNotificationResponseReceivedListener: jest.fn().mockReturnValue({ remove: jest.fn() }),
+  addNotificationReceivedListener: jest
+    .fn()
+    .mockReturnValue({ remove: jest.fn() }),
+  addNotificationResponseReceivedListener: jest
+    .fn()
+    .mockReturnValue({ remove: jest.fn() }),
   setNotificationHandler: jest.fn(),
   getNotificationChannelsAsync: jest.fn().mockResolvedValue([]),
   deleteNotificationChannelAsync: jest.fn().mockResolvedValue(undefined),
@@ -128,7 +155,9 @@ jest.mock('expo-av', () => ({
           unloadAsync: jest.fn().mockResolvedValue(undefined),
           setVolumeAsync: jest.fn().mockResolvedValue(undefined),
           setIsMutedAsync: jest.fn().mockResolvedValue(undefined),
-          getStatusAsync: jest.fn().mockResolvedValue({ isLoaded: true, isPlaying: false }),
+          getStatusAsync: jest
+            .fn()
+            .mockResolvedValue({ isLoaded: true, isPlaying: false }),
         },
         status: { isLoaded: true },
       }),
@@ -191,7 +220,7 @@ jest.mock('@react-native-community/netinfo', () => {
     vpn: 'vpn',
     other: 'other',
   };
-  
+
   return {
     fetch: jest.fn().mockResolvedValue({
       isConnected: true,
@@ -231,7 +260,10 @@ jest.mock('@tensorflow/tfjs', () => ({
   setBackend: jest.fn().mockResolvedValue(undefined),
   loadGraphModel: jest.fn().mockResolvedValue({
     executeAsync: jest.fn().mockResolvedValue([
-      { array: jest.fn().mockResolvedValue([[[0.1, 0.1, 0.9, 0.9]]]), dispose: jest.fn() },
+      {
+        array: jest.fn().mockResolvedValue([[[0.1, 0.1, 0.9, 0.9]]]),
+        dispose: jest.fn(),
+      },
       { array: jest.fn().mockResolvedValue([[0]]), dispose: jest.fn() },
       { array: jest.fn().mockResolvedValue([[0.85]]), dispose: jest.fn() },
       { data: jest.fn().mockResolvedValue([1]), dispose: jest.fn() },
@@ -240,12 +272,12 @@ jest.mock('@tensorflow/tfjs', () => ({
   }),
   zeros: jest.fn().mockReturnValue({ dispose: jest.fn() }),
   image: {
-    resizeBilinear: jest.fn().mockReturnValue({ 
-      div: jest.fn().mockReturnValue({ 
+    resizeBilinear: jest.fn().mockReturnValue({
+      div: jest.fn().mockReturnValue({
         expandDims: jest.fn().mockReturnValue({ dispose: jest.fn() }),
-        dispose: jest.fn() 
+        dispose: jest.fn(),
       }),
-      dispose: jest.fn() 
+      dispose: jest.fn(),
     }),
   },
   util: {
@@ -280,7 +312,9 @@ jest.mock('@/lib/supabase/client', () => ({
         },
         error: null,
       }),
-      signInWithPassword: jest.fn().mockResolvedValue({ data: {}, error: null }),
+      signInWithPassword: jest
+        .fn()
+        .mockResolvedValue({ data: {}, error: null }),
       signUp: jest.fn().mockResolvedValue({ data: {}, error: null }),
       signOut: jest.fn().mockResolvedValue({ error: null }),
     },
@@ -296,7 +330,9 @@ jest.mock('@/lib/supabase/client', () => ({
     storage: {
       from: jest.fn().mockReturnValue({
         upload: jest.fn().mockResolvedValue({ data: {}, error: null }),
-        getPublicUrl: jest.fn().mockReturnValue({ data: { publicUrl: 'https://example.com/file.mp4' } }),
+        getPublicUrl: jest.fn().mockReturnValue({
+          data: { publicUrl: 'https://example.com/file.mp4' },
+        }),
         remove: jest.fn().mockResolvedValue({ data: {}, error: null }),
       }),
     },
@@ -327,7 +363,7 @@ global.fetch = jest.fn().mockImplementation(() =>
     status: 200,
     json: () => Promise.resolve({}),
     text: () => Promise.resolve(''),
-  })
+  }),
 );
 
 // Mock console.error to fail tests on unexpected errors
@@ -352,15 +388,15 @@ console.error = (...args) => {
  */
 export async function waitFor(
   condition: () => boolean,
-  timeout: number = 5000
+  timeout = 5000,
 ): Promise<void> {
   const startTime = Date.now();
-  
+
   while (!condition()) {
     if (Date.now() - startTime > timeout) {
       throw new Error('waitFor timeout');
     }
-    await new Promise(resolve => setTimeout(resolve, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
   }
 }
 
@@ -409,4 +445,3 @@ export function createMockAlert(overrides = {}) {
 
 // Export for use in tests
 export { originalError };
-

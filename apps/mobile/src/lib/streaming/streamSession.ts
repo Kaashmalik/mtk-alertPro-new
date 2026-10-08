@@ -2,8 +2,12 @@
  * Unified stream session: register → prefer HLS (WebRTC cached) → reconnect backoff → unregister
  */
 
-import { streamingService, type StreamUrls, type StreamStatus } from './streamingService';
 import { isDirectHttpStream } from '@/lib/camera/protocol';
+import {
+  type StreamStatus,
+  type StreamUrls,
+  streamingService,
+} from './streamingService';
 
 export type StreamSessionState =
   | 'idle'
@@ -77,7 +81,7 @@ export class StreamSession {
     if (!healthy) {
       this.setState('server_unavailable');
       this.opts.onError?.(
-        'Media server unavailable. Start MediaMTX + API or set EXPO_PUBLIC_MEDIA_SERVER_URL.'
+        'Media server unavailable. Start MediaMTX + API or set EXPO_PUBLIC_MEDIA_SERVER_URL.',
       );
       this.scheduleRetry();
       return null;
@@ -86,7 +90,7 @@ export class StreamSession {
     const registration = await streamingService.registerCamera(
       this.opts.cameraId,
       this.opts.rtspUrl,
-      this.opts.userId
+      this.opts.userId,
     );
 
     if (!registration.success || !registration.streams) {
@@ -98,11 +102,17 @@ export class StreamSession {
     }
 
     this.urls = registration.streams;
-    streamingService.cachePreferredStreams(this.opts.cameraId, registration.streams);
+    streamingService.cachePreferredStreams(
+      this.opts.cameraId,
+      registration.streams,
+    );
     this.opts.onUrls?.(registration.streams);
 
     try {
-      const status = await streamingService.getStreamStatus(this.opts.cameraId, false);
+      const status = await streamingService.getStreamStatus(
+        this.opts.cameraId,
+        false,
+      );
       this.opts.onStatus?.(status);
     } catch {
       // ignore
@@ -120,13 +130,16 @@ export class StreamSession {
       return;
     }
 
-    const delay = (this.opts.baseDelayMs ?? 2000) * Math.pow(2, this.retryCount);
+    const delay = (this.opts.baseDelayMs ?? 2000) * 2 ** this.retryCount;
     this.retryCount += 1;
     this.setState('reconnecting');
 
-    this.retryTimer = setTimeout(() => {
-      void this.start();
-    }, Math.min(delay, 30000));
+    this.retryTimer = setTimeout(
+      () => {
+        void this.start();
+      },
+      Math.min(delay, 30000),
+    );
   }
 
   async retryNow(): Promise<string | null> {
@@ -144,7 +157,9 @@ export class StreamSession {
       this.retryTimer = null;
     }
     if (!isDirectHttpStream(this.opts.rtspUrl)) {
-      await streamingService.unregisterCamera(this.opts.cameraId).catch(() => {});
+      await streamingService
+        .unregisterCamera(this.opts.cameraId)
+        .catch(() => {});
     }
     this.setState('idle');
   }

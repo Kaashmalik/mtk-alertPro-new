@@ -29,7 +29,28 @@ export default [
     },
     rules: {
       ...tseslint.configs.recommended.rules,
-      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_' }],
+      // Unused catch bindings are idiomatic (`catch (error) { ...log... }` where
+      // the binding is only logged, or intentionally ignored). typescript-eslint
+      // upstream's recommended preset uses caughtErrors:'none'; match that so we
+      // don't flag intentional error handling.
+      // varsIgnorePattern covers the destructuring-to-omit idiom
+      // (`const { password: _dropped, ...rest } = data`), which is how this
+      // codebase strips a field without a `delete`.
+      '@typescript-eslint/no-unused-vars': [
+        'warn',
+        {
+          argsIgnorePattern: '^_',
+          varsIgnorePattern: '^_',
+          caughtErrors: 'none',
+        },
+      ],
+      // `any` is used deliberately at the native/optional-dependency bridges
+      // (react-native-permissions, AdMob, RevenueCat, VLC, ffmpeg) whose
+      // modules ship no usable types or are absent in Expo Go / tests, and for
+      // the common `style?: any` React Native prop. Forcing `unknown` there
+      // would mean inventing types for modules we do not control. This stays a
+      // warning (never an error) so it informs refactors without blocking the
+      // build; new `any` in first-party domain code should still be avoided.
       '@typescript-eslint/no-explicit-any': 'warn',
       '@typescript-eslint/explicit-module-boundary-types': 'off',
       // The app logs subsystem state (alarms, detection, streaming, ads) on
@@ -49,9 +70,9 @@ export default [
   {
     files: ['**/*.ts', '**/*.tsx'],
     rules: Object.fromEntries(
-      Object.entries(tseslint.configs['eslint-recommended'].overrides[0].rules).map(
-        ([rule]) => [rule, 'off']
-      )
+      Object.entries(
+        tseslint.configs['eslint-recommended'].overrides[0].rules,
+      ).map(([rule]) => [rule, 'off']),
     ),
   },
   {

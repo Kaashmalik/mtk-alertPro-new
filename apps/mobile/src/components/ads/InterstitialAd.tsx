@@ -1,123 +1,141 @@
 import { useEffect, useRef, useState } from 'react';
-import { Platform } from 'react-native';
+
 import { adMobService } from '@/lib/ads/adMobService';
 
-import { RNInterstitialAd as InterstitialAd, RNAdEventType as AdEventType, RNTestIds as TestIds } from '../../lib/ads/admob-proxy';
+import {
+  RNAdEventType as AdEventType,
+  RNInterstitialAd as InterstitialAd,
+} from '../../lib/ads/admob-proxy';
 
 /**
  * Interstitial Ad Hook
  * Manages loading and showing full-screen interstitial ads
- * 
+ *
  * Usage:
  * const { show, isLoaded } = useInterstitialAd();
- * 
+ *
  * // Show ad when appropriate
  * if (isLoaded) {
  *   await show();
  * }
  */
 export const useInterstitialAd = () => {
-    const adRef = useRef<typeof InterstitialAd | null>(null);
-    const [isLoaded, setIsLoaded] = useState(false);
+  const adRef = useRef<typeof InterstitialAd | null>(null);
+  const [isLoaded, setIsLoaded] = useState(false);
 
-    useEffect(() => {
-        // Don't load ads if native module is missing or for premium users
-        if (!adMobService.isNativeAvailable() || !adMobService.shouldShowAds()) {
-            return;
-        }
+  useEffect(() => {
+    // Don't load ads if native module is missing or for premium users
+    if (!adMobService.isNativeAvailable() || !adMobService.shouldShowAds()) {
+      return;
+    }
 
-        // Create interstitial ad instance
-        const interstitial = InterstitialAd.createForAdRequest(
-            adMobService.getAdUnitId('interstitial'),
-            {
-                ...adMobService.getRequestOptions(),
-            }
-        );
+    // The proxy exports are `null` when the native module is unavailable, so
+    // touching them without this check throws inside the effect.
+    if (!InterstitialAd || !AdEventType) {
+      console.warn('[Interstitial] Native module present but exports missing');
+      return;
+    }
 
-        // Ad loaded successfully
-        const loadedListener = interstitial.addAdEventListener(
-            AdEventType.LOADED,
-            () => {
-                setIsLoaded(true);
-                console.log('[Interstitial] Ad loaded and ready');
-            }
-        );
+    let interstitial: ReturnType<typeof InterstitialAd.createForAdRequest>;
+    try {
+      // Create interstitial ad instance
+      interstitial = InterstitialAd.createForAdRequest(
+        adMobService.getAdUnitId('interstitial'),
+        {
+          ...adMobService.getRequestOptions(),
+        },
+      );
+    } catch (error) {
+      console.error('[Interstitial] createForAdRequest failed:', error);
+      return;
+    }
 
-        // Ad closed by user
-        const closedListener = interstitial.addAdEventListener(
-            AdEventType.CLOSED,
-            () => {
-                setIsLoaded(false);
-                adMobService.recordInterstitialShown();
-                console.log('[Interstitial] Ad closed, preloading next ad');
+    // Ad loaded successfully
+    const loadedListener = interstitial.addAdEventListener(
+      AdEventType.LOADED,
+      () => {
+        setIsLoaded(true);
+        console.log('[Interstitial] Ad loaded and ready');
+      },
+    );
 
-                // Preload next ad
-                setTimeout(() => {
-                    interstitial.load();
-                }, 1000);
-            }
-        );
+    // Ad closed by user
+    const closedListener = interstitial.addAdEventListener(
+      AdEventType.CLOSED,
+      () => {
+        setIsLoaded(false);
+        adMobService.recordInterstitialShown();
+        console.log('[Interstitial] Ad closed, preloading next ad');
 
-        // Ad failed to load
-        const errorListener = interstitial.addAdEventListener(
-            AdEventType.ERROR,
-            (error: any) => {
-                setIsLoaded(false);
-                console.error('[Interstitial] Ad error:', error);
-            }
-        );
+        // Preload next ad
+        setTimeout(() => {
+          interstitial.load();
+        }, 1000);
+      },
+    );
 
-        // Load the ad
-        interstitial.load();
-        adRef.current = interstitial;
+    // Ad failed to load
+    const errorListener = interstitial.addAdEventListener(
+      AdEventType.ERROR,
+      (error: any) => {
+        setIsLoaded(false);
+        console.error('[Interstitial] Ad error:', error);
+      },
+    );
 
-        // Cleanup
-        return () => {
-            loadedListener();
-            closedListener();
-            errorListener();
-        };
-    }, []);
+    // Load the ad
+    interstitial.load();
+    adRef.current = interstitial;
 
-    /**
-     * Show the interstitial ad
-     * Returns true if ad was shown, false otherwise
-     */
-    const show = async (): Promise<boolean> => {
-        // Check if ads should be shown
-        if (!adMobService.shouldShowAds()) {
-            console.log('[Interstitial] Skipped: Premium user');
-            return false;
-        }
-
-        // Check frequency caps
-        if (!adMobService.canShowInterstitial()) {
-            console.log('[Interstitial] Skipped: Frequency cap limit');
-            return false;
-        }
-
-        // Check if native module is available
-        if (!adMobService.isNativeAvailable()) {
-            console.log('[Interstitial] Mock: Native module missing, continuing without ad');
-            return true; // Return true to not block the app flow
-        }
-
-        // Check if ad is loaded
-        if (!isLoaded || !adRef.current) {
-            console.log('[Interstitial] Skipped: Ad not loaded');
-            return false;
-        }
-
-        try {
-            await adRef.current.show();
-            console.log('[Interstitial] Ad shown successfully');
-            return true;
-        } catch (error) {
-            console.error('[Interstitial] Failed to show ad:', error);
-            setIsLoaded(false);
-            return false;
-        }
+    // Cleanup
+    return () => {
+      loadedListener();
+      closedListener();
+      errorListener();
     };
+  }, []);
 
-    return { show, isLoaded };
+  /**
+   * Show the interstitial ad
+   * Returns true if ad was shown, false otherwise
+   */
+  const show = async (): Promise<boolean> => {
+    // Check if ads should be shown
+    if (!adMobService.shouldShowAds()) {
+      console.log('[Interstitial] Skipped: Premium user');
+      return false;
+    }
+
+    // Check frequency caps
+    if (!adMobService.canShowInterstitial()) {
+      console.log('[Interstitial] Skipped: Frequency cap limit');
+      return false;
+    }
+
+    // Check if native module is available
+    if (!adMobService.isNativeAvailable()) {
+      console.log(
+        '[Interstitial] Mock: Native module missing, continuing without ad',
+      );
+      return true; // Return true to not block the app flow
+    }
+
+    // Check if ad is loaded
+    if (!isLoaded || !adRef.current) {
+      console.log('[Interstitial] Skipped: Ad not loaded');
+      return false;
+    }
+
+    try {
+      await adRef.current.show();
+      console.log('[Interstitial] Ad shown successfully');
+      return true;
+    } catch (error) {
+      console.error('[Interstitial] Failed to show ad:', error);
+      setIsLoaded(false);
+      return false;
+    }
+  };
+
+  return { show, isLoaded };
 };

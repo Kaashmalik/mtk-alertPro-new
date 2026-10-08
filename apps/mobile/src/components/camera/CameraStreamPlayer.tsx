@@ -1,54 +1,62 @@
 /**
  * Enhanced Camera Stream Player Component
  * Features: HLS playback, zoom controls, screenshot, recording, sharing
- * 
+ *
  * @module components/camera/CameraStreamPlayer
  */
 
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { MjpegStreamPlayer } from '@/components/camera/MjpegStreamPlayer';
 import {
-  View,
-  TouchableOpacity,
-  Text,
-  StyleSheet,
+  getEffectiveQuality,
+  useNetworkStatus,
+} from '@/hooks/useNetworkStatus';
+import { cameraMediaService } from '@/lib/camera/cameraMediaService';
+import { isDirectHttpStream } from '@/lib/camera/protocol';
+import { maskRtspUrl } from '@/lib/camera/rtspHelper';
+import {
+  type StreamStatus,
+  streamingService,
+} from '@/lib/streaming/streamingService';
+import { isTierActive } from '@/lib/subscription/planLimits';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import { type AVPlaybackStatus, ResizeMode, Video } from 'expo-av';
+import {
+  Camera,
+  Maximize2,
+  Pause,
+  Play,
+  RefreshCw,
+  RotateCcw,
+  Share2,
+  Video as VideoIcon,
+  Volume2,
+  VolumeX,
+  WifiOff,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
   ActivityIndicator,
   Alert,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { Video, ResizeMode, AVPlaybackStatus } from 'expo-av';
-import Animated, {
-  useSharedValue,
-  useAnimatedStyle,
-  withSpring,
-  withTiming,
-} from 'react-native-reanimated';
 import {
   Gesture,
   GestureDetector,
   GestureHandlerRootView,
 } from 'react-native-gesture-handler';
-import {
-  Play,
-  Pause,
-  Volume2,
-  VolumeX,
-  Maximize2,
-  RefreshCw,
-  WifiOff,
-  Camera,
-  Video as VideoIcon,
-  Share2,
-  ZoomIn,
-  ZoomOut,
-  RotateCcw,
-} from 'lucide-react-native';
-import { streamingService, StreamStatus } from '@/lib/streaming/streamingService';
-import { cameraMediaService } from '@/lib/camera/cameraMediaService';
-import { isDirectHttpStream } from '@/lib/camera/protocol';
-import { maskRtspUrl } from '@/lib/camera/rtspHelper';
-import { MjpegStreamPlayer } from '@/components/camera/MjpegStreamPlayer';
-import { logError } from '@/lib/utils/errorHandler';
-import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
+import Animated, {
+  useSharedValue,
+  useAnimatedStyle,
+  withSpring,
+} from 'react-native-reanimated';
+
 import { hapticNotification } from '@/lib/haptics';
+import { borderRadius, colors, fontSize, spacing } from '@/lib/theme';
 
 // ============================================================================
 // Types
@@ -86,7 +94,6 @@ interface CameraStreamPlayerProps {
 // ============================================================================
 
 const MAX_RETRIES = 3;
-const RETRY_DELAY = 2000;
 const MIN_ZOOM = 1;
 const MAX_ZOOM = 4;
 const CONTROLS_HIDE_DELAY = 5000;
@@ -134,19 +141,23 @@ function HlsCameraStreamPlayer({
   onError,
   onStreamReady,
   onStateChange,
-  onScreenshot,
 }: CameraStreamPlayerProps) {
   // Refs
   const videoRef = useRef<Video>(null);
   const containerRef = useRef<View>(null);
-  const statusCheckInterval = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statusCheckInterval = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
   const retryTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
   const controlsTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const recordTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // State
   const [playerState, setPlayerState] = useState<PlayerState>('idle');
   const [hlsUrl, setHlsUrl] = useState<string | null>(null);
-  const [preferredProtocol, setPreferredProtocol] = useState<'webrtc' | 'hls'>('hls');
+  const [preferredProtocol, setPreferredProtocol] = useState<'webrtc' | 'hls'>(
+    'hls',
+  );
   const [isMuted, setIsMuted] = useState(false);
   const [streamStatus, setStreamStatus] = useState<StreamStatus | null>(null);
   const [retryCount, setRetryCount] = useState(0);
@@ -156,11 +167,31 @@ function HlsCameraStreamPlayer({
   const [recordingDuration, setRecordingDuration] = useState(0);
   const [zoomLevel, setZoomLevel] = useState(1);
 
+  // Mirrors isRecording for the 60s auto-stop timer, which fires long after the
+  // render that scheduled it. Reading the state directly there would see a
+  // stale `false` and never stop the clip.
+  const isRecordingRef = useRef(false);
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
+
+  // Stream resolution is the lower of what the connection can sustain and what
+  // the plan entitles the user to, so the paywall's "HD"/"1080p" claim is
+  // actually applied when the camera is registered with the media server.
+  //
+  // Both tier and expiry are read: getPlanLimits() keys off the tier string
+  // alone, so passing a raw 'pro' would hand a lapsed subscriber the Pro
+  // resolution until the next re-hydration.
+  const currentTier = useSubscriptionStore((state) => state.currentTier);
+  const expiresAt = useSubscriptionStore((state) => state.expiresAt);
+  const effectiveTier = isTierActive(currentTier, expiresAt)
+    ? currentTier
+    : 'free';
+  const networkStatus = useNetworkStatus();
+
   // Animated values for zoom
   const scale = useSharedValue(1);
   const savedScale = useSharedValue(1);
-  const focalX = useSharedValue(0);
-  const focalY = useSharedValue(0);
   const translateX = useSharedValue(0);
   const translateY = useSharedValue(0);
 
@@ -168,10 +199,13 @@ function HlsCameraStreamPlayer({
   // State Management
   // =========================================================================
 
-  const updateState = useCallback((newState: PlayerState) => {
-    setPlayerState(newState);
-    onStateChange?.(newState);
-  }, [onStateChange]);
+  const updateState = useCallback(
+    (newState: PlayerState) => {
+      setPlayerState(newState);
+      onStateChange?.(newState);
+    },
+    [onStateChange],
+  );
 
   // =========================================================================
   // Stream Initialization
@@ -193,14 +227,21 @@ function HlsCameraStreamPlayer({
         return;
       }
 
+      const effectiveQuality = getEffectiveQuality(
+        networkStatus,
+        effectiveTier,
+      );
+
       const registration = await streamingService.registerCamera(
         cameraId,
         rtspUrl,
-        userId
+        userId,
+        effectiveQuality,
       );
 
       if (!registration.success || !registration.streams) {
-        const msg = registration.error || 'Failed to register camera with media server';
+        const msg =
+          registration.error || 'Failed to register camera with media server';
         setErrorMessage(msg);
         updateState('error');
         onError?.(msg);
@@ -237,7 +278,18 @@ function HlsCameraStreamPlayer({
       updateState('server_unavailable');
       onError?.(msg);
     }
-  }, [cameraId, rtspUrl, userId, autoPlay, onStreamReady, onError, updateState, retryCount]);
+  }, [
+    cameraId,
+    rtspUrl,
+    userId,
+    autoPlay,
+    onStreamReady,
+    onError,
+    updateState,
+    retryCount,
+    effectiveTier,
+    networkStatus,
+  ]);
 
   // =========================================================================
   // Cleanup
@@ -259,10 +311,16 @@ function HlsCameraStreamPlayer({
       controlsTimeout.current = null;
     }
 
-    streamingService.unregisterCamera(cameraId).catch(() => { });
+    if (recordTimeout.current) {
+      clearTimeout(recordTimeout.current);
+      recordTimeout.current = null;
+    }
+
+    streamingService.unregisterCamera(cameraId).catch(() => {});
   }, [cameraId]);
 
   // Initialize on mount
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     initializeStream();
     return () => cleanup();
@@ -287,7 +345,7 @@ function HlsCameraStreamPlayer({
     let timer: ReturnType<typeof setInterval> | undefined;
     if (isRecording) {
       timer = setInterval(() => {
-        setRecordingDuration(prev => prev + 1);
+        setRecordingDuration((prev) => prev + 1);
       }, 1000);
     }
     return () => {
@@ -299,28 +357,31 @@ function HlsCameraStreamPlayer({
   // Playback Controls
   // =========================================================================
 
-  const handlePlaybackStatusUpdate = useCallback((status: AVPlaybackStatus) => {
-    if (!status.isLoaded) {
-      if (status.error) {
-        console.error('[CameraStreamPlayer] Playback error:', status.error);
-        if (retryCount < MAX_RETRIES) {
-          handleRetry();
-        } else {
-          updateState('error');
-          onError?.(status.error);
+  const handlePlaybackStatusUpdate = useCallback(
+    (status: AVPlaybackStatus) => {
+      if (!status.isLoaded) {
+        if (status.error) {
+          console.error('[CameraStreamPlayer] Playback error:', status.error);
+          if (retryCount < MAX_RETRIES) {
+            handleRetry();
+          } else {
+            updateState('error');
+            onError?.(status.error);
+          }
         }
+        return;
       }
-      return;
-    }
 
-    if (status.isBuffering) {
-      updateState('buffering');
-    } else if (status.isPlaying) {
-      updateState('playing');
-    } else {
-      updateState('paused');
-    }
-  }, [retryCount, onError, updateState]);
+      if (status.isBuffering) {
+        updateState('buffering');
+      } else if (status.isPlaying) {
+        updateState('playing');
+      } else {
+        updateState('paused');
+      }
+    },
+    [retryCount, onError, updateState],
+  );
 
   const handlePlayPause = async () => {
     if (!videoRef.current) return;
@@ -353,11 +414,11 @@ function HlsCameraStreamPlayer({
   };
 
   const handleRetry = async () => {
-    setRetryCount(prev => prev + 1);
+    setRetryCount((prev) => prev + 1);
     updateState('connecting');
 
     await streamingService.unregisterCamera(cameraId);
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    await new Promise((resolve) => setTimeout(resolve, 2000));
     await initializeStream();
   };
 
@@ -431,10 +492,10 @@ function HlsCameraStreamPlayer({
       // Limit translation based on zoom level
       const maxTranslate = (savedScale.value - 1) * 100;
       translateX.value = withSpring(
-        Math.max(-maxTranslate, Math.min(translateX.value, maxTranslate))
+        Math.max(-maxTranslate, Math.min(translateX.value, maxTranslate)),
       );
       translateY.value = withSpring(
-        Math.max(-maxTranslate, Math.min(translateY.value, maxTranslate))
+        Math.max(-maxTranslate, Math.min(translateY.value, maxTranslate)),
       );
     });
 
@@ -445,7 +506,11 @@ function HlsCameraStreamPlayer({
       handleZoomReset();
     });
 
-  const composedGesture = Gesture.Simultaneous(pinchGesture, panGesture, doubleTapGesture);
+  const composedGesture = Gesture.Simultaneous(
+    pinchGesture,
+    panGesture,
+    doubleTapGesture,
+  );
 
   const animatedVideoStyle = useAnimatedStyle(() => ({
     transform: [
@@ -465,7 +530,7 @@ function HlsCameraStreamPlayer({
 
     const success = await cameraMediaService.captureAndSaveToGallery(
       containerRef,
-      cameraName
+      cameraName,
     );
 
     if (success) {
@@ -490,20 +555,29 @@ function HlsCameraStreamPlayer({
       setRecordingDuration(0);
 
       // Capture final frame as "video clip"
-      cameraMediaService.captureAndSaveToGallery(containerRef, cameraName).then((success) => {
-        if (success) {
-          Alert.alert('🎬 Recording Saved', `${duration}s clip captured`);
-        }
-      });
+      cameraMediaService
+        .captureAndSaveToGallery(containerRef, cameraName)
+        .then((success) => {
+          if (success) {
+            Alert.alert('🎬 Recording Saved', `${duration}s clip captured`);
+          }
+        });
     } else {
       // Start recording
       setIsRecording(true);
       setRecordingDuration(0);
       cameraMediaService.startRecording();
 
-      // Auto-stop after 60 seconds
-      setTimeout(() => {
-        if (isRecording) {
+      // Auto-stop after 60 seconds. The handle is retained so cleanup() can
+      // cancel it, and the guard reads a ref rather than the `isRecording`
+      // captured in this render (which is always false here, making the
+      // auto-stop a no-op that still held a live 60s timer).
+      if (recordTimeout.current) {
+        clearTimeout(recordTimeout.current);
+      }
+      recordTimeout.current = setTimeout(() => {
+        recordTimeout.current = null;
+        if (isRecordingRef.current) {
           handleRecord();
         }
       }, 60000);
@@ -535,7 +609,10 @@ function HlsCameraStreamPlayer({
   if (playerState === 'idle' && !autoPlay) {
     return (
       <View style={styles.container}>
-        <TouchableOpacity style={styles.centerOverlay} onPress={handleStartStream}>
+        <TouchableOpacity
+          style={styles.centerOverlay}
+          onPress={handleStartStream}
+        >
           <View style={styles.playButtonLarge}>
             <Play size={48} color="white" fill="white" />
           </View>
@@ -555,7 +632,9 @@ function HlsCameraStreamPlayer({
         <View style={styles.centerOverlay}>
           <ActivityIndicator size="large" color={colors.brand.red} />
           <Text style={styles.connectingText}>
-            {playerState === 'reconnecting' ? 'Reconnecting...' : 'Connecting to camera...'}
+            {playerState === 'reconnecting'
+              ? 'Reconnecting...'
+              : 'Connecting to camera...'}
           </Text>
           <Text style={styles.connectingSubtext}>
             {retryCount > 0
@@ -579,9 +658,15 @@ function HlsCameraStreamPlayer({
               'Live RTSP requires the MediaMTX media edge. Start the server, then retry.'}
           </Text>
           <View style={styles.errorList}>
-            <Text style={styles.errorListItem}>• Run: pnpm --filter @mtk/api start (or docker compose)</Text>
-            <Text style={styles.errorListItem}>• Set EXPO_PUBLIC_MEDIA_SERVER_URL in .env</Text>
-            <Text style={styles.errorListItem}>• Use HTTP/MJPEG URL for LAN preview without server</Text>
+            <Text style={styles.errorListItem}>
+              • Run: pnpm --filter @mtk/api start (or docker compose)
+            </Text>
+            <Text style={styles.errorListItem}>
+              • Set EXPO_PUBLIC_MEDIA_SERVER_URL in .env
+            </Text>
+            <Text style={styles.errorListItem}>
+              • Use HTTP/MJPEG URL for LAN preview without server
+            </Text>
           </View>
           <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
             <RefreshCw size={20} color="white" />
@@ -604,9 +689,13 @@ function HlsCameraStreamPlayer({
           </Text>
           <View style={styles.errorList}>
             <Text style={styles.errorListItem}>• Camera is powered on</Text>
-            <Text style={styles.errorListItem}>• Camera is on the same network</Text>
+            <Text style={styles.errorListItem}>
+              • Camera is on the same network
+            </Text>
             <Text style={styles.errorListItem}>• RTSP URL is correct</Text>
-            <Text style={styles.errorListItem}>• Media server can reach the camera</Text>
+            <Text style={styles.errorListItem}>
+              • Media server can reach the camera
+            </Text>
           </View>
           <TouchableOpacity style={styles.retryButton} onPress={handleRetry}>
             <RefreshCw size={20} color="white" />
@@ -629,7 +718,9 @@ function HlsCameraStreamPlayer({
                 source={{ uri: hlsUrl }}
                 style={styles.video}
                 resizeMode={ResizeMode.CONTAIN}
-                shouldPlay={playerState === 'buffering' || playerState === 'playing'}
+                shouldPlay={
+                  playerState === 'buffering' || playerState === 'playing'
+                }
                 isMuted={isMuted}
                 isLooping={false}
                 onPlaybackStatusUpdate={handlePlaybackStatusUpdate}
@@ -648,17 +739,23 @@ function HlsCameraStreamPlayer({
 
         {/* Live indicator */}
         <View style={styles.liveIndicator}>
-          <View style={[
-            styles.liveDot,
-            {
-              backgroundColor:
-                playerState === 'playing' && streamStatus?.online !== false
-                  ? colors.status.success
-                  : colors.status.error,
-            },
-          ]} />
+          <View
+            style={[
+              styles.liveDot,
+              {
+                backgroundColor:
+                  playerState === 'playing' && streamStatus?.online !== false
+                    ? colors.status.success
+                    : colors.status.error,
+              },
+            ]}
+          />
           <Text style={styles.liveText}>
-            {playerState === 'playing' ? 'LIVE' : playerState === 'buffering' ? 'BUFFERING' : 'OFFLINE'}
+            {playerState === 'playing'
+              ? 'LIVE'
+              : playerState === 'buffering'
+                ? 'BUFFERING'
+                : 'OFFLINE'}
             {preferredProtocol === 'hls' ? ' · HLS' : ' · WebRTC'}
           </Text>
         </View>
@@ -702,22 +799,39 @@ function HlsCameraStreamPlayer({
             {/* Top controls - Screenshot, Record, Share */}
             {showAdvancedControls && (
               <View style={styles.topControls}>
-                <TouchableOpacity style={styles.actionButton} onPress={handleScreenshot}>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={handleScreenshot}
+                >
                   <Camera size={22} color="white" />
                   <Text style={styles.actionText}>Screenshot</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
-                  style={[styles.actionButton, isRecording && styles.actionButtonActive]}
+                  style={[
+                    styles.actionButton,
+                    isRecording && styles.actionButtonActive,
+                  ]}
                   onPress={handleRecord}
                 >
-                  <VideoIcon size={22} color={isRecording ? '#EF4444' : 'white'} />
-                  <Text style={[styles.actionText, isRecording && styles.actionTextActive]}>
+                  <VideoIcon
+                    size={22}
+                    color={isRecording ? '#EF4444' : 'white'}
+                  />
+                  <Text
+                    style={[
+                      styles.actionText,
+                      isRecording && styles.actionTextActive,
+                    ]}
+                  >
                     {isRecording ? 'Stop' : 'Record'}
                   </Text>
                 </TouchableOpacity>
 
-                <TouchableOpacity style={styles.actionButton} onPress={handleShare}>
+                <TouchableOpacity
+                  style={styles.actionButton}
+                  onPress={handleShare}
+                >
                   <Share2 size={22} color="white" />
                   <Text style={styles.actionText}>Share</Text>
                 </TouchableOpacity>
@@ -727,15 +841,26 @@ function HlsCameraStreamPlayer({
             {/* Zoom controls */}
             {showAdvancedControls && (
               <View style={styles.zoomControls}>
-                <TouchableOpacity style={styles.zoomButton} onPress={handleZoomOut}>
+                <TouchableOpacity
+                  style={styles.zoomButton}
+                  onPress={handleZoomOut}
+                >
                   <ZoomOut size={20} color="white" />
                 </TouchableOpacity>
-                <Text style={styles.zoomLevelText}>{zoomLevel.toFixed(1)}x</Text>
-                <TouchableOpacity style={styles.zoomButton} onPress={handleZoomIn}>
+                <Text style={styles.zoomLevelText}>
+                  {zoomLevel.toFixed(1)}x
+                </Text>
+                <TouchableOpacity
+                  style={styles.zoomButton}
+                  onPress={handleZoomIn}
+                >
                   <ZoomIn size={20} color="white" />
                 </TouchableOpacity>
                 {zoomLevel > 1 && (
-                  <TouchableOpacity style={styles.zoomButton} onPress={handleZoomReset}>
+                  <TouchableOpacity
+                    style={styles.zoomButton}
+                    onPress={handleZoomReset}
+                  >
                     <RotateCcw size={18} color="white" />
                   </TouchableOpacity>
                 )}
@@ -744,7 +869,10 @@ function HlsCameraStreamPlayer({
 
             {/* Bottom controls */}
             <View style={styles.bottomControls}>
-              <TouchableOpacity style={styles.controlButton} onPress={handlePlayPause}>
+              <TouchableOpacity
+                style={styles.controlButton}
+                onPress={handlePlayPause}
+              >
                 {playerState === 'playing' ? (
                   <Pause size={24} color="white" />
                 ) : (
@@ -752,7 +880,10 @@ function HlsCameraStreamPlayer({
                 )}
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.controlButton} onPress={handleMute}>
+              <TouchableOpacity
+                style={styles.controlButton}
+                onPress={handleMute}
+              >
                 {isMuted ? (
                   <VolumeX size={24} color="white" />
                 ) : (
@@ -762,11 +893,17 @@ function HlsCameraStreamPlayer({
 
               <View style={styles.spacer} />
 
-              <TouchableOpacity style={styles.controlButton} onPress={handleRetry}>
+              <TouchableOpacity
+                style={styles.controlButton}
+                onPress={handleRetry}
+              >
                 <RefreshCw size={20} color="white" />
               </TouchableOpacity>
 
-              <TouchableOpacity style={styles.controlButton} onPress={handleFullscreen}>
+              <TouchableOpacity
+                style={styles.controlButton}
+                onPress={handleFullscreen}
+              >
                 <Maximize2 size={20} color="white" />
               </TouchableOpacity>
             </View>

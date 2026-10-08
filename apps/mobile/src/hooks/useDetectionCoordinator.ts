@@ -4,15 +4,17 @@
  * Alarm + local notification are owned solely by detectionManager (no double ring).
  */
 
-import { useEffect, useRef, useCallback, useState } from 'react';
-import { useCameraStore, useSettingsStore, useAlertStore } from '@/stores';
 import { detectionManager } from '@/features/detection/detectionManager';
-import { trackEvent, AnalyticsEvents } from '@/lib/analytics/events';
 import type { DetectionEvent } from '@/features/detection/detectionManager';
+import { AnalyticsEvents, trackEvent } from '@/lib/analytics/events';
+import { useAlertStore, useCameraStore, useSettingsStore } from '@/stores';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 export function useDetectionCoordinator() {
   const cameras = useCameraStore((state) => state.cameras);
-  const redAlertMode = useSettingsStore((state) => state.detection.redAlertMode);
+  const redAlertMode = useSettingsStore(
+    (state) => state.detection.redAlertMode,
+  );
   const armed = useSettingsStore((state) => state.detection.armed ?? true);
   const setDetection = useSettingsStore((state) => state.setDetection);
   const addAlert = useAlertStore((state) => state.addAlert);
@@ -26,7 +28,11 @@ export function useDetectionCoordinator() {
       // UI store only — manager already alarms + notifies + inserts DB
       try {
         const alertType =
-          event.type === 'unknown' ? 'motion' : event.type === 'motion' ? 'motion' : event.type;
+          event.type === 'unknown'
+            ? 'motion'
+            : event.type === 'motion'
+              ? 'motion'
+              : event.type;
         await addAlert({
           cameraId: event.cameraId,
           cameraName: event.cameraName,
@@ -38,18 +44,23 @@ export function useDetectionCoordinator() {
           skipPersist: true,
         });
       } catch (err) {
-        console.warn('[DetectionCoordinator] Failed to add alert to store:', err);
+        console.warn(
+          '[DetectionCoordinator] Failed to add alert to store:',
+          err,
+        );
       }
     },
-    [addAlert]
+    [addAlert],
   );
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: intentionally keyed to subscription setup only
   useEffect(() => {
     let isCancelled = false;
 
     async function syncDetection() {
       if (!unsubscribeRef.current) {
-        unsubscribeRef.current = detectionManager.onDetection(handleDetectionEvent);
+        unsubscribeRef.current =
+          detectionManager.onDetection(handleDetectionEvent);
       }
 
       if (!armed) {
@@ -63,7 +74,7 @@ export function useDetectionCoordinator() {
         if (redAlertMode) return true;
         const ds = cam.detectionSettings;
         return Boolean(
-          ds?.person || ds?.vehicle || ds?.face || ds?.animal || ds?.motion
+          ds?.person || ds?.vehicle || ds?.face || ds?.animal || ds?.motion,
         );
       });
 

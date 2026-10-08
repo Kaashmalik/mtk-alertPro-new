@@ -10,10 +10,10 @@
  * - Timeout and error handling
  */
 
-import { useRef, useCallback, useEffect, useState } from 'react';
 import { logError } from '@/lib/utils/errorHandler';
-import { parseRtspUrl, sanitizeRtspUrl } from './rtspHelper';
 import type { Camera } from '@/types';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { parseRtspUrl, sanitizeRtspUrl } from './rtspHelper';
 
 // ============================================================================
 // Types
@@ -102,19 +102,32 @@ export function buildFfmpegHlsCommand(opts: {
   const inputUrl = sanitizeRtspUrl(url);
 
   return [
-    '-rtsp_transport', 'tcp',
-    '-i', inputUrl,
-    '-c:v', 'libx264',
-    '-preset', 'ultrafast',
-    '-tune', 'zerolatency',
-    '-c:a', 'aac',
-    '-b:v', '2000k',
-    '-maxrate', '2000k',
-    '-bufsize', '4000k',
-    '-f', 'hls',
-    '-hls_time', '2',
-    '-hls_list_size', '3',
-    '-hls_segment_filename', segmentPattern,
+    '-rtsp_transport',
+    'tcp',
+    '-i',
+    inputUrl,
+    '-c:v',
+    'libx264',
+    '-preset',
+    'ultrafast',
+    '-tune',
+    'zerolatency',
+    '-c:a',
+    'aac',
+    '-b:v',
+    '2000k',
+    '-maxrate',
+    '2000k',
+    '-bufsize',
+    '4000k',
+    '-f',
+    'hls',
+    '-hls_time',
+    '2',
+    '-hls_list_size',
+    '3',
+    '-hls_segment_filename',
+    segmentPattern,
     outputPath,
   ];
 }
@@ -346,7 +359,10 @@ export class RTSPStreamingService {
     error?: string;
   }> {
     try {
-      console.log('[RTSP] Connecting to real stream:', this.config.url.replace(/\/\/.*@/, '//***:***@'));
+      console.log(
+        '[RTSP] Connecting to real stream:',
+        this.config.url.replace(/\/\/.*@/, '//***:***@'),
+      );
 
       // Check if media server is configured (preferred method)
       const MEDIA_SERVER_URL = process.env.EXPO_PUBLIC_MEDIA_SERVER_URL;
@@ -363,7 +379,8 @@ export class RTSPStreamingService {
 
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'RTSP connection failed',
+        error:
+          error instanceof Error ? error.message : 'RTSP connection failed',
       };
     }
   }
@@ -420,7 +437,10 @@ export class RTSPStreamingService {
 
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Media server connection failed',
+        error:
+          error instanceof Error
+            ? error.message
+            : 'Media server connection failed',
       };
     }
   }
@@ -460,10 +480,10 @@ export class RTSPStreamingService {
       });
 
       // Execute FFmpeg
-      const sessionId = await RNFFmpeg.executeWithArguments(ffmpegCommand);
+      await RNFFmpeg.executeWithArguments(ffmpegCommand);
 
       // Wait a moment for HLS playlist to be created
-      await new Promise(resolve => setTimeout(resolve, 1000));
+      await new Promise((resolve) => setTimeout(resolve, 1000));
 
       // Check if output file exists
       const outputExists = await FileSystem.getInfoAsync(outputPath);
@@ -489,7 +509,8 @@ export class RTSPStreamingService {
 
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'FFmpeg connection failed',
+        error:
+          error instanceof Error ? error.message : 'FFmpeg connection failed',
       };
     }
   }
@@ -519,7 +540,8 @@ export class RTSPStreamingService {
       return;
     }
 
-    const exponential = this.config.reconnectIntervalMs * Math.pow(2, this.reconnectAttempts);
+    const exponential =
+      this.config.reconnectIntervalMs * 2 ** this.reconnectAttempts;
     const capped = Math.min(exponential, this.config.maxReconnectDelayMs);
     // Equal jitter (80–120%) so multiple clients don't retry in lockstep
     const delay = Math.round(capped * (0.8 + Math.random() * 0.4));
@@ -574,12 +596,12 @@ export class RTSPStreamingService {
         if (line.startsWith('#EXT-X-STREAM-INF:')) {
           const match = line.match(/BANDWIDTH=(\d+)/);
           if (match) {
-            bitrate = parseInt(match[1], 10);
+            bitrate = Number.parseInt(match[1], 10);
           }
           const resMatch = line.match(/RESOLUTION=(\d+)x(\d+)/);
           if (resMatch) {
-            width = parseInt(resMatch[1], 10);
-            height = parseInt(resMatch[2], 10);
+            width = Number.parseInt(resMatch[1], 10);
+            height = Number.parseInt(resMatch[2], 10);
           }
         }
       }

@@ -5,10 +5,10 @@
  * @module components/OfflineBanner
  */
 
-import { View, Text, StyleSheet } from 'react-native';
-import { WifiOff } from 'lucide-react-native';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
 import { colors, spacing } from '@/lib/theme';
+import { WifiOff } from 'lucide-react-native';
+import { StyleSheet, Text, View } from 'react-native';
 
 export function OfflineBanner() {
   const { isConnected } = useNetworkStatus();

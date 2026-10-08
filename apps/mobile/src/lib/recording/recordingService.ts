@@ -1,19 +1,22 @@
 /**
  * Recording Service
  * Manages video recording from camera streams
- * 
+ *
  * @module lib/recording/recordingService
  */
 
-import * as FileSystem from 'expo-file-system/legacy';
+import { getPlanLimits, isTierActive } from '@/lib/subscription/planLimits';
 import { supabase } from '@/lib/supabase/client';
 import { logError } from '@/lib/utils/errorHandler';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // ============================================================================
 // Configuration
 // ============================================================================
 
-const MEDIA_SERVER_URL = process.env.EXPO_PUBLIC_MEDIA_SERVER_URL || 'http://localhost:3001';
+const MEDIA_SERVER_URL =
+  process.env.EXPO_PUBLIC_MEDIA_SERVER_URL || 'http://localhost:3001';
 const RECORDINGS_DIR = `${FileSystem.documentDirectory}recordings/`;
 const MAX_RECORDING_DURATION = 300; // 5 minutes max
 const DEFAULT_RECORDING_DURATION = 30; // 30 seconds default
@@ -25,7 +28,7 @@ const DEFAULT_RECORDING_DURATION = 30; // 30 seconds default
 /**
  * Recording status
  */
-export type RecordingStatus = 
+export type RecordingStatus =
   | 'idle'
   | 'recording'
   | 'stopping'
@@ -85,6 +88,16 @@ export interface RecordingOptions {
 class RecordingService {
   private isInitialized = false;
   private activeRecordings: Map<string, RecordingInfo> = new Map();
+  /**
+   * Pending auto-completion timers, keyed by cameraId.
+   *
+   * These were bare setTimeout() calls with no handle retained, which meant
+   * (a) stopRecording() could not cancel the completion it made redundant, so
+   * the recording completed twice, and (b) dispose() could not cancel them, so
+   * an event loop was kept alive by a timer belonging to a dead service.
+   */
+  private completionTimers: Map<string, ReturnType<typeof setTimeout>> =
+    new Map();
   private recordingHistory: RecordingInfo[] = [];
 
   /**
@@ -99,8 +112,8 @@ class RecordingService {
       // Create recordings directory
       const dirInfo = await FileSystem.getInfoAsync(RECORDINGS_DIR);
       if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(RECORDINGS_DIR, { 
-          intermediates: true 
+        await FileSystem.makeDirectoryAsync(RECORDINGS_DIR, {
+          intermediates: true,
         });
       }
 
@@ -118,14 +131,14 @@ class RecordingService {
 
   /**
    * Start recording for a camera
-   * 
+   *
    * @param cameraId - Camera to record
    * @param options - Recording options
    * @returns Recording info
    */
   async startRecording(
     cameraId: string,
-    options: RecordingOptions = {}
+    options: RecordingOptions = {},
   ): Promise<RecordingInfo> {
     const {
       durationSeconds = DEFAULT_RECORDING_DURATION,
@@ -134,7 +147,10 @@ class RecordingService {
     } = options;
 
     // Validate duration
-    const duration = Math.min(Math.max(durationSeconds, 5), MAX_RECORDING_DURATION);
+    const duration = Math.min(
+      Math.max(durationSeconds, 5),
+      MAX_RECORDING_DURATION,
+    );
 
     // Check if already recording this camera
     if (this.activeRecordings.has(cameraId)) {
@@ -143,7 +159,7 @@ class RecordingService {
 
     // Generate recording ID
     const recordingId = `rec_${cameraId}_${Date.now()}`;
-    
+
     const recordingInfo: RecordingInfo = {
       id: recordingId,
       cameraId,
@@ -155,6 +171,14 @@ class RecordingService {
 
     console.log(`[RecordingService] Starting recording: ${recordingId}`);
 
+    // Reclaim space before adding more. Best-effort: a storage problem must not
+    // block the user from recording, so failures here are swallowed.
+    try {
+      await this.enforceStorageCap();
+    } catch (error) {
+      logError(error, 'RecordingService.enforceStorageCap');
+    }
+
     try {
       // Tell backend to start recording
       const response = await fetch(
@@ -163,7 +187,7 @@ class RecordingService {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ durationSeconds: duration }),
-        }
+        },
       );
 
       if (!response.ok) {
@@ -173,15 +197,25 @@ class RecordingService {
       // Store active recording
       this.activeRecordings.set(cameraId, recordingInfo);
 
-      // Schedule completion check
-      setTimeout(async () => {
-        await this.completeRecording(cameraId, autoUpload);
-      }, (duration * 1000) + 2000); // Extra 2 seconds buffer
+      // Schedule completion check. The handle is retained so a manual stop,
+      // a replacement recording, or dispose() can cancel it.
+      this.clearCompletionTimer(cameraId);
+      const timer = setTimeout(
+        async () => {
+          this.completionTimers.delete(cameraId);
+          await this.completeRecording(cameraId, autoUpload);
+        },
+        duration * 1000 + 2000,
+      ); // Extra 2 seconds buffer
+      this.completionTimers.set(cameraId, timer);
 
       return recordingInfo;
     } catch (error) {
       recordingInfo.status = 'failed';
-      recordingInfo.error = error instanceof Error ? error.message : 'Recording failed';
+      recordingInfo.error =
+        error instanceof Error ? error.message : 'Recording failed';
+      // Never leave an armed completion timer behind on a failed start.
+      this.clearCompletionTimer(cameraId);
       console.error('[RecordingService] Start recording failed:', error);
       logError(error, 'RecordingService.startRecording');
       throw error;
@@ -190,19 +224,21 @@ class RecordingService {
 
   /**
    * Stop recording early
-   * 
+   *
    * @param cameraId - Camera to stop recording
    * @param autoUpload - Whether to upload after stopping
    * @returns Recording info
    */
   async stopRecording(
     cameraId: string,
-    autoUpload: boolean = true
+    autoUpload = true,
   ): Promise<RecordingInfo | null> {
     const recording = this.activeRecordings.get(cameraId);
-    
+
     if (!recording) {
-      console.warn(`[RecordingService] No active recording for camera: ${cameraId}`);
+      console.warn(
+        `[RecordingService] No active recording for camera: ${cameraId}`,
+      );
       return null;
     }
 
@@ -212,22 +248,34 @@ class RecordingService {
       recording.status = 'stopping';
 
       // Tell backend to stop recording
-      await fetch(
-        `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/stop`,
-        { method: 'POST' }
-      );
+      await fetch(`${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/stop`, {
+        method: 'POST',
+      });
 
       return await this.completeRecording(cameraId, autoUpload);
     } catch (error) {
       console.error('[RecordingService] Stop recording failed:', error);
       logError(error, 'RecordingService.stopRecording');
-      
+
       recording.status = 'failed';
       recording.error = 'Failed to stop recording';
       this.activeRecordings.delete(cameraId);
-      
+      // The record is gone, so the pending completion has nothing to finish.
+      this.clearCompletionTimer(cameraId);
+
       return recording;
     }
+  }
+
+  /**
+   * Cancel a pending auto-completion timer, if one is armed for this camera.
+   * Safe to call when none is pending.
+   */
+  private clearCompletionTimer(cameraId: string): void {
+    const timer = this.completionTimers.get(cameraId);
+    if (timer === undefined) return;
+    clearTimeout(timer);
+    this.completionTimers.delete(cameraId);
   }
 
   /**
@@ -235,36 +283,44 @@ class RecordingService {
    */
   private async completeRecording(
     cameraId: string,
-    autoUpload: boolean
+    autoUpload: boolean,
   ): Promise<RecordingInfo | null> {
+    // Both the timer callback and stopRecording() arrive here. Whichever wins
+    // disarms the other so the recording can only complete once.
+    this.clearCompletionTimer(cameraId);
+
     const recording = this.activeRecordings.get(cameraId);
-    
+
     if (!recording) {
       return null;
     }
 
     recording.endTime = new Date();
     recording.duration = Math.round(
-      (recording.endTime.getTime() - recording.startTime.getTime()) / 1000
+      (recording.endTime.getTime() - recording.startTime.getTime()) / 1000,
     );
 
     try {
       // Resolve download metadata (JSON), then fetch the actual media file
       const metaRes = await fetch(
-        `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/download`
+        `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/download`,
       );
       if (!metaRes.ok) {
         recording.status = 'failed';
         recording.error = 'No recording available on media server';
       } else {
         const meta = await metaRes.json();
-        const fileUrl = meta.absoluteUrl
-          || (meta.downloadUrl?.startsWith('http')
+        const fileUrl =
+          meta.absoluteUrl ||
+          (meta.downloadUrl?.startsWith('http')
             ? meta.downloadUrl
             : `${MEDIA_SERVER_URL}${meta.downloadUrl}`);
         const localPath = `${RECORDINGS_DIR}${recording.id}.mp4`;
 
-        const downloadResult = await FileSystem.downloadAsync(fileUrl, localPath);
+        const downloadResult = await FileSystem.downloadAsync(
+          fileUrl,
+          localPath,
+        );
 
         if (downloadResult.status === 200) {
           recording.localPath = downloadResult.uri;
@@ -275,7 +331,9 @@ class RecordingService {
           }
 
           recording.status = 'completed';
-          console.log(`[RecordingService] Recording completed: ${recording.id}`);
+          console.log(
+            `[RecordingService] Recording completed: ${recording.id}`,
+          );
 
           if (autoUpload) {
             this.uploadRecording(recording).catch((error) => {
@@ -296,7 +354,7 @@ class RecordingService {
     // Remove from active and add to history
     this.activeRecordings.delete(cameraId);
     this.recordingHistory.unshift(recording);
-    
+
     // Save history
     await this.saveHistory();
 
@@ -317,7 +375,9 @@ class RecordingService {
       console.log(`[RecordingService] Uploading recording: ${recording.id}`);
 
       // Get current user
-      const { data: { user } } = await supabase.auth.getUser();
+      const {
+        data: { user },
+      } = await supabase.auth.getUser();
       if (!user) {
         throw new Error('Not authenticated');
       }
@@ -325,7 +385,7 @@ class RecordingService {
       // Read file
       const fileContent = await FileSystem.readAsStringAsync(
         recording.localPath,
-        { encoding: FileSystem.EncodingType.Base64 }
+        { encoding: FileSystem.EncodingType.Base64 },
       );
 
       // Convert base64 to Uint8Array
@@ -337,8 +397,8 @@ class RecordingService {
 
       // Upload to Supabase Storage
       const fileName = `${user.id}/${recording.id}.mp4`;
-      
-      const { data, error } = await supabase.storage
+
+      const { error } = await supabase.storage
         .from('recordings')
         .upload(fileName, bytes, {
           contentType: 'video/mp4',
@@ -357,19 +417,28 @@ class RecordingService {
       recording.cloudUrl = urlData.publicUrl;
       recording.status = 'uploaded';
 
-      console.log(`[RecordingService] Recording uploaded: ${recording.cloudUrl}`);
+      console.log(
+        `[RecordingService] Recording uploaded: ${recording.cloudUrl}`,
+      );
 
       // Update history
       await this.saveHistory();
+
+      // The clip now exists in the cloud bucket as well, so re-check the cap.
+      try {
+        await this.enforceStorageCap();
+      } catch (error) {
+        logError(error, 'RecordingService.enforceStorageCap');
+      }
 
       return urlData.publicUrl;
     } catch (error) {
       console.error('[RecordingService] Upload failed:', error);
       logError(error, 'RecordingService.uploadRecording');
-      
+
       recording.status = 'failed';
       recording.error = 'Upload failed';
-      
+
       return null;
     }
   }
@@ -406,15 +475,15 @@ class RecordingService {
    * Get recordings for a specific camera
    */
   getCameraRecordings(cameraId: string): RecordingInfo[] {
-    return this.recordingHistory.filter(r => r.cameraId === cameraId);
+    return this.recordingHistory.filter((r) => r.cameraId === cameraId);
   }
 
   /**
    * Delete a local recording
    */
   async deleteLocalRecording(recordingId: string): Promise<boolean> {
-    const recording = this.recordingHistory.find(r => r.id === recordingId);
-    
+    const recording = this.recordingHistory.find((r) => r.id === recordingId);
+
     if (!recording?.localPath) {
       return false;
     }
@@ -422,7 +491,7 @@ class RecordingService {
     try {
       await FileSystem.deleteAsync(recording.localPath, { idempotent: true });
       recording.localPath = undefined;
-      
+
       await this.saveHistory();
       return true;
     } catch (error) {
@@ -435,8 +504,8 @@ class RecordingService {
    * Delete a recording from history
    */
   async deleteRecording(recordingId: string): Promise<boolean> {
-    const index = this.recordingHistory.findIndex(r => r.id === recordingId);
-    
+    const index = this.recordingHistory.findIndex((r) => r.id === recordingId);
+
     if (index === -1) {
       return false;
     }
@@ -447,7 +516,7 @@ class RecordingService {
     if (recording.localPath) {
       try {
         await FileSystem.deleteAsync(recording.localPath, { idempotent: true });
-      } catch (error) {
+      } catch (_error) {
         // Continue even if file deletion fails
       }
     }
@@ -455,12 +524,14 @@ class RecordingService {
     // Delete from cloud if uploaded
     if (recording.cloudUrl) {
       try {
-        const { data: { user } } = await supabase.auth.getUser();
+        const {
+          data: { user },
+        } = await supabase.auth.getUser();
         if (user) {
           const fileName = `${user.id}/${recording.id}.mp4`;
           await supabase.storage.from('recordings').remove([fileName]);
         }
-      } catch (error) {
+      } catch (_error) {
         // Continue even if cloud deletion fails
       }
     }
@@ -496,7 +567,7 @@ class RecordingService {
           // Skip this recording
         }
       }
-      
+
       if (recording.cloudUrl) {
         cloudCount++;
       }
@@ -506,9 +577,89 @@ class RecordingService {
   }
 
   /**
+   * Trim local recordings until the account is back under its plan's storage cap.
+   *
+   * `maxCloudStorageGB` was previously only counted for the usage meter and never
+   * applied, and `cleanupOldRecordings` had zero call sites, so recordings
+   * accumulated without bound regardless of tier. Enforced here because this is
+   * the one place that can free space before the device fills up.
+   *
+   * @returns Number of recordings deleted
+   */
+  async enforceStorageCap(): Promise<number> {
+    const capBytes = this.storageCapBytes();
+    if (!Number.isFinite(capBytes)) {
+      return 0; // unlimited tier
+    }
+
+    // Oldest first, so trimming sheds the least valuable clips.
+    const withLocal = this.recordingHistory
+      .filter((r) => r.localPath)
+      .sort(
+        (a, b) => (a.startTime?.getTime() ?? 0) - (b.startTime?.getTime() ?? 0),
+      );
+
+    let total = 0;
+    const sizes = new Map<string, number>();
+    for (const recording of withLocal) {
+      try {
+        const info = await FileSystem.getInfoAsync(
+          recording.localPath as string,
+        );
+        const size = info.exists && info.size ? info.size : 0;
+        sizes.set(recording.id, size);
+        total += size;
+      } catch {
+        sizes.set(recording.id, 0);
+      }
+    }
+
+    let deleted = 0;
+    for (const recording of withLocal) {
+      if (total <= capBytes) break;
+      try {
+        await FileSystem.deleteAsync(recording.localPath as string, {
+          idempotent: true,
+        });
+        total -= sizes.get(recording.id) ?? 0;
+        const index = this.recordingHistory.findIndex(
+          (r) => r.id === recording.id,
+        );
+        if (index !== -1) this.recordingHistory.splice(index, 1);
+        deleted++;
+      } catch {
+        // If the file cannot be removed, stop trying to reclaim space.
+        break;
+      }
+    }
+
+    if (deleted > 0) {
+      console.log(
+        `[RecordingService] Storage cap enforced, removed ${deleted} recording(s)`,
+      );
+      await this.saveHistory();
+    }
+
+    return deleted;
+  }
+
+  /**
+   * Storage allowance for the current (expiry-aware) plan, in bytes.
+   */
+  private storageCapBytes(): number {
+    const { currentTier, expiresAt } = useSubscriptionStore.getState();
+    const effective = isTierActive(currentTier, expiresAt)
+      ? currentTier
+      : 'free';
+    const capGB = getPlanLimits(effective).maxCloudStorageGB;
+    if (!Number.isFinite(capGB)) return Number.POSITIVE_INFINITY;
+    return capGB * 1024 * 1024 * 1024;
+  }
+
+  /**
    * Clean up old recordings (keep most recent)
    */
-  async cleanupOldRecordings(keepCount: number = 50): Promise<number> {
+  async cleanupOldRecordings(keepCount = 50): Promise<number> {
     if (this.recordingHistory.length <= keepCount) {
       return 0;
     }
@@ -519,7 +670,9 @@ class RecordingService {
     for (const recording of toRemove) {
       if (recording.localPath) {
         try {
-          await FileSystem.deleteAsync(recording.localPath, { idempotent: true });
+          await FileSystem.deleteAsync(recording.localPath, {
+            idempotent: true,
+          });
           deletedCount++;
         } catch {
           // Continue with other files
@@ -539,7 +692,7 @@ class RecordingService {
       const historyPath = `${RECORDINGS_DIR}history.json`;
       await FileSystem.writeAsStringAsync(
         historyPath,
-        JSON.stringify(this.recordingHistory)
+        JSON.stringify(this.recordingHistory),
       );
     } catch (error) {
       console.error('[RecordingService] Save history failed:', error);
@@ -553,11 +706,11 @@ class RecordingService {
     try {
       const historyPath = `${RECORDINGS_DIR}history.json`;
       const info = await FileSystem.getInfoAsync(historyPath);
-      
+
       if (info.exists) {
         const content = await FileSystem.readAsStringAsync(historyPath);
         this.recordingHistory = JSON.parse(content);
-        
+
         // Convert date strings back to Date objects
         for (const recording of this.recordingHistory) {
           recording.startTime = new Date(recording.startTime);
@@ -565,8 +718,10 @@ class RecordingService {
             recording.endTime = new Date(recording.endTime);
           }
         }
-        
-        console.log(`[RecordingService] Loaded ${this.recordingHistory.length} recordings from history`);
+
+        console.log(
+          `[RecordingService] Loaded ${this.recordingHistory.length} recordings from history`,
+        );
       }
     } catch (error) {
       console.error('[RecordingService] Load history failed:', error);
@@ -578,6 +733,11 @@ class RecordingService {
    * Dispose of the service
    */
   dispose(): void {
+    // Disarm every pending completion first: clearing the map alone would
+    // leave live timers pointing at a disposed instance.
+    for (const cameraId of Array.from(this.completionTimers.keys())) {
+      this.clearCompletionTimer(cameraId);
+    }
     this.activeRecordings.clear();
     this.isInitialized = false;
     console.log('[RecordingService] Disposed');
@@ -589,4 +749,3 @@ export const recordingService = new RecordingService();
 
 // Export class for testing
 export { RecordingService };
-

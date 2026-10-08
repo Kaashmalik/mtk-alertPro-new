@@ -2,7 +2,7 @@
   "expo": {
     "name": "MTK AlertPro",
     "slug": "mtk-alertpro-2024",
-    "version": "1.0.0",
+    "version": "1.0.4",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "scheme": "mtkalertpro",
@@ -28,6 +28,7 @@
     },
     "android": {
       "package": "com.mtk.alertpro",
+      "versionCode": 5,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1E293B"

@@ -1,26 +1,26 @@
-import { useState, useRef } from 'react';
-import {
-  View,
-  Text,
-  TextInput,
-  KeyboardAvoidingView,
-  Platform,
-  ScrollView,
-  Alert,
-  StyleSheet,
-  TouchableOpacity,
-  StatusBar,
-} from 'react-native';
-import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Shield, Mail, Lock, User, ArrowLeft } from 'lucide-react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
 import { Button, Input } from '@/components/ui';
 import { useAuthStore } from '@/stores';
 import { designSystem } from '@/theme/design-system';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { router } from 'expo-router';
+import { ArrowLeft, Lock, Mail, Shield, User } from 'lucide-react-native';
+import { useRef, useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
+import {
+  Alert,
+  KeyboardAvoidingView,
+  Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  type TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { z } from 'zod';
 
 const registerSchema = z
   .object({
@@ -36,9 +36,7 @@ const registerSchema = z
       .string()
       .min(1, 'Password is required')
       .min(6, 'Password must be at least 6 characters'),
-    confirmPassword: z
-      .string()
-      .min(1, 'Please confirm your password'),
+    confirmPassword: z.string().min(1, 'Please confirm your password'),
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: 'Passwords do not match',
@@ -89,13 +87,14 @@ export default function RegisterScreen() {
             text: 'Go to Login',
             onPress: () => {
               router.replace('/(auth)/login');
-            }
-          }
+            },
+          },
         ],
-        { cancelable: false }
+        { cancelable: false },
       );
     } catch (err) {
-      const message = err instanceof Error ? err.message : 'Registration failed';
+      const message =
+        err instanceof Error ? err.message : 'Registration failed';
       setError(message);
 
       // Show specific error messages
@@ -105,8 +104,8 @@ export default function RegisterScreen() {
           'This email is already registered. Please sign in instead.',
           [
             { text: 'Cancel', style: 'cancel' },
-            { text: 'Sign In', onPress: () => router.replace('/(auth)/login') }
-          ]
+            { text: 'Sign In', onPress: () => router.replace('/(auth)/login') },
+          ],
         );
       } else {
         Alert.alert('Registration Failed', message);
@@ -118,7 +117,10 @@ export default function RegisterScreen() {
 
   return (
     <SafeAreaView style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={designSystem.colors.background.primary}
+      />
 
       {/* Header with Back Button */}
       <View style={styles.header}>
@@ -173,7 +175,9 @@ export default function RegisterScreen() {
                   returnKeyType="next"
                   blurOnSubmit={false}
                   onSubmitEditing={() => emailInputRef.current?.focus()}
-                  leftIcon={<User size={20} color={designSystem.colors.text.muted} />}
+                  leftIcon={
+                    <User size={20} color={designSystem.colors.text.muted} />
+                  }
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
@@ -199,7 +203,9 @@ export default function RegisterScreen() {
                   returnKeyType="next"
                   blurOnSubmit={false}
                   onSubmitEditing={() => passwordInputRef.current?.focus()}
-                  leftIcon={<Mail size={20} color={designSystem.colors.text.muted} />}
+                  leftIcon={
+                    <Mail size={20} color={designSystem.colors.text.muted} />
+                  }
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
@@ -224,8 +230,12 @@ export default function RegisterScreen() {
                   textContentType="newPassword"
                   returnKeyType="next"
                   blurOnSubmit={false}
-                  onSubmitEditing={() => confirmPasswordInputRef.current?.focus()}
-                  leftIcon={<Lock size={20} color={designSystem.colors.text.muted} />}
+                  onSubmitEditing={() =>
+                    confirmPasswordInputRef.current?.focus()
+                  }
+                  leftIcon={
+                    <Lock size={20} color={designSystem.colors.text.muted} />
+                  }
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
@@ -250,7 +260,9 @@ export default function RegisterScreen() {
                   textContentType="newPassword"
                   returnKeyType="done"
                   onSubmitEditing={handleSubmit(onSubmit)}
-                  leftIcon={<Lock size={20} color={designSystem.colors.text.muted} />}
+                  leftIcon={
+                    <Lock size={20} color={designSystem.colors.text.muted} />
+                  }
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
@@ -261,10 +273,7 @@ export default function RegisterScreen() {
           </Animated.View>
 
           {error && (
-            <Animated.View
-              entering={FadeInDown}
-              style={styles.errorContainer}
-            >
+            <Animated.View entering={FadeInDown} style={styles.errorContainer}>
               <Text style={styles.errorText}>{error}</Text>
             </Animated.View>
           )}

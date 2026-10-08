@@ -20,9 +20,11 @@ import {
   getPlanLimits,
   isPaidTier,
   isTierActive,
+  maxResolutionForTier,
   maxStreamQuality,
   normalizeTier,
   remainingCameras,
+  resolveEffectiveQuality,
 } from '@/lib/subscription/planLimits';
 
 const FUTURE = new Date(Date.now() + 86_400_000);
@@ -91,10 +93,17 @@ describe('planLimits', () => {
       expect(isTierActive('pro', 'not-a-date')).toBe(false);
     });
 
-    it('treats a paid tier with no expiry as active', () => {
-      // Lifetime / manually granted entitlements carry no expiry. Revoking
-      // them here would be a false downgrade.
-      expect(isTierActive('pro', null)).toBe(true);
+    it('is false for a paid tier with no expiry (fail closed)', () => {
+      // profiles.subscription_tier is CHECK-constrained to free|pro|business
+      // (no lifetime tier), confirm_payment always writes an expiry, and
+      // downgrade_subscription() resets tier='free' + expiry=NULL together.
+      // A paid row with NULL expiry is therefore unreachable, and treating it
+      // as active would let a partially-written row grant premium forever.
+      // Lifetime entitlements, if ever needed, must be stored as a far-future
+      // timestamp rather than NULL.
+      expect(isTierActive('pro', null)).toBe(false);
+      expect(isTierActive('business', null)).toBe(false);
+      expect(isTierActive('pro', undefined)).toBe(false);
     });
 
     it('is false for an unknown tier even with a future expiry', () => {
@@ -141,7 +150,7 @@ describe('planLimits', () => {
     });
 
     it('is Infinity for unlimited tiers', () => {
-      expect(remainingCameras('pro', 99)).toBe(Infinity);
+      expect(remainingCameras('pro', 99)).toBe(Number.POSITIVE_INFINITY);
     });
   });
 
@@ -160,12 +169,10 @@ describe('planLimits', () => {
       expect(maxStreamQuality('enterprise')).toBe('sd');
     });
 
-    it('keeps face recognition off for every tier', () => {
-      // The current "face" output is a region derived from the person box, not
-      // a face model. Selling it would be a false claim.
+    it('gives face recognition to paid tiers only', () => {
       expect(PLAN_LIMITS.free.hasFaceRecognition).toBe(false);
-      expect(PLAN_LIMITS.pro.hasFaceRecognition).toBe(false);
-      expect(PLAN_LIMITS.business.hasFaceRecognition).toBe(false);
+      expect(PLAN_LIMITS.pro.hasFaceRecognition).toBe(true);
+      expect(PLAN_LIMITS.business.hasFaceRecognition).toBe(true);
     });
   });
 
@@ -180,7 +187,9 @@ describe('planLimits', () => {
 
     it('caps an unknown tier at the free quota', () => {
       expect(canCreateAutomation('enterprise', 0)).toBe(true);
-      expect(canCreateAutomation('enterprise', MAX_AUTOMATIONS.free)).toBe(false);
+      expect(canCreateAutomation('enterprise', MAX_AUTOMATIONS.free)).toBe(
+        false,
+      );
       expect(canCreateAutomation('enterprise', 10_000)).toBe(false);
     });
   });
@@ -208,6 +217,34 @@ describe('planLimits', () => {
     });
   });
 
+  describe('maxResolutionForTier / resolveEffectiveQuality', () => {
+    it('maps the plan ceiling to a concrete resolution', () => {
+      // free => sd ceiling => 480p is the highest 'sd' bucket we expose
+      expect(maxResolutionForTier('free')).toBe('480p');
+      expect(maxResolutionForTier('pro')).toBe('720p');
+      expect(maxResolutionForTier('business')).toBe('1080p');
+    });
+
+    it('caps a 1080p network recommendation at the plan ceiling', () => {
+      // The regression this guards: getRecommendedQuality() always answered
+      // 1080p on Wi-Fi and nothing applied the plan, so free pulled Pro res.
+      expect(resolveEffectiveQuality('free', '1080p')).toBe('480p');
+      expect(resolveEffectiveQuality('pro', '1080p')).toBe('720p');
+      expect(resolveEffectiveQuality('business', '1080p')).toBe('1080p');
+    });
+
+    it('never upgrades a low recommendation above the plan ceiling', () => {
+      // A constrained network stays low even for business.
+      expect(resolveEffectiveQuality('business', '360p')).toBe('360p');
+      expect(resolveEffectiveQuality('free', '360p')).toBe('360p');
+      expect(resolveEffectiveQuality('pro', '480p')).toBe('480p');
+    });
+
+    it('treats an unknown tier as free (fail closed)', () => {
+      expect(resolveEffectiveQuality('enterprise', '1080p')).toBe('480p');
+    });
+  });
+
   describe('limits table', () => {
     it('defines quotas for every tier', () => {
       for (const tier of ['free', 'pro', 'business'] as const) {
@@ -218,8 +255,12 @@ describe('planLimits', () => {
     });
 
     it('is monotonic across tiers', () => {
-      expect(MAX_CONCURRENT_STREAMS.free).toBeLessThan(MAX_CONCURRENT_STREAMS.pro);
-      expect(MAX_CONCURRENT_STREAMS.pro).toBeLessThan(MAX_CONCURRENT_STREAMS.business);
+      expect(MAX_CONCURRENT_STREAMS.free).toBeLessThan(
+        MAX_CONCURRENT_STREAMS.pro,
+      );
+      expect(MAX_CONCURRENT_STREAMS.pro).toBeLessThan(
+        MAX_CONCURRENT_STREAMS.business,
+      );
       expect(MAX_AUTOMATIONS.free).toBeLessThan(MAX_AUTOMATIONS.pro);
     });
   });

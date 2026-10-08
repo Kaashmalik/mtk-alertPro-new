@@ -1,42 +1,54 @@
 /**
  * Login Screen
- * 
+ *
  * Beautiful login experience with biometric support and animations
  */
 
-import { useState, useEffect, useRef } from 'react';
+import { Button, Input } from '@/components/ui';
 import {
-  View,
-  Text,
-  TextInput,
+  authenticateWithBiometric,
+  checkBiometricCapability,
+  isBiometricEnabled,
+} from '@/lib/biometric';
+import { useAuthStore } from '@/stores';
+import { designSystem } from '@/theme/design-system';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import {
+  ArrowRight,
+  Fingerprint,
+  Lock,
+  Mail,
+  Shield,
+} from 'lucide-react-native';
+import { useEffect, useRef, useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
+import {
+  ActivityIndicator,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
-  StyleSheet,
-  TouchableOpacity,
   StatusBar,
-  ActivityIndicator,
+  StyleSheet,
+  Text,
+  type TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { router } from 'expo-router';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Shield, Mail, Lock, Fingerprint, ArrowRight } from 'lucide-react-native';
 import Animated, { FadeInDown, FadeInUp } from 'react-native-reanimated';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { z } from 'zod';
-import { Button, Input } from '@/components/ui';
-import { useAuthStore } from '@/stores';
-import { designSystem } from '@/theme/design-system';
-import {
-  isBiometricEnabled,
-  authenticateWithBiometric,
-  checkBiometricCapability,
-} from '@/lib/biometric';
 
 const loginSchema = z.object({
-  email: z.string().min(1, 'Email is required').email('Please enter a valid email'),
-  password: z.string().min(1, 'Password is required').min(6, 'Password must be at least 6 characters'),
+  email: z
+    .string()
+    .min(1, 'Email is required')
+    .email('Please enter a valid email'),
+  password: z
+    .string()
+    .min(1, 'Password is required')
+    .min(6, 'Password must be at least 6 characters'),
 });
 
 type LoginForm = z.infer<typeof loginSchema>;
@@ -53,7 +65,11 @@ export default function LoginScreen() {
   const emailInputRef = useRef<TextInput>(null);
   const passwordInputRef = useRef<TextInput>(null);
 
-  const { control, handleSubmit, formState: { errors } } = useForm<LoginForm>({
+  const {
+    control,
+    handleSubmit,
+    formState: { errors },
+  } = useForm<LoginForm>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
       email: '',
@@ -80,7 +96,9 @@ export default function LoginScreen() {
     };
 
     checkBiometric();
-    return () => { mounted = false; };
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const handleBiometricLogin = async () => {
@@ -103,9 +121,11 @@ export default function LoginScreen() {
           setBiometricAvailable(false);
         }
       } else if (result.error) {
-        if (!result.error.toLowerCase().includes('cancel') &&
-            !result.error.toLowerCase().includes('fallback') &&
-            !result.error.toLowerCase().includes('not available')) {
+        if (
+          !result.error.toLowerCase().includes('cancel') &&
+          !result.error.toLowerCase().includes('fallback') &&
+          !result.error.toLowerCase().includes('not available')
+        ) {
           setError(result.error);
         }
       }
@@ -125,7 +145,9 @@ export default function LoginScreen() {
       router.replace('/(tabs)');
     } catch (err: unknown) {
       console.error('Login error:', err);
-      setError(err instanceof Error ? err.message : 'Login failed. Please try again.');
+      setError(
+        err instanceof Error ? err.message : 'Login failed. Please try again.',
+      );
     } finally {
       setIsSubmitting(false);
     }
@@ -133,7 +155,10 @@ export default function LoginScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={designSystem.colors.background.primary}
+      />
 
       <SafeAreaView style={styles.safeArea} edges={['top', 'bottom']}>
         <KeyboardAvoidingView
@@ -154,7 +179,10 @@ export default function LoginScreen() {
             >
               <View style={styles.logoContainer}>
                 <LinearGradient
-                  colors={[designSystem.colors.primary[500], designSystem.colors.primary[700]]}
+                  colors={[
+                    designSystem.colors.primary[500],
+                    designSystem.colors.primary[700],
+                  ]}
                   style={styles.logoGradient}
                 >
                   <Shield size={40} color="white" />
@@ -171,7 +199,9 @@ export default function LoginScreen() {
               style={styles.formContainer}
             >
               <Text style={styles.formTitle}>Welcome Back</Text>
-              <Text style={styles.formSubtitle}>Sign in to continue monitoring</Text>
+              <Text style={styles.formSubtitle}>
+                Sign in to continue monitoring
+              </Text>
 
               {/* Error Message */}
               {error && (
@@ -197,7 +227,12 @@ export default function LoginScreen() {
                       returnKeyType="next"
                       blurOnSubmit={false}
                       onSubmitEditing={() => passwordInputRef.current?.focus()}
-                      leftIcon={<Mail size={20} color={designSystem.colors.text.muted} />}
+                      leftIcon={
+                        <Mail
+                          size={20}
+                          color={designSystem.colors.text.muted}
+                        />
+                      }
                       value={value}
                       onChangeText={onChange}
                       onBlur={onBlur}
@@ -224,7 +259,12 @@ export default function LoginScreen() {
                       textContentType="password"
                       returnKeyType="done"
                       onSubmitEditing={handleSubmit(onSubmit)}
-                      leftIcon={<Lock size={20} color={designSystem.colors.text.muted} />}
+                      leftIcon={
+                        <Lock
+                          size={20}
+                          color={designSystem.colors.text.muted}
+                        />
+                      }
                       value={value}
                       onChangeText={onChange}
                       onBlur={onBlur}
@@ -245,13 +285,19 @@ export default function LoginScreen() {
 
               {/* Login Button */}
               <TouchableOpacity
-                style={[styles.loginButton, isSubmitting && styles.loginButtonDisabled]}
+                style={[
+                  styles.loginButton,
+                  isSubmitting && styles.loginButtonDisabled,
+                ]}
                 onPress={handleSubmit(onSubmit)}
                 disabled={isSubmitting}
                 activeOpacity={0.9}
               >
                 <LinearGradient
-                  colors={[designSystem.colors.primary[500], designSystem.colors.primary[600]]}
+                  colors={[
+                    designSystem.colors.primary[500],
+                    designSystem.colors.primary[600],
+                  ]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.loginButtonGradient}
@@ -276,11 +322,18 @@ export default function LoginScreen() {
                   activeOpacity={0.8}
                 >
                   {biometricLoading ? (
-                    <ActivityIndicator color={designSystem.colors.primary[500]} />
+                    <ActivityIndicator
+                      color={designSystem.colors.primary[500]}
+                    />
                   ) : (
                     <>
-                      <Fingerprint size={24} color={designSystem.colors.primary[500]} />
-                      <Text style={styles.biometricText}>Sign in with Biometrics</Text>
+                      <Fingerprint
+                        size={24}
+                        color={designSystem.colors.primary[500]}
+                      />
+                      <Text style={styles.biometricText}>
+                        Sign in with Biometrics
+                      </Text>
                     </>
                   )}
                 </TouchableOpacity>

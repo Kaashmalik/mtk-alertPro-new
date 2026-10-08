@@ -1,37 +1,42 @@
 /**
  * Upgrade Prompt Component
- * 
+ *
  * Professional feature gating with beautiful upgrade prompts
  */
 
-import React, { useState, useEffect } from 'react';
+import type React from 'react';
+import { useEffect, useState } from 'react';
 import {
-  View,
-  Text,
-  StyleSheet,
-  TouchableOpacity,
-  Modal,
   Animated,
-  Dimensions,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
-import { BlurView } from 'expo-blur';
+
+import type { BooleanFeature } from '@/lib/subscription/planLimits';
+import { subscriptionService } from '@/lib/subscription/subscriptionService';
+import {
+  borderRadius,
+  colors,
+  fontSize,
+  palette,
+  shadows,
+  spacing,
+} from '@/lib/theme';
+import { useIsPremium, useSubscriptionStore } from '@/stores/subscriptionStore';
 import { LinearGradient } from 'expo-linear-gradient';
 import { router } from 'expo-router';
 import {
+  ArrowRight,
+  Check,
   Crown,
   Lock,
-  Check,
-  X,
   Sparkles,
-  ArrowRight,
+  X,
   Zap,
 } from 'lucide-react-native';
-import { colors, spacing, fontSize, borderRadius, shadows, palette } from '@/lib/theme';
-import { useSubscriptionStore, useIsPremium } from '@/stores/subscriptionStore';
-import { subscriptionService, type UpgradePromptConfig } from '@/lib/subscription/subscriptionService';
-import type { BooleanFeature } from '@/lib/subscription/planLimits';
-
-const { width: SCREEN_WIDTH, height: SCREEN_HEIGHT } = Dimensions.get('window');
 
 // ============================================================================
 // Types
@@ -78,6 +83,7 @@ export function UpgradePrompt({
 
   const config = subscriptionService.getUpgradePrompt(feature, currentTier);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: only re-run when visibility changes
   useEffect(() => {
     if (visible) {
       Animated.parallel([
@@ -134,10 +140,7 @@ export function UpgradePrompt({
           onPress={onClose}
         />
         <Animated.View
-          style={[
-            styles.modalContent,
-            { transform: [{ scale: scaleAnim }] },
-          ]}
+          style={[styles.modalContent, { transform: [{ scale: scaleAnim }] }]}
         >
           {/* Close Button */}
           <TouchableOpacity onPress={onClose} style={styles.closeButton}>
@@ -163,8 +166,8 @@ export function UpgradePrompt({
 
           {/* Benefits */}
           <View style={styles.benefitsList}>
-            {config.benefits.map((benefit, index) => (
-              <View key={index} style={styles.benefitRow}>
+            {config.benefits.map((benefit) => (
+              <View key={benefit} style={styles.benefitRow}>
                 <View style={styles.benefitCheck}>
                   <Check size={12} color={colors.status.success} />
                 </View>
@@ -187,7 +190,9 @@ export function UpgradePrompt({
             >
               <Zap size={20} color="white" fill="white" />
               <Text style={styles.upgradeText}>
-                Upgrade to {config.requiredTier.charAt(0).toUpperCase() + config.requiredTier.slice(1)}
+                Upgrade to{' '}
+                {config.requiredTier.charAt(0).toUpperCase() +
+                  config.requiredTier.slice(1)}
               </Text>
               <ArrowRight size={18} color="white" />
             </LinearGradient>
@@ -213,7 +218,9 @@ export function FeatureGate({
   fallback,
   showLockIcon = true,
 }: FeatureGateProps) {
-  const checkFeatureAccess = useSubscriptionStore((state) => state.checkFeatureAccess);
+  const checkFeatureAccess = useSubscriptionStore(
+    (state) => state.checkFeatureAccess,
+  );
   const [showUpgrade, setShowUpgrade] = useState(false);
 
   const hasAccess = checkFeatureAccess(feature);
@@ -239,9 +246,7 @@ export function FeatureGate({
             <Text style={styles.lockText}>PRO</Text>
           </View>
         )}
-        <View style={styles.lockedOverlay}>
-          {children}
-        </View>
+        <View style={styles.lockedOverlay}>{children}</View>
       </TouchableOpacity>
 
       <UpgradePrompt
@@ -271,7 +276,13 @@ export function PremiumBadge({ size = 'medium', style }: PremiumBadgeProps) {
   const config = sizes[size];
 
   return (
-    <View style={[styles.premiumBadge, { paddingHorizontal: config.padding }, style]}>
+    <View
+      style={[
+        styles.premiumBadge,
+        { paddingHorizontal: config.padding },
+        style,
+      ]}
+    >
       <Crown size={config.icon} color={palette.amber[500]} />
       <Text style={[styles.premiumBadgeText, { fontSize: config.fontSize }]}>
         PRO
@@ -289,7 +300,10 @@ interface InlineUpgradeProps {
   compact?: boolean;
 }
 
-export function InlineUpgradeCTA({ feature, compact = false }: InlineUpgradeProps) {
+export function InlineUpgradeCTA({
+  feature,
+  compact = false,
+}: InlineUpgradeProps) {
   const currentTier = useSubscriptionStore((state) => state.currentTier);
   const config = subscriptionService.getUpgradePrompt(feature, currentTier);
 
@@ -335,15 +349,31 @@ interface UsageLimitProps {
   onUpgrade?: () => void;
 }
 
-export function UsageLimitWarning({ current, max, label, onUpgrade }: UsageLimitProps) {
-  const percentage = max === Infinity ? 0 : (current / max) * 100;
-  const isNearLimit = percentage >= 80;
+export function UsageLimitWarning({
+  current,
+  max,
+  label,
+  onUpgrade,
+}: UsageLimitProps) {
+  const percentage =
+    max === Number.POSITIVE_INFINITY ? 0 : (current / max) * 100;
   const isAtLimit = current >= max;
 
-  if (max === Infinity || percentage < 80) return null;
+  if (max === Number.POSITIVE_INFINITY || percentage < 80) return null;
 
   return (
-    <View style={[styles.limitWarning, isAtLimit && styles.limitWarningCritical]}>
+    <View
+      style={[styles.limitWarning, isAtLimit && styles.limitWarningCritical]}
+      // Approaching or hitting a plan limit is the single most important piece
+      // of state on these screens; announce it instead of relying on sight.
+      accessibilityLiveRegion="polite"
+      accessibilityRole="alert"
+      accessibilityLabel={
+        isAtLimit
+          ? `${label} limit reached. ${current} of ${max} used.`
+          : `${max - current} ${label} remaining. ${current} of ${max} used.`
+      }
+    >
       <View style={styles.limitContent}>
         <Text style={styles.limitText}>
           {isAtLimit
@@ -351,13 +381,15 @@ export function UsageLimitWarning({ current, max, label, onUpgrade }: UsageLimit
             : `${max - current} ${label} remaining`}
         </Text>
         <Text style={styles.limitSubtext}>
-          {current} of {max === Infinity ? '∞' : max} used
+          {current} of {max === Number.POSITIVE_INFINITY ? '∞' : max} used
         </Text>
       </View>
       {isAtLimit && (
         <TouchableOpacity
           onPress={onUpgrade || (() => router.push('/subscription'))}
           style={styles.limitUpgrade}
+          accessibilityRole="button"
+          accessibilityLabel={`Upgrade to add more ${label.toLowerCase()}`}
         >
           <Text style={styles.limitUpgradeText}>Upgrade</Text>
         </TouchableOpacity>
@@ -381,7 +413,10 @@ const styles = StyleSheet.create({
     ...StyleSheet.absoluteFillObject,
   },
   modalContent: {
-    width: SCREEN_WIDTH - spacing.xl * 2,
+    // Was SCREEN_WIDTH - padding, frozen at the boot width. Stretching with a
+    // max-width keeps the sheet readable on tablets instead of overflowing.
+    width: '100%',
+    maxWidth: 420,
     backgroundColor: colors.bg.elevated,
     borderRadius: borderRadius['2xl'],
     padding: spacing.xxl,
@@ -577,4 +612,3 @@ const styles = StyleSheet.create({
     color: 'white',
   },
 });
-

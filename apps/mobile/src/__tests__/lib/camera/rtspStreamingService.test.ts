@@ -10,9 +10,9 @@
 
 import {
   RTSPStreamingService,
-  buildFfmpegHlsCommand,
   type StreamConfig,
   type StreamStatus,
+  buildFfmpegHlsCommand,
 } from '@/lib/camera/rtspStreamingService';
 
 type ConnectResult = {
@@ -161,15 +161,24 @@ describe('RTSPStreamingService', () => {
       await svc.connect();
       // Initial attempt failed → first retry scheduled at base * 2^0 = 1000ms
       expect(svc.getStatus().state).toBe('reconnecting');
-      expect(setTimeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 1000);
+      expect(setTimeoutSpy).toHaveBeenLastCalledWith(
+        expect.any(Function),
+        1000,
+      );
 
       await jest.advanceTimersByTimeAsync(1000);
       // Second failure → base * 2^1 = 2000ms
-      expect(setTimeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 2000);
+      expect(setTimeoutSpy).toHaveBeenLastCalledWith(
+        expect.any(Function),
+        2000,
+      );
 
       await jest.advanceTimersByTimeAsync(2000);
       // Third failure → base * 2^2 = 4000ms
-      expect(setTimeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 4000);
+      expect(setTimeoutSpy).toHaveBeenLastCalledWith(
+        expect.any(Function),
+        4000,
+      );
 
       await jest.advanceTimersByTimeAsync(4000);
 
@@ -194,13 +203,20 @@ describe('RTSPStreamingService', () => {
       const setTimeoutSpy = jest.spyOn(global, 'setTimeout');
 
       const svc = new RTSPStreamingService(
-        makeConfig({ maxRetries: 4, reconnectIntervalMs: 10000, maxReconnectDelayMs: 15000 }),
+        makeConfig({
+          maxRetries: 4,
+          reconnectIntervalMs: 10000,
+          maxReconnectDelayMs: 15000,
+        }),
       );
 
       await svc.connect(); // → 10000
       await jest.advanceTimersByTimeAsync(10000);
       // 10000 * 2 = 20000 → capped to 15000
-      expect(setTimeoutSpy).toHaveBeenLastCalledWith(expect.any(Function), 15000);
+      expect(setTimeoutSpy).toHaveBeenLastCalledWith(
+        expect.any(Function),
+        15000,
+      );
 
       svc.disconnect();
       await jest.advanceTimersByTimeAsync(60000);
@@ -259,7 +275,10 @@ describe('RTSPStreamingService', () => {
     it('ignores concurrent connect() calls while one is in flight', async () => {
       let resolveConnect: (r: ConnectResult) => void = () => {};
       transportSpy.mockImplementation(
-        () => new Promise((resolve) => { resolveConnect = resolve; }),
+        () =>
+          new Promise((resolve) => {
+            resolveConnect = resolve;
+          }),
       );
 
       const svc = new RTSPStreamingService(makeConfig());

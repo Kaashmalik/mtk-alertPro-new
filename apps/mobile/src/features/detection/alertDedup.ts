@@ -22,7 +22,10 @@ export function markLocalAlert(cameraId: string | null, type: string): void {
   recentLocalAlertKeys.set(`${scopeFor(cameraId)}:${type}`, Date.now());
 }
 
-export function wasLocalAlertRecent(cameraId: string | null, type: string): boolean {
+export function wasLocalAlertRecent(
+  cameraId: string | null,
+  type: string,
+): boolean {
   const t = recentLocalAlertKeys.get(`${scopeFor(cameraId)}:${type}`);
   if (!t) return false;
   return Date.now() - t < LOCAL_ALERT_DEDUP_MS;

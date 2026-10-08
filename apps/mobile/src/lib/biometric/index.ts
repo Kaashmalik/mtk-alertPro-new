@@ -25,18 +25,29 @@ export async function checkBiometricCapability(): Promise<BiometricCapability> {
   try {
     const hasHardware = await LocalAuthentication.hasHardwareAsync();
     const isEnrolled = await LocalAuthentication.isEnrolledAsync();
-    const supportedTypes = await LocalAuthentication.supportedAuthenticationTypesAsync();
-    
+    const supportedTypes =
+      await LocalAuthentication.supportedAuthenticationTypesAsync();
+
     let biometricType: BiometricCapability['biometricType'] = 'none';
-    
-    if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FINGERPRINT)) {
+
+    if (
+      supportedTypes.includes(
+        LocalAuthentication.AuthenticationType.FINGERPRINT,
+      )
+    ) {
       biometricType = 'fingerprint';
-    } else if (supportedTypes.includes(LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION)) {
+    } else if (
+      supportedTypes.includes(
+        LocalAuthentication.AuthenticationType.FACIAL_RECOGNITION,
+      )
+    ) {
       biometricType = 'facial';
-    } else if (supportedTypes.includes(LocalAuthentication.AuthenticationType.IRIS)) {
+    } else if (
+      supportedTypes.includes(LocalAuthentication.AuthenticationType.IRIS)
+    ) {
       biometricType = 'iris';
     }
-    
+
     return {
       available: hasHardware,
       biometricType,
@@ -56,25 +67,25 @@ export async function checkBiometricCapability(): Promise<BiometricCapability> {
  * Authenticate using biometrics
  */
 export async function authenticateWithBiometric(
-  promptMessage: string = 'Authenticate to continue'
+  promptMessage = 'Authenticate to continue',
 ): Promise<BiometricAuthResult> {
   try {
     const capability = await checkBiometricCapability();
-    
+
     if (!capability.available || !capability.enrolled) {
       return {
         success: false,
         error: 'Biometric authentication not available',
       };
     }
-    
+
     const result = await LocalAuthentication.authenticateAsync({
       promptMessage,
       cancelLabel: 'Cancel',
       disableDeviceFallback: false,
       fallbackLabel: 'Use PIN',
     });
-    
+
     if (result.success) {
       // Get stored user email
       const userEmail = await SecureStore.getItemAsync(BIOMETRIC_USER_KEY);
@@ -83,19 +94,23 @@ export async function authenticateWithBiometric(
         userEmail: userEmail || undefined,
       };
     }
-    
-    const isCancel = result.error === 'user_cancel' || 
-                     result.error === 'system_cancel' || 
-                     result.error === 'app_cancel' ||
-                     result.error === 'user_fallback';
+
+    const isCancel =
+      result.error === 'user_cancel' ||
+      result.error === 'system_cancel' ||
+      result.error === 'app_cancel' ||
+      result.error === 'user_fallback';
 
     return {
       success: false,
-      error: isCancel ? 'User canceled' : (result.error || 'Authentication failed'),
+      error: isCancel
+        ? 'User canceled'
+        : result.error || 'Authentication failed',
     };
   } catch (error) {
     console.warn('Biometric authentication notice:', error);
-    const msg = error instanceof Error ? error.message : 'Authentication failed';
+    const msg =
+      error instanceof Error ? error.message : 'Authentication failed';
     const isCancel = msg.toLowerCase().includes('cancel');
     return {
       success: false,
@@ -112,12 +127,12 @@ export async function enableBiometricAuth(userEmail: string): Promise<boolean> {
     if (Platform.OS === 'web') {
       return false;
     }
-    
+
     const capability = await checkBiometricCapability();
     if (!capability.available || !capability.enrolled) {
       return false;
     }
-    
+
     await SecureStore.setItemAsync(BIOMETRIC_ENABLED_KEY, 'true');
     await SecureStore.setItemAsync(BIOMETRIC_USER_KEY, userEmail);
     return true;
@@ -135,7 +150,7 @@ export async function disableBiometricAuth(): Promise<boolean> {
     if (Platform.OS === 'web') {
       return false;
     }
-    
+
     await SecureStore.deleteItemAsync(BIOMETRIC_ENABLED_KEY);
     await SecureStore.deleteItemAsync(BIOMETRIC_USER_KEY);
     return true;
@@ -153,7 +168,7 @@ export async function isBiometricEnabled(): Promise<boolean> {
     if (Platform.OS === 'web') {
       return false;
     }
-    
+
     const enabled = await SecureStore.getItemAsync(BIOMETRIC_ENABLED_KEY);
     return enabled === 'true';
   } catch (error) {
@@ -170,7 +185,7 @@ export async function getBiometricUserEmail(): Promise<string | null> {
     if (Platform.OS === 'web') {
       return null;
     }
-    
+
     return await SecureStore.getItemAsync(BIOMETRIC_USER_KEY);
   } catch (error) {
     console.error('Get biometric user error:', error);
@@ -189,7 +204,9 @@ export async function getBiometricUserEmail(): Promise<string | null> {
  *
  * @returns true when the action may proceed.
  */
-export async function requireBiometric(actionLabel = 'continue'): Promise<boolean> {
+export async function requireBiometric(
+  actionLabel = 'continue',
+): Promise<boolean> {
   if (Platform.OS === 'web') return true;
 
   let enabled = false;

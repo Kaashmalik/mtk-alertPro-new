@@ -3,11 +3,6 @@
  * never lets User B hydrate User A's cameras / RTSP URLs.
  */
 
-// `act` from react — avoids monorepo react-test-renderer@19 vs react@18 mismatch
-import { act } from 'react';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { useAuthStore } from '@/stores/authStore';
-import { useCameraStore } from '@/stores/cameraStore';
 import {
   CAMERAS_CACHE_KEY,
   HEALTH_CACHE_KEY,
@@ -16,8 +11,13 @@ import {
   saveCamerasCache,
   saveHealthCache,
 } from '@/lib/camera/cameraCache';
-import { supabase } from '@/lib/supabase/client';
 import type { CameraHealth } from '@/lib/camera/connectionService';
+import { supabase } from '@/lib/supabase/client';
+import { useAuthStore } from '@/stores/authStore';
+import { useCameraStore } from '@/stores/cameraStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+// `act` from react — avoids monorepo react-test-renderer@19 vs react@18 mismatch
+import { act } from 'react';
 import { createMockCamera } from '../setup';
 
 // Session backing the mocked Supabase client — flips between User A / User B
@@ -56,7 +56,10 @@ jest.mock('@/lib/supabase/client', () => ({
           single: jest.fn().mockResolvedValue({ data: null, error: null }),
         };
       }
-      return { select: jest.fn().mockReturnThis(), single: jest.fn().mockResolvedValue({ data: null, error: null }) };
+      return {
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: null, error: null }),
+      };
     }),
   },
 }));
@@ -119,7 +122,10 @@ function mockProfile(user: { id: string; email: string }) {
         }),
       };
     }
-    return { select: jest.fn().mockReturnThis(), single: jest.fn().mockResolvedValue({ data: null, error: null }) };
+    return {
+      select: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data: null, error: null }),
+    };
   });
 }
 
@@ -173,7 +179,9 @@ describe('Auth Store — sign-out cache cleanup', () => {
     mockCurrentUser = { id: 'user-b', email: 'b@example.com' };
     mockProfile(mockCurrentUser);
     await act(async () => {
-      await useAuthStore.getState().signInWithEmail('b@example.com', 'password');
+      await useAuthStore
+        .getState()
+        .signInWithEmail('b@example.com', 'password');
     });
 
     expect(useAuthStore.getState().isAuthenticated).toBe(true);
@@ -198,7 +206,8 @@ describe('Auth Store — sign-out cache cleanup', () => {
 
     // Mount the auth-state listener so we can fire a server-side sign-out
     const unsubscribe = useAuthStore.getState().setupTokenRefresh();
-    const listener = (supabase.auth.onAuthStateChange as jest.Mock).mock.calls[0][0];
+    const listener = (supabase.auth.onAuthStateChange as jest.Mock).mock
+      .calls[0][0];
 
     await act(async () => {
       await listener('SIGNED_OUT', null);

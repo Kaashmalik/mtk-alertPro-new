@@ -1,19 +1,19 @@
 /**
  * Card Component
- * 
+ *
  * A versatile card component with multiple variants
  */
 
-import React from 'react';
-import {
-  View,
-  StyleSheet,
-  ViewStyle,
-  TouchableOpacity,
-  TouchableOpacityProps,
-} from 'react-native';
+import { borderRadius, colors, shadows, spacing } from '@/lib/theme';
 import { LinearGradient } from 'expo-linear-gradient';
-import { colors, spacing, borderRadius, shadows } from '@/lib/theme';
+import type React from 'react';
+import {
+  StyleSheet,
+  TouchableOpacity,
+  type TouchableOpacityProps,
+  View,
+  type ViewStyle,
+} from 'react-native';
 
 // ============================================================================
 // Types
@@ -97,18 +97,19 @@ export function Card({
     ...(style as ViewStyle),
   };
 
-  const content = variant === 'gradient' ? (
-    <LinearGradient
-      colors={gradientColors || (colors.gradient.card as any)}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={[styles.gradient, { padding: paddingValue }]}
-    >
-      {children}
-    </LinearGradient>
-  ) : (
-    children
-  );
+  const content =
+    variant === 'gradient' ? (
+      <LinearGradient
+        colors={gradientColors || (colors.gradient.card as any)}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={[styles.gradient, { padding: paddingValue }]}
+      >
+        {children}
+      </LinearGradient>
+    ) : (
+      children
+    );
 
   if (onPress) {
     return (
@@ -124,11 +125,7 @@ export function Card({
   }
 
   if (variant === 'gradient') {
-    return (
-      <View style={[styles.gradientWrapper, style]}>
-        {content}
-      </View>
-    );
+    return <View style={[styles.gradientWrapper, style]}>{content}</View>;
   }
 
   return <View style={cardStyle}>{children}</View>;
@@ -151,4 +148,3 @@ const styles = StyleSheet.create({
     borderRadius: borderRadius.xl,
   },
 });
-

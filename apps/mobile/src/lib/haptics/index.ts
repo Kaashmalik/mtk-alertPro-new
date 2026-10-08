@@ -2,11 +2,18 @@
  * Haptic Feedback Service
  */
 
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 
-export type HapticType = 'light' | 'medium' | 'heavy' | 'success' | 'warning' | 'error' | 'selection';
+export type HapticType =
+  | 'light'
+  | 'medium'
+  | 'heavy'
+  | 'success'
+  | 'warning'
+  | 'error'
+  | 'selection';
 
 const HAPTICS_ENABLED_KEY = 'haptics_enabled';
 let enabled = true;
@@ -15,7 +22,7 @@ export async function initializeHaptics(): Promise<void> {
   try {
     const stored = await AsyncStorage.getItem(HAPTICS_ENABLED_KEY);
     enabled = stored !== 'false';
-  } catch (error) {
+  } catch (_error) {
     console.warn('[Haptics] Failed to load settings');
   }
 }
@@ -56,7 +63,7 @@ export function triggerHaptic(type: HapticType = 'light'): void {
         Haptics.selectionAsync();
         break;
     }
-  } catch (error) {
+  } catch (_error) {
     // Silently fail on unsupported devices
   }
 }
@@ -73,4 +80,3 @@ export const hapticNotification = () => {
   triggerHaptic('medium');
   setTimeout(() => triggerHaptic('light'), 150);
 };
-

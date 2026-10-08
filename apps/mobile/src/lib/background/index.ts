@@ -14,4 +14,3 @@ export {
   getRegisteredTasks,
   forceRunDetection,
 } from './backgroundTasks';
-

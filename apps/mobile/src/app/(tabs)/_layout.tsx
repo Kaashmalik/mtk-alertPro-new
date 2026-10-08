@@ -1,9 +1,9 @@
-import { Tabs } from 'expo-router';
-import { Home, Camera, Bell, Settings } from 'lucide-react-native';
-import { View, Text, StyleSheet } from 'react-native';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useAlertStore } from '@/stores';
 import { colors } from '@/lib/theme';
+import { useAlertStore } from '@/stores';
+import { Tabs } from 'expo-router';
+import { Bell, Camera, Home, Settings } from 'lucide-react-native';
+import { StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 const TAB_BAR_CONTENT_HEIGHT = 60;
 
@@ -80,7 +80,9 @@ export default function TabsLayout() {
         options={{
           title: 'Settings',
           tabBarAccessibilityLabel: 'Settings',
-          tabBarIcon: ({ color, size }) => <Settings size={size} color={color} />,
+          tabBarIcon: ({ color, size }) => (
+            <Settings size={size} color={color} />
+          ),
         }}
       />
     </Tabs>

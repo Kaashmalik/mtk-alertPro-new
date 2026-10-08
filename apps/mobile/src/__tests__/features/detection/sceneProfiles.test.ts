@@ -2,14 +2,15 @@
  * Scene profile presets and shouldAlert filter tests
  */
 
+import { mapCocoClassToDetectionType } from '@/features/detection/cocoClasses';
 import {
+  FREE_SCENE_PROFILES,
   applySceneProfile,
-  shouldAlert,
   getSceneProfile,
   isAdvancedSceneProfile,
-  FREE_SCENE_PROFILES,
+  shouldAlert,
 } from '@/features/detection/sceneProfiles';
-import { mapCocoClassToDetectionType } from '@/features/detection/cocoClasses';
+import type { DetectionSettings } from '@/types';
 
 describe('sceneProfiles', () => {
   it('farm suppresses animals and enables person/vehicle', () => {
@@ -68,6 +69,46 @@ describe('sceneProfiles', () => {
 
   it('getSceneProfile falls back to home', () => {
     expect(getSceneProfile(undefined).id).toBe('home');
+  });
+});
+
+describe('shouldAlert plan gating (hasFaceRecognition)', () => {
+  const faceOn: DetectionSettings = {
+    person: true,
+    vehicle: true,
+    face: true,
+    animal: false,
+    motion: false,
+    sensitivity: 0.7,
+    notificationsEnabled: true,
+    alarmEnabled: true,
+  };
+
+  it('suppresses face alerts when the plan excludes face recognition', () => {
+    // Regression guard: hasFaceRecognition was defined (false on free) but never
+    // consulted, so a free account with face enabled received face alerts.
+    expect(shouldAlert({ type: 'face' }, faceOn, { face: false })).toBe(false);
+  });
+
+  it('allows face alerts when the plan includes face recognition', () => {
+    expect(shouldAlert({ type: 'face' }, faceOn, { face: true })).toBe(true);
+  });
+
+  it('leaves non-premium types untouched by the entitlement', () => {
+    expect(shouldAlert({ type: 'person' }, faceOn, { face: false })).toBe(true);
+    expect(shouldAlert({ type: 'vehicle' }, faceOn, { face: false })).toBe(
+      true,
+    );
+  });
+
+  it('defaults to allowing face when no entitlement is supplied', () => {
+    // Back-compat for callers that don't model the plan.
+    expect(shouldAlert({ type: 'face' }, faceOn)).toBe(true);
+  });
+
+  it('still respects the per-camera face toggle when entitled', () => {
+    const faceOff = { ...faceOn, face: false };
+    expect(shouldAlert({ type: 'face' }, faceOff, { face: true })).toBe(false);
   });
 });
 

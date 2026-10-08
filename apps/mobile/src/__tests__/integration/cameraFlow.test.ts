@@ -3,13 +3,23 @@
  * Tests the complete flow from adding a camera to detection
  */
 
-import { act } from '@testing-library/react-native';
-import { useCameraStore } from '@/stores/cameraStore';
-import { streamingService } from '@/lib/streaming/streamingService';
 import { DetectionManager } from '@/features/detection/detectionManager';
 import { RecordingService } from '@/lib/recording/recordingService';
+import { streamingService } from '@/lib/streaming/streamingService';
 import { supabase } from '@/lib/supabase/client';
+import { useCameraStore } from '@/stores/cameraStore';
+import { act } from '@testing-library/react-native';
 import { createMockCamera } from '../setup';
+
+/**
+ * Profiles mocks must model the full production row. The quota query selects
+ * `subscription_tier, subscription_expires_at`, and isTierActive() fails closed
+ * on a missing expiry, so a tier-only mock would silently downgrade every paid
+ * case to 'free' and make the limit tests pass for the wrong reason.
+ */
+const FUTURE_EXPIRY = new Date(
+  Date.now() + 30 * 24 * 60 * 60 * 1000,
+).toISOString();
 
 // Mock all external services
 jest.mock('@/lib/streaming/streamingService');
@@ -21,10 +31,10 @@ jest.mock('@/lib/notifications/service');
 describe('Camera Flow Integration', () => {
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Reset stores
     useCameraStore.getState().reset();
-    
+
     // Setup default mocks
     (supabase.auth.getUser as jest.Mock).mockResolvedValue({
       data: { user: { id: 'user-1', email: 'test@example.com' } },
@@ -56,7 +66,10 @@ describe('Camera Flow Integration', () => {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             single: jest.fn().mockResolvedValue({
-              data: { subscription_tier: 'pro' },
+              data: {
+                subscription_tier: 'pro',
+                subscription_expires_at: FUTURE_EXPIRY,
+              },
               error: null,
             }),
           };
@@ -83,7 +96,7 @@ describe('Camera Flow Integration', () => {
       });
 
       // Add the camera
-      let addedCamera;
+      let addedCamera: unknown;
       await act(async () => {
         addedCamera = await useCameraStore.getState().addCamera({
           name: 'Front Door Camera',
@@ -117,7 +130,7 @@ describe('Camera Flow Integration', () => {
       const streamResult = await (streamingService as any).registerCamera(
         'cam-1',
         'rtsp://192.168.1.100:554/stream',
-        'user-1'
+        'user-1',
       );
 
       expect(streamResult.success).toBe(true);
@@ -130,11 +143,15 @@ describe('Camera Flow Integration', () => {
       });
 
       // Mock detection initialization
-      const { detectionService } = require('@/features/detection/detectionService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
       detectionService.initialize.mockResolvedValue(undefined);
       detectionService.isInitialized.mockReturnValue(true);
 
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       frameCaptureService.initialize.mockResolvedValue(undefined);
 
       await detectionManager.initialize();
@@ -152,7 +169,7 @@ describe('Camera Flow Integration', () => {
 
       // ============ Step 4: Recording ============
       const recordingService = new RecordingService();
-      
+
       // Mock file system for recording
       const FileSystem = require('expo-file-system');
       FileSystem.getInfoAsync.mockResolvedValue({ exists: true });
@@ -215,7 +232,7 @@ describe('Camera Flow Integration', () => {
       const result1 = await (streamingService as any).registerCamera(
         'cam-1',
         'rtsp://192.168.1.100:554/stream',
-        'user-1'
+        'user-1',
       );
       expect(result1.success).toBe(false);
 
@@ -223,20 +240,24 @@ describe('Camera Flow Integration', () => {
       const result2 = await (streamingService as any).registerCamera(
         'cam-1',
         'rtsp://192.168.1.100:554/stream',
-        'user-1'
+        'user-1',
       );
       expect(result2.success).toBe(true);
     });
 
     it('should handle camera going offline during detection', async () => {
       const detectionManager = new DetectionManager();
-      
+
       // Initialize mocks
-      const { detectionService } = require('@/features/detection/detectionService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
       detectionService.initialize.mockResolvedValue(undefined);
       detectionService.isInitialized.mockReturnValue(true);
 
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       frameCaptureService.initialize.mockResolvedValue(undefined);
 
       await detectionManager.initialize();
@@ -262,11 +283,15 @@ describe('Camera Flow Integration', () => {
       const detectionManager = new DetectionManager();
 
       // Initialize
-      const { detectionService } = require('@/features/detection/detectionService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
       detectionService.initialize.mockResolvedValue(undefined);
       detectionService.isInitialized.mockReturnValue(true);
 
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       frameCaptureService.initialize.mockResolvedValue(undefined);
 
       await detectionManager.initialize();
@@ -319,7 +344,10 @@ describe('Camera Flow Integration', () => {
             select: jest.fn().mockReturnThis(),
             eq: jest.fn().mockReturnThis(),
             single: jest.fn().mockResolvedValue({
-              data: { subscription_tier: tier },
+              data: {
+                subscription_tier: tier,
+                subscription_expires_at: FUTURE_EXPIRY,
+              },
               error: null,
             }),
           };
@@ -329,7 +357,9 @@ describe('Camera Flow Integration', () => {
             insert: jest.fn().mockReturnThis(),
             select: jest.fn().mockReturnThis(),
             // The head/count query resolves on eq().
-            eq: jest.fn().mockResolvedValue({ count: existingCameras, error: null }),
+            eq: jest
+              .fn()
+              .mockResolvedValue({ count: existingCameras, error: null }),
             single: jest.fn().mockResolvedValue({
               data: {
                 id: 'cam-3',
@@ -375,7 +405,7 @@ describe('Camera Flow Integration', () => {
             notificationsEnabled: true,
             alarmEnabled: true,
           },
-        })
+        }),
       ).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
 
       // The camera must not have been added locally either.
@@ -403,7 +433,7 @@ describe('Camera Flow Integration', () => {
             notificationsEnabled: true,
             alarmEnabled: true,
           },
-        })
+        }),
       ).rejects.toMatchObject({ code: 'QUOTA_EXCEEDED' });
     });
 
@@ -443,4 +473,3 @@ describe('Camera Flow Integration', () => {
     });
   });
 });
-

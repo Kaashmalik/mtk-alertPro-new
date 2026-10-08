@@ -2,7 +2,10 @@
  * Analytics / product events (Sentry breadcrumbs + console; PostHog when configured)
  */
 
-type AnalyticsPayload = Record<string, string | number | boolean | undefined | null>;
+type AnalyticsPayload = Record<
+  string,
+  string | number | boolean | undefined | null
+>;
 
 let Sentry: { addBreadcrumb?: (b: unknown) => void } | null = null;
 try {

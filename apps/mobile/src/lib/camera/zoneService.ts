@@ -8,6 +8,7 @@
  * @module lib/camera/zoneService
  */
 
+import { hasFeatureAccess } from '@/lib/subscription/planLimits';
 import { supabase } from '@/lib/supabase/client';
 import { logError } from '@/lib/utils/errorHandler';
 import type { DetectionZone, ZonePoint } from '@/types';
@@ -32,7 +33,11 @@ function coercePolygon(value: unknown): ZonePoint[] {
   if (!Array.isArray(value)) return [];
   const points: ZonePoint[] = [];
   for (const entry of value) {
-    if (Array.isArray(entry) && typeof entry[0] === 'number' && typeof entry[1] === 'number') {
+    if (
+      Array.isArray(entry) &&
+      typeof entry[0] === 'number' &&
+      typeof entry[1] === 'number'
+    ) {
       points.push({ x: clamp01(entry[0]), y: clamp01(entry[1]) });
       continue;
     }
@@ -57,7 +62,8 @@ function toZone(row: ZoneRow): DetectionZone {
     name: row.name,
     polygon: coercePolygon(row.polygon),
     isActive: row.is_active !== false,
-    sensitivity: typeof row.sensitivity === 'number' ? clamp01(row.sensitivity) : 0.6,
+    sensitivity:
+      typeof row.sensitivity === 'number' ? clamp01(row.sensitivity) : 0.6,
   };
 }
 
@@ -82,14 +88,27 @@ export async function listZones(cameraId: string): Promise<DetectionZone[]> {
  * Create a zone. Rejects polygons that cannot enclose an area, so a malformed
  * zone is never persisted (it would silently match nothing at detection time).
  */
+/**
+ * Custom detection zones are sold as a Pro feature, so writes are refused
+ * without the entitlement. Enforced here rather than only in the UI because
+ * `expo-router` registers `/cameras/[id]/zones` as a directly deep-linkable
+ * route -- hiding the button would not be enough.
+ *
+ * @returns null when the caller lacks the entitlement.
+ */
 export async function createZone(
   cameraId: string,
   name: string,
   polygon: ZonePoint[],
-  sensitivity = 0.6
+  sensitivity = 0.6,
 ): Promise<DetectionZone | null> {
   if (polygon.length < MIN_POLYGON_POINTS) {
     console.warn('[Zones] Polygon needs at least 3 points');
+    return null;
+  }
+
+  if (!(await hasFeatureAccess('hasCustomZones'))) {
+    console.warn('[Zones] Custom zones require a Pro subscription');
     return null;
   }
 
@@ -99,7 +118,10 @@ export async function createZone(
     .insert({
       camera_id: cameraId,
       name: trimmed,
-      polygon: polygon.map((p) => ({ x: clamp01(p.x), y: clamp01(p.y) })) as never,
+      polygon: polygon.map((p) => ({
+        x: clamp01(p.x),
+        y: clamp01(p.y),
+      })) as never,
       is_active: true,
       sensitivity: clamp01(sensitivity),
     })
@@ -115,18 +137,32 @@ export async function createZone(
 
 export async function updateZone(
   zoneId: string,
-  changes: { name?: string; polygon?: ZonePoint[]; isActive?: boolean; sensitivity?: number }
+  changes: {
+    name?: string;
+    polygon?: ZonePoint[];
+    isActive?: boolean;
+    sensitivity?: number;
+  },
 ): Promise<DetectionZone | null> {
+  if (!(await hasFeatureAccess('hasCustomZones'))) {
+    console.warn('[Zones] Custom zones require a Pro subscription');
+    return null;
+  }
+
   const update: Record<string, unknown> = {};
   if (changes.name !== undefined) update.name = changes.name.trim() || 'Zone';
   if (changes.isActive !== undefined) update.is_active = changes.isActive;
-  if (changes.sensitivity !== undefined) update.sensitivity = clamp01(changes.sensitivity);
+  if (changes.sensitivity !== undefined)
+    update.sensitivity = clamp01(changes.sensitivity);
   if (changes.polygon !== undefined) {
     if (changes.polygon.length < MIN_POLYGON_POINTS) {
       console.warn('[Zones] Polygon needs at least 3 points');
       return null;
     }
-    update.polygon = changes.polygon.map((p) => ({ x: clamp01(p.x), y: clamp01(p.y) })) as never;
+    update.polygon = changes.polygon.map((p) => ({
+      x: clamp01(p.x),
+      y: clamp01(p.y),
+    })) as never;
   }
 
   const { data, error } = await supabase
@@ -144,7 +180,10 @@ export async function updateZone(
 }
 
 export async function deleteZone(zoneId: string): Promise<boolean> {
-  const { error } = await supabase.from('detection_zones').delete().eq('id', zoneId);
+  const { error } = await supabase
+    .from('detection_zones')
+    .delete()
+    .eq('id', zoneId);
   if (error) {
     logError(error, 'zoneService.deleteZone');
     return false;
@@ -156,7 +195,7 @@ export async function deleteZone(zoneId: string): Promise<boolean> {
 export function normalizePolygon(points: ZonePoint[]): ZonePoint[] {
   if (points.length === 0) return [];
   const anchor = points.reduce((best, p) =>
-    p.y < best.y || (p.y === best.y && p.x < best.x) ? p : best
+    p.y < best.y || (p.y === best.y && p.x < best.x) ? p : best,
   );
   const rest = points.filter((p) => p !== anchor);
   return [anchor, ...rest];

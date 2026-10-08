@@ -1,49 +1,49 @@
-import { useEffect, useState, useRef } from 'react';
-import {
-  View,
-  Text,
-  Alert,
-  TouchableOpacity,
-  StyleSheet,
-  StatusBar,
-  ScrollView,
-  Modal,
-  TextInput,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, Stack, useLocalSearchParams } from 'expo-router';
-import {
-  ArrowLeft,
-  Settings,
-  Layers,
-  Trash2,
-  Play,
-  Pause,
-  Video,
-  User,
-  Car,
-  Bell,
-  Volume2,
-  Shield,
-  Smile,
-  HardDrive,
-  Camera,
-  Check,
-  X,
-  Sliders,
-} from 'lucide-react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import * as Haptics from 'expo-haptics';
-import { useCameraStore, useIsPremium } from '@/stores';
-import { useSubscriptionStore } from '@/stores/subscriptionStore';
-import { getDecryptedCameraPassword } from '@/stores/cameraStore';
-import { maskRtspUrl } from '@/lib/camera/rtspHelper';
 import { CameraStreamPlayer } from '@/components/camera/CameraStreamPlayer';
 import { RecordingsModal } from '@/components/camera/RecordingsModal';
 import { SceneProfilePicker } from '@/components/camera/SceneProfilePicker';
 import { applySceneProfile } from '@/features/detection/sceneProfiles';
+import { maskRtspUrl } from '@/lib/camera/rtspHelper';
 import { recordingService } from '@/lib/recording/recordingService';
-import { requestMediaPermissions } from '@/lib/camera/cameraMediaService';
+import { useCameraStore, useIsPremium } from '@/stores';
+import { getDecryptedCameraPassword } from '@/stores/cameraStore';
+import { useSubscriptionStore } from '@/stores/subscriptionStore';
+import * as Haptics from 'expo-haptics';
+import { Stack, router, useLocalSearchParams } from 'expo-router';
+import {
+  Activity,
+  ArrowLeft,
+  Bell,
+  Car,
+  Check,
+  HardDrive,
+  Layers,
+  Pause,
+  Play,
+  Settings,
+  Shield,
+  Smile,
+  Trash2,
+  User,
+  Video,
+  Volume2,
+  X,
+} from 'lucide-react-native';
+import { useEffect, useRef, useState } from 'react';
+import {
+  Alert,
+  Modal,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+
+import { formatDateLabel } from '@/lib/utils/date';
 import { designSystem } from '@/theme/design-system';
 import type { SceneProfileId } from '@/types';
 
@@ -54,8 +54,9 @@ export default function CameraDetailScreen() {
   const updateCamera = useCameraStore((state) => state.updateCamera);
   const isPremium = useIsPremium();
   const canUseAdvancedScenes = useSubscriptionStore((s) =>
-    s.checkFeatureAccess('hasAdvancedSceneProfiles')
+    s.checkFeatureAccess('hasAdvancedSceneProfiles'),
   );
+  const cameraHealth = useCameraStore((state) => state.cameraHealth);
 
   const [isPlaying, setIsPlaying] = useState(false);
   const [isRecording, setIsRecording] = useState(false);
@@ -69,9 +70,15 @@ export default function CameraDetailScreen() {
   const [editCooldown, setEditCooldown] = useState(30);
 
   const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null);
-  const [streamCreds, setStreamCreds] = useState<{ username?: string; password?: string }>({});
+  const [streamCreds, setStreamCreds] = useState<{
+    username?: string;
+    password?: string;
+  }>({});
 
   const camera = cameras.find((c) => c.id === id);
+  const health = camera?.id ? cameraHealth?.[camera.id] : undefined;
+  const liveStatus =
+    health?.status ?? (camera?.isActive ? 'online' : 'offline');
 
   useEffect(() => {
     if (!camera) {
@@ -86,6 +93,7 @@ export default function CameraDetailScreen() {
   }, [camera]);
 
   // Decrypt credentials for the live player (MJPEG/basic-auth cameras)
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     let cancelled = false;
     if (!camera?.username && !camera?.password) {
@@ -139,11 +147,13 @@ export default function CameraDetailScreen() {
             router.back();
           },
         },
-      ]
+      ],
     );
   };
 
-  const toggleDetection = async (type: 'person' | 'vehicle' | 'face' | 'animal') => {
+  const toggleDetection = async (
+    type: 'person' | 'vehicle' | 'face' | 'animal' | 'motion',
+  ) => {
     try {
       await Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
       await updateCamera(camera.id, {
@@ -202,7 +212,7 @@ export default function CameraDetailScreen() {
           [
             { text: 'OK' },
             { text: 'View Clips', onPress: () => setShowRecordingsModal(true) },
-          ]
+          ],
         );
       } else {
         await recordingService.initialize();
@@ -235,8 +245,11 @@ export default function CameraDetailScreen() {
         },
       });
       setShowSettingsModal(false);
-      Alert.alert('Settings Updated', 'Camera configuration saved successfully.');
-    } catch (err) {
+      Alert.alert(
+        'Settings Updated',
+        'Camera configuration saved successfully.',
+      );
+    } catch (_err) {
       Alert.alert('Error', 'Failed to save camera settings.');
     }
   };
@@ -253,25 +266,44 @@ export default function CameraDetailScreen() {
         options={{
           headerShown: true,
           title: camera.name,
-          headerStyle: { backgroundColor: designSystem.colors.background.secondary },
+          headerStyle: {
+            backgroundColor: designSystem.colors.background.secondary,
+          },
           headerTintColor: designSystem.colors.text.primary,
           headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()} style={{ marginRight: designSystem.spacing.md }}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{ marginRight: designSystem.spacing.md }}
+            >
               <ArrowLeft size={24} color={designSystem.colors.text.primary} />
             </TouchableOpacity>
           ),
           headerRight: () => (
-            <TouchableOpacity onPress={handleDelete}>
+            <TouchableOpacity
+              onPress={handleDelete}
+              // Icon-only control: without a label a screen reader announces
+              // an unlabelled button, so the destructive action was unreachable.
+              accessibilityRole="button"
+              accessibilityLabel="Delete camera"
+              accessibilityHint="Permanently removes this camera and its settings"
+              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            >
               <Trash2 size={22} color={designSystem.colors.status.danger} />
             </TouchableOpacity>
           ),
         }}
       />
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor={designSystem.colors.background.primary}
+        />
         <ScrollView showsVerticalScrollIndicator={false}>
           {/* Video Player Area */}
-          <Animated.View entering={FadeInDown.duration(600)} style={styles.videoContainer}>
+          <Animated.View
+            entering={FadeInDown.duration(600)}
+            style={styles.videoContainer}
+          >
             {isPlaying ? (
               <>
                 <CameraStreamPlayer
@@ -297,7 +329,9 @@ export default function CameraDetailScreen() {
                 {isRecording && (
                   <View style={styles.recordingIndicator}>
                     <View style={styles.recordingDot} />
-                    <Text style={styles.recordingText}>REC {formatTimer(recordingSeconds)}</Text>
+                    <Text style={styles.recordingText}>
+                      REC {formatTimer(recordingSeconds)}
+                    </Text>
                   </View>
                 )}
               </>
@@ -311,13 +345,18 @@ export default function CameraDetailScreen() {
                 </View>
                 <Text style={styles.playText}>Tap to start live stream</Text>
                 {/* 🔒 Masked display — never show credentials baked into the URL */}
-                <Text style={styles.streamUrl}>{maskRtspUrl(camera.rtspUrl)}</Text>
+                <Text style={styles.streamUrl}>
+                  {maskRtspUrl(camera.rtspUrl)}
+                </Text>
               </TouchableOpacity>
             )}
           </Animated.View>
 
           {/* Quick Controls Bar */}
-          <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.controlsContainer}>
+          <Animated.View
+            entering={FadeInDown.delay(100).duration(600)}
+            style={styles.controlsContainer}
+          >
             <TouchableOpacity
               onPress={() => setIsPlaying(!isPlaying)}
               style={styles.controlButton}
@@ -336,8 +375,18 @@ export default function CameraDetailScreen() {
               onPress={handleRecord}
               style={styles.controlButton}
             >
-              <Video size={22} color={isRecording ? designSystem.colors.status.danger : 'white'} />
-              <Text style={[styles.controlText, isRecording && styles.recordingTextActive]}>
+              <Video
+                size={22}
+                color={
+                  isRecording ? designSystem.colors.status.danger : 'white'
+                }
+              />
+              <Text
+                style={[
+                  styles.controlText,
+                  isRecording && styles.recordingTextActive,
+                ]}
+              >
                 {isRecording ? 'Stop' : 'Record'}
               </Text>
             </TouchableOpacity>
@@ -369,7 +418,10 @@ export default function CameraDetailScreen() {
           </Animated.View>
 
           {/* Detection Settings */}
-          <Animated.View entering={FadeInDown.delay(200).duration(600)} style={styles.detectionSection}>
+          <Animated.View
+            entering={FadeInDown.delay(200).duration(600)}
+            style={styles.detectionSection}
+          >
             <SceneProfilePicker
               selected={camera.detectionSettings.sceneProfile || 'home'}
               canUseAdvanced={canUseAdvancedScenes || isPremium}
@@ -380,8 +432,11 @@ export default function CameraDetailScreen() {
                   'Parking, Warehouse, Construction, and School profiles are included with Pro.',
                   [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Upgrade', onPress: () => router.push('/subscription') },
-                  ]
+                    {
+                      text: 'Upgrade',
+                      onPress: () => router.push('/subscription'),
+                    },
+                  ],
                 );
               }}
             />
@@ -401,7 +456,11 @@ export default function CameraDetailScreen() {
             >
               <User
                 size={24}
-                color={camera.detectionSettings.person ? designSystem.colors.status.danger : designSystem.colors.text.muted}
+                color={
+                  camera.detectionSettings.person
+                    ? designSystem.colors.status.danger
+                    : designSystem.colors.text.muted
+                }
               />
               <View style={styles.detectionContent}>
                 <Text style={styles.detectionTitle}>Person Detection</Text>
@@ -415,7 +474,9 @@ export default function CameraDetailScreen() {
                   camera.detectionSettings.person && styles.checkboxActive,
                 ]}
               >
-                {camera.detectionSettings.person && <View style={styles.checkboxInner} />}
+                {camera.detectionSettings.person && (
+                  <View style={styles.checkboxInner} />
+                )}
               </View>
             </TouchableOpacity>
 
@@ -429,7 +490,11 @@ export default function CameraDetailScreen() {
             >
               <Car
                 size={24}
-                color={camera.detectionSettings.vehicle ? '#06B6D4' : designSystem.colors.text.muted}
+                color={
+                  camera.detectionSettings.vehicle
+                    ? '#06B6D4'
+                    : designSystem.colors.text.muted
+                }
               />
               <View style={styles.detectionContent}>
                 <Text style={styles.detectionTitle}>Vehicle Detection</Text>
@@ -443,7 +508,9 @@ export default function CameraDetailScreen() {
                   camera.detectionSettings.vehicle && styles.checkboxVehicle,
                 ]}
               >
-                {camera.detectionSettings.vehicle && <View style={styles.checkboxInner} />}
+                {camera.detectionSettings.vehicle && (
+                  <View style={styles.checkboxInner} />
+                )}
               </View>
             </TouchableOpacity>
 
@@ -457,7 +524,11 @@ export default function CameraDetailScreen() {
             >
               <Shield
                 size={24}
-                color={camera.detectionSettings.animal ? '#84CC16' : designSystem.colors.text.muted}
+                color={
+                  camera.detectionSettings.animal
+                    ? '#84CC16'
+                    : designSystem.colors.text.muted
+                }
               />
               <View style={styles.detectionContent}>
                 <Text style={styles.detectionTitle}>Animal Detection</Text>
@@ -471,13 +542,68 @@ export default function CameraDetailScreen() {
                   camera.detectionSettings.animal && styles.checkboxAnimal,
                 ]}
               >
-                {camera.detectionSettings.animal && <View style={styles.checkboxInner} />}
+                {camera.detectionSettings.animal && (
+                  <View style={styles.checkboxInner} />
+                )}
+              </View>
+            </TouchableOpacity>
+
+            {/* Motion Detection (custom mode) */}
+            <TouchableOpacity
+              onPress={() => toggleDetection('motion')}
+              style={[
+                styles.detectionCard,
+                camera.detectionSettings.motion && styles.detectionCardMotion,
+              ]}
+            >
+              <Activity
+                size={24}
+                color={
+                  camera.detectionSettings.motion
+                    ? '#F59E0B'
+                    : designSystem.colors.text.muted
+                }
+              />
+              <View style={styles.detectionContent}>
+                <Text style={styles.detectionTitle}>Motion Detection</Text>
+                <Text style={styles.detectionDescription}>
+                  Alert on any movement. Useful for rarely busy areas.
+                </Text>
+              </View>
+              <View
+                style={[
+                  styles.checkbox,
+                  camera.detectionSettings.motion && styles.checkboxMotion,
+                ]}
+              >
+                {camera.detectionSettings.motion && (
+                  <View style={styles.checkboxInner} />
+                )}
               </View>
             </TouchableOpacity>
 
             {/* Face Recognition */}
             <TouchableOpacity
-              onPress={() => toggleDetection('face')}
+              onPress={() => {
+                const entitled = useSubscriptionStore
+                  .getState()
+                  .checkFeatureAccess('hasFaceRecognition');
+                if (!entitled) {
+                  Alert.alert(
+                    'Pro Feature',
+                    'Face recognition requires a Pro or Business plan.',
+                    [
+                      { text: 'Cancel', style: 'cancel' },
+                      {
+                        text: 'Upgrade',
+                        onPress: () => router.push('/subscription'),
+                      },
+                    ],
+                  );
+                  return;
+                }
+                toggleDetection('face');
+              }}
               style={[
                 styles.detectionCard,
                 camera.detectionSettings.face && styles.detectionCardFace,
@@ -485,7 +611,11 @@ export default function CameraDetailScreen() {
             >
               <Smile
                 size={24}
-                color={camera.detectionSettings.face ? '#A855F7' : designSystem.colors.text.muted}
+                color={
+                  camera.detectionSettings.face
+                    ? '#A855F7'
+                    : designSystem.colors.text.muted
+                }
               />
               <View style={styles.detectionContent}>
                 <View style={{ flexDirection: 'row', alignItems: 'center' }}>
@@ -495,7 +625,8 @@ export default function CameraDetailScreen() {
                   </View>
                 </View>
                 <Text style={styles.detectionDescription}>
-                  Identify known individuals with AI face detection
+                  Recognize known people. Enroll faces in Settings → Known
+                  People.
                 </Text>
               </View>
               <View
@@ -504,12 +635,19 @@ export default function CameraDetailScreen() {
                   camera.detectionSettings.face && styles.checkboxFace,
                 ]}
               >
-                {camera.detectionSettings.face && <View style={styles.checkboxInner} />}
+                {camera.detectionSettings.face && (
+                  <View style={styles.checkboxInner} />
+                )}
               </View>
             </TouchableOpacity>
 
             {/* Notification & Alarm Settings */}
-            <Text style={[styles.sectionTitle, { marginTop: designSystem.spacing.xl }]}>
+            <Text
+              style={[
+                styles.sectionTitle,
+                { marginTop: designSystem.spacing.xl },
+              ]}
+            >
               Notification & Audio Actions
             </Text>
 
@@ -517,15 +655,22 @@ export default function CameraDetailScreen() {
               onPress={toggleNotifications}
               style={[
                 styles.detectionCard,
-                camera.detectionSettings.notificationsEnabled && styles.detectionCardNotification,
+                camera.detectionSettings.notificationsEnabled &&
+                  styles.detectionCardNotification,
               ]}
             >
               <Bell
                 size={24}
-                color={camera.detectionSettings.notificationsEnabled ? designSystem.colors.status.success : designSystem.colors.text.muted}
+                color={
+                  camera.detectionSettings.notificationsEnabled
+                    ? designSystem.colors.status.success
+                    : designSystem.colors.text.muted
+                }
               />
               <View style={styles.detectionContent}>
-                <Text style={styles.detectionTitle}>Instant Push Notifications</Text>
+                <Text style={styles.detectionTitle}>
+                  Instant Push Notifications
+                </Text>
                 <Text style={styles.detectionDescription}>
                   Send high-priority alerts to this device
                 </Text>
@@ -533,10 +678,13 @@ export default function CameraDetailScreen() {
               <View
                 style={[
                   styles.checkbox,
-                  camera.detectionSettings.notificationsEnabled && styles.checkboxNotification,
+                  camera.detectionSettings.notificationsEnabled &&
+                    styles.checkboxNotification,
                 ]}
               >
-                {camera.detectionSettings.notificationsEnabled && <View style={styles.checkboxInner} />}
+                {camera.detectionSettings.notificationsEnabled && (
+                  <View style={styles.checkboxInner} />
+                )}
               </View>
             </TouchableOpacity>
 
@@ -544,12 +692,17 @@ export default function CameraDetailScreen() {
               onPress={toggleAlarm}
               style={[
                 styles.detectionCard,
-                camera.detectionSettings.alarmEnabled && styles.detectionCardAlarm,
+                camera.detectionSettings.alarmEnabled &&
+                  styles.detectionCardAlarm,
               ]}
             >
               <Volume2
                 size={24}
-                color={camera.detectionSettings.alarmEnabled ? designSystem.colors.status.warning : designSystem.colors.text.muted}
+                color={
+                  camera.detectionSettings.alarmEnabled
+                    ? designSystem.colors.status.warning
+                    : designSystem.colors.text.muted
+                }
               />
               <View style={styles.detectionContent}>
                 <Text style={styles.detectionTitle}>Siren & Audible Alarm</Text>
@@ -563,7 +716,9 @@ export default function CameraDetailScreen() {
                   camera.detectionSettings.alarmEnabled && styles.checkboxAlarm,
                 ]}
               >
-                {camera.detectionSettings.alarmEnabled && <View style={styles.checkboxInner} />}
+                {camera.detectionSettings.alarmEnabled && (
+                  <View style={styles.checkboxInner} />
+                )}
               </View>
             </TouchableOpacity>
 
@@ -571,18 +726,29 @@ export default function CameraDetailScreen() {
             <View style={styles.infoNote}>
               <Shield size={16} color={designSystem.colors.text.muted} />
               <Text style={styles.infoNoteText}>
-                Detection runs on-device with zero cloud latency. Unmonitored objects and ambient noise are filtered automatically.
+                Detection runs on-device with zero cloud latency. Unmonitored
+                objects and ambient noise are filtered automatically.
               </Text>
             </View>
           </Animated.View>
 
           {/* Camera Info */}
-          <Animated.View entering={FadeInDown.delay(300).duration(600)} style={styles.infoSection}>
+          <Animated.View
+            entering={FadeInDown.delay(300).duration(600)}
+            style={styles.infoSection}
+          >
             <Text style={styles.infoStatus}>
-              Status: {camera.isActive ? '🟢 Online & Ready' : '🔴 Offline'}
+              Status:{' '}
+              {liveStatus === 'online'
+                ? '?? Online & Ready'
+                : liveStatus === 'reconnecting'
+                  ? '?? Reconnecting�'
+                  : liveStatus === 'unknown'
+                    ? '? Checking�'
+                    : '?? Offline'}
             </Text>
             <Text style={styles.infoDate}>
-              Added: {new Date(camera.createdAt).toLocaleDateString()}
+              Added: {formatDateLabel(camera.createdAt)}
             </Text>
           </Animated.View>
         </ScrollView>
@@ -623,7 +789,9 @@ export default function CameraDetailScreen() {
                 placeholderTextColor="#64748B"
               />
 
-              <Text style={styles.label}>Detection Sensitivity: {Math.round(editSensitivity * 100)}%</Text>
+              <Text style={styles.label}>
+                Detection Sensitivity: {Math.round(editSensitivity * 100)}%
+              </Text>
               <View style={styles.sliderRow}>
                 {[0.5, 0.65, 0.8].map((val) => (
                   <TouchableOpacity
@@ -640,7 +808,11 @@ export default function CameraDetailScreen() {
                         editSensitivity === val && styles.sensitivityTextActive,
                       ]}
                     >
-                      {val === 0.5 ? 'High (50%)' : val === 0.65 ? 'Normal (65%)' : 'Strict (80%)'}
+                      {val === 0.5
+                        ? 'High (50%)'
+                        : val === 0.65
+                          ? 'Normal (65%)'
+                          : 'Strict (80%)'}
                     </Text>
                   </TouchableOpacity>
                 ))}
@@ -792,6 +964,9 @@ const styles = StyleSheet.create({
   detectionCardVehicle: {
     backgroundColor: 'rgba(6, 182, 212, 0.15)',
   },
+  detectionCardMotion: {
+    backgroundColor: 'rgba(245, 158, 11, 0.15)',
+  },
   detectionCardFace: {
     backgroundColor: 'rgba(168, 85, 247, 0.15)',
   },
@@ -855,6 +1030,10 @@ const styles = StyleSheet.create({
   checkboxNotification: {
     borderColor: designSystem.colors.status.success,
     backgroundColor: designSystem.colors.status.success,
+  },
+  checkboxMotion: {
+    borderColor: '#F59E0B',
+    backgroundColor: '#F59E0B',
   },
   checkboxAlarm: {
     borderColor: designSystem.colors.status.warning,

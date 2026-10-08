@@ -1,58 +1,69 @@
-import { useState, useCallback, useRef, useEffect } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  Alert,
-  StyleSheet,
-  StatusBar,
-  TouchableOpacity,
-  TextInput,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, Stack } from 'expo-router';
-import {
-  Camera,
-  Link2,
-  User,
-  Lock,
-  ArrowLeft,
-  Wifi,
-  ChevronDown,
-  ChevronUp,
-  Radar,
-  Search,
-  CheckCircle2,
-  XCircle,
-  Plug,
-  QrCode,
-} from 'lucide-react-native';
-import Animated, { FadeInDown } from 'react-native-reanimated';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
-import { z } from 'zod';
+  QrCameraScanner,
+  type QrScanResult,
+} from '@/components/camera/QrCameraScanner';
+import { SceneProfilePicker } from '@/components/camera/SceneProfilePicker';
 import { Button, Input } from '@/components/ui';
-import { useCameraStore, useIsPremium } from '@/stores';
-import { designSystem } from '@/theme/design-system';
+import { applySceneProfile } from '@/features/detection/sceneProfiles';
+import {
+  type ConnectionDiagnosis,
+  diagnoseConnection,
+  mediaServerStatus,
+} from '@/lib/camera/connectionDiagnostics';
+import {
+  type ConnectionTestResult,
+  testCameraConnection,
+} from '@/lib/camera/connectionService';
+import {
+  type DiscoveredCamera,
+  type DiscoveryProgress,
+  discoverCameras,
+} from '@/lib/camera/discoveryService';
 import {
   CAMERA_BRANDS,
   generateRtspUrl,
   isValidIpAddress,
   parseRtspUrl,
 } from '@/lib/camera/rtspHelper';
-import {
-  discoverCameras,
-  type DiscoveredCamera,
-  type DiscoveryProgress,
-} from '@/lib/camera/discoveryService';
-import {
-  testCameraConnection,
-  type ConnectionTestResult,
-} from '@/lib/camera/connectionService';
-import { QrCameraScanner, type QrScanResult } from '@/components/camera/QrCameraScanner';
-import { SceneProfilePicker } from '@/components/camera/SceneProfilePicker';
-import { applySceneProfile } from '@/features/detection/sceneProfiles';
+import { useCameraStore, useIsPremium } from '@/stores';
+import { designSystem } from '@/theme/design-system';
 import type { SceneProfileId } from '@/types';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { Stack, router } from 'expo-router';
+import {
+  AlertCircle,
+  ArrowLeft,
+  BookOpen,
+  Camera,
+  CheckCircle2,
+  ChevronDown,
+  ChevronRight,
+  ChevronUp,
+  Link2,
+  Lock,
+  Plug,
+  QrCode,
+  Radar,
+  Search,
+  User,
+  Wifi,
+  XCircle,
+} from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
+import {
+  Alert,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import Animated, { FadeInDown } from 'react-native-reanimated';
+import { SafeAreaView } from 'react-native-safe-area-context';
+import { z } from 'zod';
 
 const cameraSchema = z.object({
   name: z.string().min(1, 'Camera name is required'),
@@ -119,11 +130,15 @@ export default function AddCameraScreen() {
   const [streamPath, setStreamPath] = useState('');
   const [showBrandSelector, setShowBrandSelector] = useState(false);
   const [discovery, setDiscovery] = useState<DiscoveryState>(INITIAL_DISCOVERY);
-  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(null);
+  const [testResult, setTestResult] = useState<ConnectionTestResult | null>(
+    null,
+  );
   const [isTesting, setIsTesting] = useState(false);
   const [showQrScanner, setShowQrScanner] = useState(false);
   const [sceneProfile, setSceneProfile] = useState<SceneProfileId>('home');
   const discoveryAbortRef = useRef<AbortController | null>(null);
+  const [diagnosis, setDiagnosis] = useState<ConnectionDiagnosis | null>(null);
+  const relay = mediaServerStatus();
 
   const {
     control,
@@ -146,6 +161,7 @@ export default function AddCameraScreen() {
   const watchedRtspUrl = watch('rtspUrl');
 
   // A new URL invalidates the previous test result
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     setTestResult(null);
   }, [watchedRtspUrl]);
@@ -163,7 +179,7 @@ export default function AddCameraScreen() {
       return;
     }
 
-    const port = parseInt(rtspPort, 10);
+    const port = Number.parseInt(rtspPort, 10);
     if (!Number.isFinite(port) || port < 1 || port > 65535) {
       Alert.alert('Invalid Port', 'Port must be between 1 and 65535');
       return;
@@ -181,7 +197,15 @@ export default function AddCameraScreen() {
     if (url) {
       setValue('rtspUrl', url);
     }
-  }, [ipAddress, selectedBrand, rtspPort, streamPath, watchedUsername, watchedPassword, setValue]);
+  }, [
+    ipAddress,
+    selectedBrand,
+    rtspPort,
+    streamPath,
+    watchedUsername,
+    watchedPassword,
+    setValue,
+  ]);
 
   const selectedBrandData = CAMERA_BRANDS.find((b) => b.id === selectedBrand);
 
@@ -207,7 +231,7 @@ export default function AddCameraScreen() {
         onProgress: (progress) => {
           if (controller.signal.aborted) return;
           setDiscovery((prev) =>
-            prev.status === 'scanning' ? { ...prev, progress } : prev
+            prev.status === 'scanning' ? { ...prev, progress } : prev,
           );
         },
       });
@@ -238,7 +262,9 @@ export default function AddCameraScreen() {
 
       const brand =
         CAMERA_BRANDS.find((b) => b.id === cam.brandId) ?? selectedBrandData;
-      setRtspPort(String(cam.port && cam.port !== 80 ? 554 : brand?.rtspPort ?? 554));
+      setRtspPort(
+        String(cam.port && cam.port !== 80 ? 554 : (brand?.rtspPort ?? 554)),
+      );
 
       if (cam.rtspUrl) {
         setValue('rtspUrl', cam.rtspUrl);
@@ -258,7 +284,7 @@ export default function AddCameraScreen() {
         setValue('name', suggestCameraName(cam));
       }
     },
-    [setValue, watch, selectedBrandData]
+    [setValue, watch, selectedBrandData],
   );
 
   const handleTestConnection = useCallback(async () => {
@@ -270,29 +296,45 @@ export default function AddCameraScreen() {
 
     setIsTesting(true);
     setTestResult(null);
+    setDiagnosis(null);
     try {
       const result = await testCameraConnection(url, {
         timeoutMs: 5000,
         retryCount: 1,
       });
       setTestResult(result);
+      setDiagnosis(
+        diagnoseConnection(result, {
+          rtspUrl: url,
+          mediaServerConfigured: relay.configured,
+        }),
+      );
     } catch (error) {
-      setTestResult({
+      const failure: ConnectionTestResult = {
         success: false,
-        error: error instanceof Error ? error.message : 'Connection test failed',
+        error:
+          error instanceof Error ? error.message : 'Connection test failed',
         timestamp: new Date(),
-      });
+      };
+      setTestResult(failure);
+      setDiagnosis(
+        diagnoseConnection(failure, {
+          rtspUrl: url,
+          mediaServerConfigured: relay.configured,
+        }),
+      );
     } finally {
       setIsTesting(false);
     }
-  }, [watch]);
+  }, [watch, relay.configured]);
 
   const onSubmit = async (data: CameraForm) => {
     setIsLoading(true);
     try {
       await saveCamera(data);
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to add camera';
+      const message =
+        error instanceof Error ? error.message : 'Failed to add camera';
       Alert.alert('Error', message);
       setIsLoading(false);
     }
@@ -318,7 +360,9 @@ export default function AddCameraScreen() {
     discovery.progress && discovery.progress.total > 0
       ? Math.min(
           100,
-          Math.round((discovery.progress.scanned / discovery.progress.total) * 100)
+          Math.round(
+            (discovery.progress.scanned / discovery.progress.total) * 100,
+          ),
         )
       : 0;
 
@@ -335,17 +379,22 @@ export default function AddCameraScreen() {
       }
       if (result.brand) {
         const brand = CAMERA_BRANDS.find(
-          (b) => b.id === result.brand?.toLowerCase() || b.name.toLowerCase() === result.brand?.toLowerCase()
+          (b) =>
+            b.id === result.brand?.toLowerCase() ||
+            b.name.toLowerCase() === result.brand?.toLowerCase(),
         );
         if (brand) setSelectedBrand(brand.id);
       }
       if (result.model || result.serialNumber) {
-        setValue('name', result.model || result.serialNumber || 'Scanned Camera');
+        setValue(
+          'name',
+          result.model || result.serialNumber || 'Scanned Camera',
+        );
       } else if (!watch('name')) {
         setValue('name', 'Scanned Camera');
       }
     },
-    [setValue, watch]
+    [setValue, watch],
   );
 
   return (
@@ -354,15 +403,23 @@ export default function AddCameraScreen() {
         options={{
           headerShown: true,
           title: 'Add Camera',
-          headerStyle: { backgroundColor: designSystem.colors.background.secondary },
+          headerStyle: {
+            backgroundColor: designSystem.colors.background.secondary,
+          },
           headerTintColor: designSystem.colors.text.primary,
           headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()} style={{ marginRight: designSystem.spacing.md }}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{ marginRight: designSystem.spacing.md }}
+            >
               <ArrowLeft size={24} color={designSystem.colors.text.primary} />
             </TouchableOpacity>
           ),
           headerRight: () => (
-            <TouchableOpacity onPress={() => setShowQrScanner(true)} style={{ marginRight: 8 }}>
+            <TouchableOpacity
+              onPress={() => setShowQrScanner(true)}
+              style={{ marginRight: 8 }}
+            >
               <QrCode size={22} color={designSystem.colors.text.primary} />
             </TouchableOpacity>
           ),
@@ -376,11 +433,19 @@ export default function AddCameraScreen() {
       />
 
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
-        <ScrollView style={styles.scrollView} keyboardShouldPersistTaps="handled">
-
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor={designSystem.colors.background.primary}
+        />
+        <ScrollView
+          style={styles.scrollView}
+          keyboardShouldPersistTaps="handled"
+        >
           {/* Network Discovery */}
-          <Animated.View entering={FadeInDown.duration(600)} style={styles.discoveryCard}>
+          <Animated.View
+            entering={FadeInDown.duration(600)}
+            style={styles.discoveryCard}
+          >
             <View style={styles.discoveryHeader}>
               <View style={styles.discoveryHeaderIcon}>
                 <Radar size={24} color={designSystem.colors.primary[500]} />
@@ -447,59 +512,61 @@ export default function AddCameraScreen() {
               <Text style={styles.discoveryError}>{discovery.error}</Text>
             )}
 
-            {discovery.status === 'done' && (
-              <>
-                {discovery.results.length === 0 ? (
-                  <Text style={styles.discoveryEmpty}>
-                    No cameras found. Make sure you&apos;re on the same Wi-Fi network
-                    as your cameras.
-                  </Text>
-                ) : (
-                  <View style={styles.resultsList}>
-                    {discovery.results.map((cam, index) => (
-                      <TouchableOpacity
-                        key={`${cam.ip}-${cam.port}-${index}`}
-                        style={styles.resultItem}
-                        onPress={() => applyDiscoveredCamera(cam)}
-                        activeOpacity={0.7}
-                      >
-                        <View style={styles.resultIcon}>
-                          <Camera
-                            size={18}
-                            color={
-                              cam.onvif
-                                ? designSystem.colors.primary[500]
-                                : designSystem.colors.text.muted
-                            }
-                          />
-                        </View>
-                        <View style={styles.resultBody}>
-                          <Text style={styles.resultTitle} numberOfLines={1}>
-                            {cam.manufacturer || cam.model || cam.ip}
-                          </Text>
-                          <Text style={styles.resultSubtitle} numberOfLines={1}>
-                            {cam.ip}:{cam.port}
-                            {cam.model ? ` · ${cam.model}` : ''}
-                            {' · '}
-                            {cam.onvif ? 'ONVIF' : 'HTTP only'}
-                          </Text>
-                        </View>
-                        <Text style={styles.resultAction}>Use</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </View>
-                )}
-              </>
-            )}
+            {discovery.status === 'done' &&
+              (discovery.results.length === 0 ? (
+                <Text style={styles.discoveryEmpty}>
+                  No cameras found. Make sure you&apos;re on the same Wi-Fi
+                  network as your cameras.
+                </Text>
+              ) : (
+                <View style={styles.resultsList}>
+                  {discovery.results.map((cam, index) => (
+                    <TouchableOpacity
+                      key={`${cam.ip}-${cam.port}-${index}`}
+                      style={styles.resultItem}
+                      onPress={() => applyDiscoveredCamera(cam)}
+                      activeOpacity={0.7}
+                    >
+                      <View style={styles.resultIcon}>
+                        <Camera
+                          size={18}
+                          color={
+                            cam.onvif
+                              ? designSystem.colors.primary[500]
+                              : designSystem.colors.text.muted
+                          }
+                        />
+                      </View>
+                      <View style={styles.resultBody}>
+                        <Text style={styles.resultTitle} numberOfLines={1}>
+                          {cam.manufacturer || cam.model || cam.ip}
+                        </Text>
+                        <Text style={styles.resultSubtitle} numberOfLines={1}>
+                          {cam.ip}:{cam.port}
+                          {cam.model ? ` · ${cam.model}` : ''}
+                          {' · '}
+                          {cam.onvif ? 'ONVIF' : 'HTTP only'}
+                        </Text>
+                      </View>
+                      <Text style={styles.resultAction}>Use</Text>
+                    </TouchableOpacity>
+                  ))}
+                </View>
+              ))}
           </Animated.View>
 
           {/* Smart URL Builder Header */}
-          <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.urlBuilderHeader}>
+          <Animated.View
+            entering={FadeInDown.delay(100).duration(600)}
+            style={styles.urlBuilderHeader}
+          >
             <View style={styles.urlBuilderHeaderIcon}>
               <Wifi size={24} color={designSystem.colors.primary[500]} />
             </View>
             <View style={styles.urlBuilderHeaderText}>
-              <Text style={styles.urlBuilderHeaderTitle}>Smart Camera Setup</Text>
+              <Text style={styles.urlBuilderHeaderTitle}>
+                Smart Camera Setup
+              </Text>
               <Text style={styles.urlBuilderHeaderDesc}>
                 Enter your camera's IP address and we'll generate the RTSP URL
               </Text>
@@ -507,7 +574,10 @@ export default function AddCameraScreen() {
           </Animated.View>
 
           {/* Where is this camera? */}
-          <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.urlBuilder}>
+          <Animated.View
+            entering={FadeInDown.delay(100).duration(600)}
+            style={styles.urlBuilder}
+          >
             <SceneProfilePicker
               selected={sceneProfile}
               canUseAdvanced={isPremium}
@@ -518,15 +588,21 @@ export default function AddCameraScreen() {
                   'Parking, Warehouse, Construction, and School profiles require Pro.',
                   [
                     { text: 'Cancel', style: 'cancel' },
-                    { text: 'Upgrade', onPress: () => router.push('/subscription') },
-                  ]
+                    {
+                      text: 'Upgrade',
+                      onPress: () => router.push('/subscription'),
+                    },
+                  ],
                 );
               }}
             />
           </Animated.View>
 
           {/* Smart URL Builder */}
-          <Animated.View entering={FadeInDown.delay(150).duration(600)} style={styles.urlBuilder}>
+          <Animated.View
+            entering={FadeInDown.delay(150).duration(600)}
+            style={styles.urlBuilder}
+          >
             <Text style={styles.urlBuilderTitle}>Smart URL Builder</Text>
 
             {/* Brand Selector */}
@@ -540,21 +616,28 @@ export default function AddCameraScreen() {
                   {selectedBrandData?.name || 'Select Brand'}
                 </Text>
                 {showBrandSelector ? (
-                  <ChevronUp size={20} color={designSystem.colors.text.secondary} />
+                  <ChevronUp
+                    size={20}
+                    color={designSystem.colors.text.secondary}
+                  />
                 ) : (
-                  <ChevronDown size={20} color={designSystem.colors.text.secondary} />
+                  <ChevronDown
+                    size={20}
+                    color={designSystem.colors.text.secondary}
+                  />
                 )}
               </View>
             </TouchableOpacity>
 
             {showBrandSelector && (
               <View style={styles.brandDropdown}>
-                {CAMERA_BRANDS.filter(b => b.id !== 'custom').map((brand) => (
+                {CAMERA_BRANDS.filter((b) => b.id !== 'custom').map((brand) => (
                   <TouchableOpacity
                     key={brand.id}
                     style={[
                       styles.brandDropdownItem,
-                      selectedBrand === brand.id && styles.brandDropdownItemActive,
+                      selectedBrand === brand.id &&
+                        styles.brandDropdownItemActive,
                     ]}
                     onPress={() => {
                       setSelectedBrand(brand.id);
@@ -562,10 +645,13 @@ export default function AddCameraScreen() {
                       setShowBrandSelector(false);
                     }}
                   >
-                    <Text style={[
-                      styles.brandDropdownText,
-                      selectedBrand === brand.id && styles.brandDropdownTextActive,
-                    ]}>
+                    <Text
+                      style={[
+                        styles.brandDropdownText,
+                        selectedBrand === brand.id &&
+                          styles.brandDropdownTextActive,
+                      ]}
+                    >
                       {brand.name}
                     </Text>
                   </TouchableOpacity>
@@ -622,7 +708,8 @@ export default function AddCameraScreen() {
             </TouchableOpacity>
 
             <Text style={styles.urlBuilderHint}>
-              💡 Leave stream path empty to use the brand default. Enter credentials below for authenticated cameras.
+              💡 Leave stream path empty to use the brand default. Enter
+              credentials below for authenticated cameras.
             </Text>
           </Animated.View>
 
@@ -633,8 +720,42 @@ export default function AddCameraScreen() {
             <View style={styles.dividerLine} />
           </View>
 
+          {/* Camera relay status — shown up-front because a missing relay is the
+              single most common reason a camera "won't connect", and it is
+              invisible until you know to look for it. Tappable to open the
+              full in-app setup guide with a live relay check. */}
+          {!relay.configured && (
+            <Animated.View
+              entering={FadeInDown.delay(150).duration(600)}
+              style={styles.relayBanner}
+              accessibilityLiveRegion="polite"
+              accessibilityRole="alert"
+            >
+              <AlertCircle
+                size={18}
+                color={designSystem.colors.status.warning}
+              />
+              <Text style={styles.relayText}>
+                No camera relay is configured, so cameras cannot be reached yet.
+                See the setup guide below to connect your first camera.
+              </Text>
+              <TouchableOpacity
+                onPress={() => router.push('/camera-setup')}
+                hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}
+                accessibilityRole="link"
+                accessibilityLabel="Open camera setup guide"
+                style={styles.relayGo}
+              >
+                <Text style={styles.relayGoText}>Guide</Text>
+              </TouchableOpacity>
+            </Animated.View>
+          )}
+
           {/* Form */}
-          <Animated.View entering={FadeInDown.delay(200).duration(600)} style={styles.form}>
+          <Animated.View
+            entering={FadeInDown.delay(200).duration(600)}
+            style={styles.form}
+          >
             <Controller
               control={control}
               name="name"
@@ -642,7 +763,9 @@ export default function AddCameraScreen() {
                 <Input
                   label="Camera Name"
                   placeholder="e.g., Front Door, Backyard"
-                  leftIcon={<Camera size={20} color={designSystem.colors.text.muted} />}
+                  leftIcon={
+                    <Camera size={20} color={designSystem.colors.text.muted} />
+                  }
                   value={value}
                   onChangeText={onChange}
                   onBlur={onBlur}
@@ -660,7 +783,9 @@ export default function AddCameraScreen() {
                 <Input
                   label="RTSP URL"
                   placeholder="rtsp://192.168.1.100:554/stream"
-                  leftIcon={<Link2 size={20} color={designSystem.colors.text.muted} />}
+                  leftIcon={
+                    <Link2 size={20} color={designSystem.colors.text.muted} />
+                  }
                   autoCapitalize="none"
                   autoCorrect={false}
                   value={value}
@@ -684,7 +809,9 @@ export default function AddCameraScreen() {
                 <Input
                   label="Username"
                   placeholder="admin"
-                  leftIcon={<User size={20} color={designSystem.colors.text.muted} />}
+                  leftIcon={
+                    <User size={20} color={designSystem.colors.text.muted} />
+                  }
                   autoCapitalize="none"
                   value={value}
                   onChangeText={onChange}
@@ -702,7 +829,9 @@ export default function AddCameraScreen() {
                 <Input
                   label="Password"
                   placeholder="••••••••"
-                  leftIcon={<Lock size={20} color={designSystem.colors.text.muted} />}
+                  leftIcon={
+                    <Lock size={20} color={designSystem.colors.text.muted} />
+                  }
                   secureTextEntry
                   value={value}
                   onChangeText={onChange}
@@ -713,7 +842,10 @@ export default function AddCameraScreen() {
           </Animated.View>
 
           {/* Test Connection */}
-          <Animated.View entering={FadeInDown.delay(250).duration(600)} style={styles.testSection}>
+          <Animated.View
+            entering={FadeInDown.delay(250).duration(600)}
+            style={styles.testSection}
+          >
             <Button
               variant="outline"
               onPress={handleTestConnection}
@@ -733,6 +865,8 @@ export default function AddCameraScreen() {
                     ? styles.testResultSuccess
                     : styles.testResultFailure,
                 ]}
+                accessibilityLiveRegion="polite"
+                accessibilityRole="alert"
               >
                 {testResult.success ? (
                   <CheckCircle2
@@ -740,7 +874,10 @@ export default function AddCameraScreen() {
                     color={designSystem.colors.status.success}
                   />
                 ) : (
-                  <XCircle size={20} color={designSystem.colors.status.danger} />
+                  <XCircle
+                    size={20}
+                    color={designSystem.colors.status.danger}
+                  />
                 )}
                 <View style={styles.testResultBody}>
                   <Text
@@ -755,10 +892,13 @@ export default function AddCameraScreen() {
                   >
                     {testResult.success
                       ? `Connected${testResult.latency != null ? ` · ${testResult.latency}ms` : ''}`
-                      : 'Connection failed'}
+                      : (diagnosis?.title ?? 'Connection failed')}
                   </Text>
-                  {!testResult.success && testResult.error && (
-                    <Text style={styles.testResultDetail}>{testResult.error}</Text>
+                  {diagnosis && !testResult.success && (
+                    <Text style={styles.testResultDetail}>{diagnosis.fix}</Text>
+                  )}
+                  {!testResult.success && diagnosis?.detail && (
+                    <Text style={styles.testResultRaw}>{diagnosis.detail}</Text>
                   )}
                 </View>
               </View>
@@ -766,10 +906,36 @@ export default function AddCameraScreen() {
           </Animated.View>
 
           {/* Help Text */}
-          <Animated.View entering={FadeInDown.delay(300).duration(600)} style={styles.helpCard}>
+          <Animated.View
+            entering={FadeInDown.delay(300).duration(600)}
+            style={styles.helpCard}
+          >
             <Text style={styles.helpText}>
-              💡 <Text style={styles.helpBold}>Tip:</Text> Use “Scan Network” to find cameras automatically, or enter your camera's IP and brand to generate the RTSP URL. Most cameras use port 554.
+              💡 <Text style={styles.helpBold}>Tip:</Text> Use “Scan Network” to
+              find cameras automatically, or enter your camera's IP and brand to
+              generate the RTSP URL. Most cameras use port 554.
             </Text>
+
+            {/* Always-available route into the step-by-step guide with a live
+                relay check, not just when something is obviously wrong. */}
+            <TouchableOpacity
+              onPress={() => router.push('/camera-setup')}
+              style={styles.guideLink}
+              accessibilityRole="link"
+              accessibilityLabel="Open camera connection setup guide"
+            >
+              <BookOpen size={16} color={designSystem.colors.primary[500]} />
+              <View style={styles.guideLinkBody}>
+                <Text style={styles.guideLinkTitle}>Camera setup guide</Text>
+                <Text style={styles.guideLinkSub}>
+                  Step-by-step connection help and a live relay check
+                </Text>
+              </View>
+              <ChevronRight
+                size={18}
+                color={designSystem.colors.primary[500]}
+              />
+            </TouchableOpacity>
           </Animated.View>
 
           {/* Submit Button */}
@@ -1102,6 +1268,60 @@ const styles = StyleSheet.create({
     color: designSystem.colors.text.secondary,
     marginTop: 2,
     lineHeight: 16,
+  },
+  testResultRaw: {
+    fontSize: designSystem.typography.size.xs,
+    color: designSystem.colors.text.muted,
+    marginTop: 4,
+    lineHeight: 15,
+  },
+  relayBanner: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: designSystem.spacing.sm,
+    backgroundColor: 'rgba(245, 158, 11, 0.12)',
+    borderWidth: 1,
+    borderColor: 'rgba(245, 158, 11, 0.35)',
+    borderRadius: designSystem.layout.radius.lg,
+    padding: designSystem.spacing.md,
+    marginHorizontal: designSystem.spacing.lg,
+    marginTop: designSystem.spacing.sm,
+    marginBottom: designSystem.spacing.sm,
+  },
+  relayText: {
+    flex: 1,
+    fontSize: designSystem.typography.size.xs,
+    color: designSystem.colors.status.warning,
+    lineHeight: 17,
+  },
+  relayGo: {
+    paddingHorizontal: designSystem.spacing.sm,
+    paddingVertical: 2,
+  },
+  relayGoText: {
+    fontSize: designSystem.typography.size.xs,
+    color: designSystem.colors.status.warning,
+    fontWeight: '700',
+  },
+  guideLink: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: designSystem.spacing.sm,
+    marginTop: designSystem.spacing.md,
+    paddingTop: designSystem.spacing.md,
+    borderTopWidth: 1,
+    borderTopColor: 'rgba(255,255,255,0.08)',
+  },
+  guideLinkBody: { flex: 1 },
+  guideLinkTitle: {
+    fontSize: designSystem.typography.size.sm,
+    fontWeight: '700',
+    color: designSystem.colors.text.primary,
+  },
+  guideLinkSub: {
+    fontSize: designSystem.typography.size.xs,
+    color: designSystem.colors.text.secondary,
+    marginTop: 1,
   },
   helpCard: {
     backgroundColor: designSystem.colors.background.secondary,

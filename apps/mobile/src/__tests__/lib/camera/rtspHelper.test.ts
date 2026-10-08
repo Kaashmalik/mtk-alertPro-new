@@ -8,8 +8,8 @@
 
 import {
   generateRtspUrl,
-  sanitizeRtspUrl,
   maskRtspUrl,
+  sanitizeRtspUrl,
 } from '@/lib/camera/rtspHelper';
 
 describe('generateRtspUrl', () => {
@@ -39,11 +39,11 @@ describe('generateRtspUrl', () => {
         port: 8554,
         channel: 2,
         useSubStream: true,
-      })
+      }),
     ).toBe('rtsp://10.0.0.5:8554/cam/realmonitor?channel=1&subtype=1');
 
     expect(generateRtspUrl('custom', '10.0.0.9')).toBe(
-      'rtsp://10.0.0.9:554/stream'
+      'rtsp://10.0.0.9:554/stream',
     );
   });
 
@@ -54,27 +54,27 @@ describe('generateRtspUrl', () => {
 
 describe('sanitizeRtspUrl', () => {
   it('strips user:pass@ userinfo from RTSP URLs', () => {
-    expect(
-      sanitizeRtspUrl('rtsp://admin:p%40ss@192.168.1.10:554/stream')
-    ).toBe('rtsp://192.168.1.10:554/stream');
+    expect(sanitizeRtspUrl('rtsp://admin:p%40ss@192.168.1.10:554/stream')).toBe(
+      'rtsp://192.168.1.10:554/stream',
+    );
 
     expect(sanitizeRtspUrl('rtsp://admin@192.168.1.10/stream')).toBe(
-      'rtsp://192.168.1.10/stream'
+      'rtsp://192.168.1.10/stream',
     );
   });
 
   it('handles a raw @ inside the password without breaking the host', () => {
     expect(sanitizeRtspUrl('rtsp://admin:p@ss@192.168.1.10/stream')).toBe(
-      'rtsp://192.168.1.10/stream'
+      'rtsp://192.168.1.10/stream',
     );
   });
 
   it('also covers http(s) and rtsps schemes', () => {
     expect(sanitizeRtspUrl('http://u:p@10.0.0.5/mjpg')).toBe(
-      'http://10.0.0.5/mjpg'
+      'http://10.0.0.5/mjpg',
     );
     expect(sanitizeRtspUrl('rtsps://u:p@10.0.0.5/live')).toBe(
-      'rtsps://10.0.0.5/live'
+      'rtsps://10.0.0.5/live',
     );
   });
 

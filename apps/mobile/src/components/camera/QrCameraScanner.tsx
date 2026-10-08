@@ -2,19 +2,19 @@
  * QR scanner modal for adding cameras (uses expo-camera + parseQrCodeData)
  */
 
-import React, { useState, useCallback } from 'react';
-import {
-  View,
-  Text,
-  Modal,
-  StyleSheet,
-  TouchableOpacity,
-  Alert,
-} from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
-import { X, QrCode } from 'lucide-react-native';
 import { parseQrCodeData } from '@/lib/camera/rtspHelper';
 import { designSystem } from '@/theme/design-system';
+import { CameraView, useCameraPermissions } from 'expo-camera';
+import { QrCode, X } from 'lucide-react-native';
+import { useCallback, useState } from 'react';
+import {
+  Alert,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export interface QrScanResult {
   rtspUrl?: string;
@@ -30,7 +30,11 @@ interface QrCameraScannerProps {
   onScan: (result: QrScanResult) => void;
 }
 
-export function QrCameraScanner({ visible, onClose, onScan }: QrCameraScannerProps) {
+export function QrCameraScanner({
+  visible,
+  onClose,
+  onScan,
+}: QrCameraScannerProps) {
   const [permission, requestPermission] = useCameraPermissions();
   const [scanned, setScanned] = useState(false);
 
@@ -40,20 +44,24 @@ export function QrCameraScanner({ visible, onClose, onScan }: QrCameraScannerPro
       setScanned(true);
       const parsed = parseQrCodeData(data);
       if (!parsed || (!parsed.rtspUrl && !parsed.ip)) {
-        Alert.alert('Unrecognized QR', 'Expected an RTSP URL or camera JSON QR code.', [
-          {
-            text: 'Try again',
-            onPress: () => setScanned(false),
-          },
-          { text: 'Close', onPress: onClose },
-        ]);
+        Alert.alert(
+          'Unrecognized QR',
+          'Expected an RTSP URL or camera JSON QR code.',
+          [
+            {
+              text: 'Try again',
+              onPress: () => setScanned(false),
+            },
+            { text: 'Close', onPress: onClose },
+          ],
+        );
         return;
       }
       onScan(parsed);
       onClose();
       setScanned(false);
     },
-    [scanned, onScan, onClose]
+    [scanned, onScan, onClose],
   );
 
   if (!visible) return null;
@@ -73,7 +81,9 @@ export function QrCameraScanner({ visible, onClose, onScan }: QrCameraScannerPro
 
         {!permission?.granted ? (
           <View style={styles.center}>
-            <Text style={styles.hint}>Camera permission is required to scan QR codes.</Text>
+            <Text style={styles.hint}>
+              Camera permission is required to scan QR codes.
+            </Text>
             <TouchableOpacity style={styles.btn} onPress={requestPermission}>
               <Text style={styles.btnText}>Allow Camera</Text>
             </TouchableOpacity>
@@ -132,8 +142,17 @@ const styles = StyleSheet.create({
     paddingHorizontal: 32,
     fontSize: 14,
   },
-  center: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24 },
-  hint: { color: designSystem.colors.text.secondary, textAlign: 'center', marginBottom: 16 },
+  center: {
+    flex: 1,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  hint: {
+    color: designSystem.colors.text.secondary,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
   btn: {
     backgroundColor: designSystem.colors.primary[500],
     paddingHorizontal: 20,

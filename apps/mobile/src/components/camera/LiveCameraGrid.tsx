@@ -2,17 +2,22 @@
  * 2×2 live camera mosaic for home / armed view
  */
 
-import React, { useMemo } from 'react';
-import { View, Text, TouchableOpacity, StyleSheet, Dimensions } from 'react-native';
-import { router } from 'expo-router';
-import { Camera as CameraIcon, WifiOff } from 'lucide-react-native';
 import { CameraStreamPlayer } from '@/components/camera/CameraStreamPlayer';
 import { designSystem } from '@/theme/design-system';
 import type { Camera } from '@/types';
+import { router } from 'expo-router';
+import { Camera as CameraIcon, WifiOff } from 'lucide-react-native';
+import { useMemo } from 'react';
+import {
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+  useWindowDimensions,
+} from 'react-native';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
 const GAP = 8;
-const TILE_WIDTH = (SCREEN_WIDTH - 32 - GAP) / 2;
+const H_PADDING = 32;
 
 interface LiveCameraGridProps {
   cameras: Camera[];
@@ -27,9 +32,14 @@ export function LiveCameraGrid({
   maxTiles = 4,
   getPassword,
 }: LiveCameraGridProps) {
+  // Reactive: the tile size was derived from a module-scope
+  // Dimensions.get('window') snapshot, so the mosaic kept its phone-boot size
+  // after rotation or on a tablet.
+  const { width } = useWindowDimensions();
+  const tileWidth = (width - H_PADDING - GAP) / 2;
   const tiles = useMemo(
     () => cameras.filter((c) => c.isActive).slice(0, maxTiles),
-    [cameras, maxTiles]
+    [cameras, maxTiles],
   );
 
   if (tiles.length === 0) {
@@ -37,7 +47,9 @@ export function LiveCameraGrid({
       <View style={styles.empty}>
         <CameraIcon size={32} color={designSystem.colors.text.muted} />
         <Text style={styles.emptyTitle}>No live cameras</Text>
-        <Text style={styles.emptySub}>Add a camera and keep it active to see the mosaic.</Text>
+        <Text style={styles.emptySub}>
+          Add a camera and keep it active to see the mosaic.
+        </Text>
         <TouchableOpacity
           style={styles.addBtn}
           onPress={() => router.push('/cameras/add')}
@@ -53,7 +65,7 @@ export function LiveCameraGrid({
       {tiles.map((cam) => (
         <TouchableOpacity
           key={cam.id}
-          style={styles.tile}
+          style={[styles.tile, { width: tileWidth }]}
           activeOpacity={0.9}
           onPress={() => router.push(`/cameras/${cam.id}`)}
         >
@@ -90,8 +102,9 @@ export function LiveCameraGrid({
       {tiles.length < maxTiles &&
         Array.from({ length: maxTiles - tiles.length }).map((_, i) => (
           <TouchableOpacity
+            // biome-ignore lint/suspicious/noArrayIndexKey: static placeholder tiles
             key={`empty-${i}`}
-            style={[styles.tile, styles.emptyTile]}
+            style={[styles.tile, styles.emptyTile, { width: tileWidth }]}
             onPress={() => router.push('/cameras/add')}
           >
             <WifiOff size={20} color={designSystem.colors.text.muted} />
@@ -109,7 +122,6 @@ const styles = StyleSheet.create({
     gap: GAP,
   },
   tile: {
-    width: TILE_WIDTH,
     backgroundColor: designSystem.colors.background.secondary,
     borderRadius: 12,
     overflow: 'hidden',

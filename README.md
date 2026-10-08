@@ -93,9 +93,9 @@ mtk-alert-pro/
 
 | Tier | Price | Features |
 |------|-------|----------|
-| **Free** | $0 | 2 cameras, Person/Vehicle detection, 48h history |
-| **Pro** | $3.99/mo | Unlimited cameras, Face recognition, Cloud backup |
-| **Business** | $14.99/mo | 50GB storage, License plates, API access |
+| **Free** | PKR 0 | 2 cameras, AI person/vehicle detection, 7-day alert history, SD streams |
+| **Pro** | PKR 500/mo | Unlimited cameras, HD (720p), custom zones, Red Alert mode, 30-day history, no ads |
+| **Business** | PKR 1500/mo | 1080p streams, unlimited alert history & cloud storage, priority support, API access |
 
 ---
 

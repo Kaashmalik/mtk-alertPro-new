@@ -16,7 +16,7 @@ const NUM_CHANNELS = 1;
 export function generateTone(
   frequency: number,
   durationMs: number,
-  volume: number = 0.5
+  volume = 0.5,
 ): string {
   const numSamples = Math.floor((SAMPLE_RATE * durationMs) / 1000);
   const samples = new Int16Array(numSamples);
@@ -38,7 +38,7 @@ export function generateSiren(
   startFreq: number,
   endFreq: number,
   durationMs: number,
-  volume: number = 0.5
+  volume = 0.5,
 ): string {
   const numSamples = Math.floor((SAMPLE_RATE * durationMs) / 1000);
   const samples = new Int16Array(numSamples);
@@ -50,7 +50,9 @@ export function generateSiren(
     const progress = i / numSamples;
     // Sweep frequency from start to end
     const currentFreq = startFreq + (endFreq - startFreq) * progress;
-    samples[i] = Math.floor(amplitude * Math.sin(2 * Math.PI * currentFreq * t));
+    samples[i] = Math.floor(
+      amplitude * Math.sin(2 * Math.PI * currentFreq * t),
+    );
   }
 
   return createWavBase64(samples);
@@ -64,7 +66,7 @@ export function generateBeepSequence(
   beepDurationMs: number,
   pauseDurationMs: number,
   beepCount: number,
-  volume: number = 0.5
+  volume = 0.5,
 ): string {
   const beepSamples = Math.floor((SAMPLE_RATE * beepDurationMs) / 1000);
   const pauseSamples = Math.floor((SAMPLE_RATE * pauseDurationMs) / 1000);
@@ -78,7 +80,9 @@ export function generateBeepSequence(
     // Generate beep
     for (let i = 0; i < beepSamples; i++) {
       const t = i / SAMPLE_RATE;
-      samples[sampleIndex++] = Math.floor(amplitude * Math.sin(2 * Math.PI * frequency * t));
+      samples[sampleIndex++] = Math.floor(
+        amplitude * Math.sin(2 * Math.PI * frequency * t),
+      );
     }
     // Generate pause (silence)
     for (let i = 0; i < pauseSamples; i++) {
@@ -92,7 +96,7 @@ export function generateBeepSequence(
 /**
  * Generate an urgent alarm (alternating high tones)
  */
-export function generateUrgentAlarm(volume: number = 0.5): string {
+export function generateUrgentAlarm(volume = 0.5): string {
   const numCycles = 4;
   const highFreq = 880;
   const lowFreq = 660;
@@ -109,12 +113,16 @@ export function generateUrgentAlarm(volume: number = 0.5): string {
     // High tone
     for (let i = 0; i < samplesPerCycle; i++) {
       const t = i / SAMPLE_RATE;
-      samples[sampleIndex++] = Math.floor(amplitude * Math.sin(2 * Math.PI * highFreq * t));
+      samples[sampleIndex++] = Math.floor(
+        amplitude * Math.sin(2 * Math.PI * highFreq * t),
+      );
     }
     // Low tone
     for (let i = 0; i < samplesPerCycle; i++) {
       const t = i / SAMPLE_RATE;
-      samples[sampleIndex++] = Math.floor(amplitude * Math.sin(2 * Math.PI * lowFreq * t));
+      samples[sampleIndex++] = Math.floor(
+        amplitude * Math.sin(2 * Math.PI * lowFreq * t),
+      );
     }
   }
 
@@ -127,7 +135,7 @@ export function generateUrgentAlarm(volume: number = 0.5): string {
  * Dot = 150ms, dash = 450ms, intra-character gap = 150ms,
  * inter-character gap = 450ms, letter gap = 900ms.
  */
-export function generateSos(volume: number = 1.0): string {
+export function generateSos(volume = 1.0): string {
   const DOT = 150;
   const DASH = 450;
   const INTRA_GAP = 150;
@@ -146,8 +154,11 @@ export function generateSos(volume: number = 1.0): string {
   // Pre-compute total length so the buffer is allocated exactly once.
   const totalMs = letter.reduce(
     (sum, marks) =>
-      sum + marks.reduce((s, m) => s + m, 0) + INTRA_GAP * (marks.length - 1) + LETTER_GAP,
-    0
+      sum +
+      marks.reduce((s, m) => s + m, 0) +
+      INTRA_GAP * (marks.length - 1) +
+      LETTER_GAP,
+    0,
   );
 
   const samples = new Int16Array(Math.floor((SAMPLE_RATE * totalMs) / 1000));
@@ -158,9 +169,12 @@ export function generateSos(volume: number = 1.0): string {
     for (let i = 0; i < count && sampleIndex < samples.length; i++) {
       const t = i / SAMPLE_RATE;
       // Short attack/release ramps avoid an audible click at note edges.
-      const envelope = Math.min(1, Math.min(i, count - i) / (SAMPLE_RATE * 0.005));
+      const envelope = Math.min(
+        1,
+        Math.min(i, count - i) / (SAMPLE_RATE * 0.005),
+      );
       samples[sampleIndex++] = Math.floor(
-        amplitude * envelope * Math.sin(2 * Math.PI * FREQ * t)
+        amplitude * envelope * Math.sin(2 * Math.PI * FREQ * t),
       );
     }
   };
@@ -186,18 +200,20 @@ export function generateSos(volume: number = 1.0): string {
 /**
  * Generate a gentle chime sound
  */
-export function generateChime(volume: number = 0.3): string {
+export function generateChime(volume = 0.3): string {
   const frequencies = [523, 659, 784]; // C5, E5, G5 - C major chord
   const durationMs = 400;
   const numSamples = Math.floor((SAMPLE_RATE * durationMs) / 1000);
   const samples = new Int16Array(numSamples);
 
-  const amplitude = Math.floor(32767 * Math.min(1, Math.max(0, volume)) / frequencies.length);
+  const amplitude = Math.floor(
+    (32767 * Math.min(1, Math.max(0, volume))) / frequencies.length,
+  );
 
   for (let i = 0; i < numSamples; i++) {
     const t = i / SAMPLE_RATE;
     // Apply envelope (fade out)
-    const envelope = 1 - (i / numSamples);
+    const envelope = 1 - i / numSamples;
     let sample = 0;
 
     for (const freq of frequencies) {
@@ -253,7 +269,7 @@ function createWavBase64(samples: Int16Array): string {
     binary += String.fromCharCode(bytes[i]);
   }
 
-  return 'data:audio/wav;base64,' + btoa(binary);
+  return `data:audio/wav;base64,${btoa(binary)}`;
 }
 
 /**

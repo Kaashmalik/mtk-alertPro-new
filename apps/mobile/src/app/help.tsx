@@ -1,40 +1,40 @@
+import { borderRadius, colors, fontSize, spacing } from '@/lib/theme';
+import { useAuthStore } from '@/stores';
+import Constants from 'expo-constants';
+import * as Device from 'expo-device';
+import * as MailComposer from 'expo-mail-composer';
+import { Stack, router } from 'expo-router';
+import {
+  AlertTriangle,
+  ArrowLeft,
+  Bell,
+  BookOpen,
+  Camera,
+  CheckCircle,
+  ChevronDown,
+  ChevronUp,
+  ExternalLink,
+  HelpCircle,
+  Mail,
+  MessageSquare,
+  Send,
+  Shield,
+  Smartphone,
+} from 'lucide-react-native';
 import { useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  StatusBar,
-  TextInput,
   Alert,
   Linking,
   Platform,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router, Stack } from 'expo-router';
-import * as MailComposer from 'expo-mail-composer';
-import * as Device from 'expo-device';
-import Constants from 'expo-constants';
-import {
-  ArrowLeft,
-  HelpCircle,
-  ChevronDown,
-  ChevronUp,
-  Mail,
-  MessageSquare,
-  Shield,
-  Camera,
-  Bell,
-  Smartphone,
-  Send,
-  ExternalLink,
-  BookOpen,
-  AlertTriangle,
-  CheckCircle,
-} from 'lucide-react-native';
-import { useAuthStore } from '@/stores';
-import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
 
 // Support email
 const SUPPORT_EMAIL = 'mtkcodex@gmail.com';
@@ -55,8 +55,8 @@ const FAQ_SECTIONS = [
         a: 'MTK Alert Pro supports Hikvision, Dahua, Reolink, Axis, Uniview, Hanwha (Samsung), Vivotek, Amcrest, Foscam, and any ONVIF-compatible camera.',
       },
       {
-        q: 'How do I find my camera\'s RTSP URL?',
-        a: 'Use our Smart URL Builder: select your camera brand and enter its IP address. The app will automatically generate the correct RTSP URL. You can also check your camera\'s manual or web interface.',
+        q: "How do I find my camera's RTSP URL?",
+        a: "Use our Smart URL Builder: select your camera brand and enter its IP address. The app will automatically generate the correct RTSP URL. You can also check your camera's manual or web interface.",
       },
     ],
   },
@@ -75,7 +75,7 @@ const FAQ_SECTIONS = [
       },
       {
         q: 'How do I reduce false alarms?',
-        a: 'Adjust the detection sensitivity in camera settings. A higher sensitivity means fewer false positives. You can also disable detection types you don\'t need (e.g., disable vehicle detection if monitoring indoors).',
+        a: "Adjust the detection sensitivity in camera settings. A higher sensitivity means fewer false positives. You can also disable detection types you don't need (e.g., disable vehicle detection if monitoring indoors).",
       },
       {
         q: 'What is Red Alert Mode?',
@@ -90,11 +90,11 @@ const FAQ_SECTIONS = [
     questions: [
       {
         q: 'Camera shows "Connection Failed"',
-        a: 'Verify: 1) Camera IP address is correct, 2) Camera is powered on and connected to your network, 3) RTSP port (usually 554) is open, 4) Username/password are correct, 5) You\'re on the same network as the camera.',
+        a: "Verify: 1) Camera IP address is correct, 2) Camera is powered on and connected to your network, 3) RTSP port (usually 554) is open, 4) Username/password are correct, 5) You're on the same network as the camera.",
       },
       {
         q: 'Video stream is laggy or buffering',
-        a: 'Try: 1) Use the sub-stream instead of main stream (lower resolution), 2) Check your internet connection speed, 3) Reduce video quality in Settings, 4) Ensure camera isn\'t overloaded with too many connections.',
+        a: "Try: 1) Use the sub-stream instead of main stream (lower resolution), 2) Check your internet connection speed, 3) Reduce video quality in Settings, 4) Ensure camera isn't overloaded with too many connections.",
       },
       {
         q: 'Can I view cameras remotely?',
@@ -113,10 +113,10 @@ const FAQ_SECTIONS = [
       },
       {
         q: 'Can I set different sounds for different cameras?',
-        a: 'Currently, alarm sound is a global setting. However, you can enable/disable notifications and alarms per camera in the camera\'s detail screen.',
+        a: "Currently, alarm sound is a global setting. However, you can enable/disable notifications and alarms per camera in the camera's detail screen.",
       },
       {
-        q: 'Notifications aren\'t making sound',
+        q: "Notifications aren't making sound",
         a: 'Check: 1) Sound is enabled in Settings → Notifications, 2) Phone is not in silent/vibrate mode, 3) Volume is turned up, 4) Camera has "Sound Alarm" enabled.',
       },
     ],
@@ -144,10 +144,14 @@ const FAQ_SECTIONS = [
 
 export default function HelpScreen() {
   const user = useAuthStore((state) => state.user);
-  const [expandedSection, setExpandedSection] = useState<string | null>('getting-started');
+  const [expandedSection, setExpandedSection] = useState<string | null>(
+    'getting-started',
+  );
   const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
   const [showContactForm, setShowContactForm] = useState(false);
-  const [issueType, setIssueType] = useState<'bug' | 'feature' | 'question' | 'other'>('question');
+  const [issueType, setIssueType] = useState<
+    'bug' | 'feature' | 'question' | 'other'
+  >('question');
   const [subject, setSubject] = useState('');
   const [message, setMessage] = useState('');
   const [isSending, setIsSending] = useState(false);
@@ -170,7 +174,10 @@ Device Information:
   // Send support email
   const handleSendEmail = async () => {
     if (!subject.trim() || !message.trim()) {
-      Alert.alert('Missing Information', 'Please fill in both subject and message.');
+      Alert.alert(
+        'Missing Information',
+        'Please fill in both subject and message.',
+      );
       return;
     }
 
@@ -195,8 +202,11 @@ Device Information:
           subject: emailSubject,
           body: emailBody,
         });
-        
-        Alert.alert('Email Ready', 'Your email app has been opened with the support message.');
+
+        Alert.alert(
+          'Email Ready',
+          'Your email app has been opened with the support message.',
+        );
         setSubject('');
         setMessage('');
         setShowContactForm(false);
@@ -204,19 +214,22 @@ Device Information:
         // Fallback to mailto link
         const mailtoUrl = `mailto:${SUPPORT_EMAIL}?subject=${encodeURIComponent(emailSubject)}&body=${encodeURIComponent(emailBody)}`;
         const canOpen = await Linking.canOpenURL(mailtoUrl);
-        
+
         if (canOpen) {
           await Linking.openURL(mailtoUrl);
         } else {
           Alert.alert(
             'No Email App',
             `Please send your message to ${SUPPORT_EMAIL} manually.\n\nSubject: ${emailSubject}`,
-            [{ text: 'Copy Email', onPress: () => {} }, { text: 'OK' }]
+            [{ text: 'Copy Email', onPress: () => {} }, { text: 'OK' }],
           );
         }
       }
-    } catch (error) {
-      Alert.alert('Error', 'Failed to open email. Please try again or email us directly at ' + SUPPORT_EMAIL);
+    } catch (_error) {
+      Alert.alert(
+        'Error',
+        `Failed to open email. Please try again or email us directly at ${SUPPORT_EMAIL}`,
+      );
     } finally {
       setIsSending(false);
     }
@@ -250,15 +263,24 @@ Device Information:
           headerStyle: { backgroundColor: colors.bg.secondary },
           headerTintColor: colors.text.primary,
           headerLeft: () => (
-            <TouchableOpacity onPress={() => router.back()} style={{ marginRight: spacing.md }}>
+            <TouchableOpacity
+              onPress={() => router.back()}
+              style={{ marginRight: spacing.md }}
+            >
               <ArrowLeft size={24} color={colors.text.primary} />
             </TouchableOpacity>
           ),
         }}
       />
       <SafeAreaView style={styles.container} edges={['bottom']}>
-        <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
-        <ScrollView style={styles.scrollView} showsVerticalScrollIndicator={false}>
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor={colors.bg.primary}
+        />
+        <ScrollView
+          style={styles.scrollView}
+          showsVerticalScrollIndicator={false}
+        >
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.headerIcon}>
@@ -292,21 +314,32 @@ Device Information:
           {showContactForm && (
             <View style={styles.contactForm}>
               <Text style={styles.contactFormTitle}>Send us a message</Text>
-              
+
               {/* Issue Type */}
               <Text style={styles.inputLabel}>Issue Type</Text>
               <View style={styles.issueTypeContainer}>
                 {[
                   { id: 'bug', label: '🐛 Bug', color: colors.status.error },
-                  { id: 'feature', label: '✨ Feature', color: colors.brand.accent },
-                  { id: 'question', label: '❓ Question', color: colors.status.warning },
+                  {
+                    id: 'feature',
+                    label: '✨ Feature',
+                    color: colors.brand.accent,
+                  },
+                  {
+                    id: 'question',
+                    label: '❓ Question',
+                    color: colors.status.warning,
+                  },
                   { id: 'other', label: '📝 Other', color: colors.text.muted },
                 ].map((type) => (
                   <TouchableOpacity
                     key={type.id}
                     style={[
                       styles.issueTypeButton,
-                      issueType === type.id && { backgroundColor: type.color + '20', borderColor: type.color },
+                      issueType === type.id && {
+                        backgroundColor: `${type.color}20`,
+                        borderColor: type.color,
+                      },
                     ]}
                     onPress={() => setIssueType(type.id as typeof issueType)}
                   >
@@ -349,13 +382,17 @@ Device Information:
               <View style={styles.infoNote}>
                 <CheckCircle size={16} color={colors.status.success} />
                 <Text style={styles.infoNoteText}>
-                  Device information will be automatically included to help us diagnose the issue.
+                  Device information will be automatically included to help us
+                  diagnose the issue.
                 </Text>
               </View>
 
               {/* Send Button */}
               <TouchableOpacity
-                style={[styles.sendButton, isSending && styles.sendButtonDisabled]}
+                style={[
+                  styles.sendButton,
+                  isSending && styles.sendButtonDisabled,
+                ]}
                 onPress={handleSendEmail}
                 disabled={isSending}
               >
@@ -369,7 +406,7 @@ Device Information:
 
           {/* FAQ Sections */}
           <Text style={styles.sectionHeader}>Frequently Asked Questions</Text>
-          
+
           {FAQ_SECTIONS.map((section) => {
             const IconComponent = section.icon;
             const isExpanded = expandedSection === section.id;
@@ -395,7 +432,8 @@ Device Information:
                   <View style={styles.faqQuestions}>
                     {section.questions.map((item, index) => {
                       const questionKey = `${section.id}-${index}`;
-                      const isQuestionExpanded = expandedQuestion === questionKey;
+                      const isQuestionExpanded =
+                        expandedQuestion === questionKey;
 
                       return (
                         <TouchableOpacity
@@ -408,7 +446,10 @@ Device Information:
                             {isQuestionExpanded ? (
                               <ChevronUp size={16} color={colors.text.muted} />
                             ) : (
-                              <ChevronDown size={16} color={colors.text.muted} />
+                              <ChevronDown
+                                size={16}
+                                color={colors.text.muted}
+                              />
                             )}
                           </View>
                           {isQuestionExpanded && (
@@ -429,7 +470,8 @@ Device Information:
             <View style={styles.stillNeedHelpContent}>
               <Text style={styles.stillNeedHelpTitle}>Still need help?</Text>
               <Text style={styles.stillNeedHelpText}>
-                Our support team is here to help. Send us an email and we'll respond within 24 hours.
+                Our support team is here to help. Send us an email and we'll
+                respond within 24 hours.
               </Text>
             </View>
           </View>
@@ -440,7 +482,11 @@ Device Information:
           >
             <Mail size={20} color="white" />
             <Text style={styles.contactButtonText}>Email MTK Support</Text>
-            <ExternalLink size={16} color="white" style={{ marginLeft: 'auto' }} />
+            <ExternalLink
+              size={16}
+              color="white"
+              style={{ marginLeft: 'auto' }}
+            />
           </TouchableOpacity>
 
           {/* App Info */}
@@ -475,7 +521,7 @@ const styles = StyleSheet.create({
     width: 64,
     height: 64,
     borderRadius: 32,
-    backgroundColor: colors.brand.accent + '20',
+    backgroundColor: `${colors.brand.accent}20`,
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: spacing.md,
@@ -564,7 +610,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginTop: spacing.md,
     padding: spacing.md,
-    backgroundColor: colors.status.success + '10',
+    backgroundColor: `${colors.status.success}10`,
     borderRadius: borderRadius.lg,
   },
   infoNoteText: {
@@ -612,7 +658,7 @@ const styles = StyleSheet.create({
     width: 40,
     height: 40,
     borderRadius: 20,
-    backgroundColor: colors.brand.accent + '20',
+    backgroundColor: `${colors.brand.accent}20`,
     alignItems: 'center',
     justifyContent: 'center',
     marginRight: spacing.md,
@@ -652,7 +698,7 @@ const styles = StyleSheet.create({
   stillNeedHelp: {
     flexDirection: 'row',
     alignItems: 'flex-start',
-    backgroundColor: colors.status.warning + '15',
+    backgroundColor: `${colors.status.warning}15`,
     borderRadius: borderRadius.xl,
     padding: spacing.lg,
     marginTop: spacing.xl,

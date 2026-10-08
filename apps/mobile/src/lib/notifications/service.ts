@@ -1,8 +1,8 @@
-import * as Notifications from 'expo-notifications';
-import * as Device from 'expo-device';
-import { Platform } from 'react-native';
 import { supabase } from '@/lib/supabase/client';
 import type { Alert } from '@/types';
+import * as Device from 'expo-device';
+import * as Notifications from 'expo-notifications';
+import { Platform } from 'react-native';
 
 /**
  * Android notification channel id.
@@ -115,11 +115,20 @@ export async function savePushToken(userId: string, token: string) {
   }
 }
 
-export async function sendLocalNotification(alert: Alert, cameraName: string): Promise<void>;
-export async function sendLocalNotification(options: { title: string; body: string; data?: Record<string, unknown> }): Promise<void>;
 export async function sendLocalNotification(
-  alertOrOptions: Alert | { title: string; body: string; data?: Record<string, unknown> },
-  cameraName?: string
+  alert: Alert,
+  cameraName: string,
+): Promise<void>;
+export async function sendLocalNotification(options: {
+  title: string;
+  body: string;
+  data?: Record<string, unknown>;
+}): Promise<void>;
+export async function sendLocalNotification(
+  alertOrOptions:
+    | Alert
+    | { title: string; body: string; data?: Record<string, unknown> },
+  cameraName?: string,
 ): Promise<void> {
   // Handle simple notification object
   if ('title' in alertOrOptions && 'body' in alertOrOptions) {
@@ -158,9 +167,11 @@ export async function sendLocalNotification(
  */
 export async function sendEmergencyNotification(
   message: string,
-  cameraName?: string
+  cameraName?: string,
 ): Promise<void> {
-  const body = cameraName ? `${message} — triggered from ${cameraName}` : message;
+  const body = cameraName
+    ? `${message} — triggered from ${cameraName}`
+    : message;
 
   await Notifications.scheduleNotificationAsync({
     content: {
@@ -180,13 +191,13 @@ export async function sendEmergencyNotification(
 }
 
 export function addNotificationReceivedListener(
-  callback: (notification: Notifications.Notification) => void
+  callback: (notification: Notifications.Notification) => void,
 ) {
   return Notifications.addNotificationReceivedListener(callback);
 }
 
 export function addNotificationResponseListener(
-  callback: (response: Notifications.NotificationResponse) => void
+  callback: (response: Notifications.NotificationResponse) => void,
 ) {
   return Notifications.addNotificationResponseReceivedListener(callback);
 }

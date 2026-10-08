@@ -2,16 +2,20 @@
  * Camera Store Tests
  */
 
-// `act` from react — avoids monorepo react-test-renderer@19 vs react@18 mismatch
-import { act } from 'react';
-import { useCameraStore, getDecryptedCameraPassword, OFFLINE_QUEUE_RETRY } from '@/stores/cameraStore';
-import { supabase } from '@/lib/supabase/client';
 import {
   clearCameraCache,
+  loadOfflineQueue,
   saveCamerasCache,
   saveHealthCache,
-  loadOfflineQueue,
 } from '@/lib/camera/cameraCache';
+import { supabase } from '@/lib/supabase/client';
+import {
+  OFFLINE_QUEUE_RETRY,
+  getDecryptedCameraPassword,
+  useCameraStore,
+} from '@/stores/cameraStore';
+// `act` from react — avoids monorepo react-test-renderer@19 vs react@18 mismatch
+import { act } from 'react';
 import { createMockCamera } from '../setup';
 
 // Reset store before each test
@@ -93,7 +97,9 @@ describe('Camera Store', () => {
       const live = createMockCamera({ id: 'live-1', name: 'Live' });
       useCameraStore.setState({ cameras: [live] });
 
-      await saveCamerasCache([createMockCamera({ id: 'stale-1', name: 'Stale' })]);
+      await saveCamerasCache([
+        createMockCamera({ id: 'stale-1', name: 'Stale' }),
+      ]);
 
       await act(async () => {
         await useCameraStore.getState().hydrateFromCache();
@@ -221,7 +227,7 @@ describe('Camera Store', () => {
 
     it('should set loading state during fetch', async () => {
       let resolvePromise: () => void;
-      const pendingPromise = new Promise<void>(resolve => {
+      const pendingPromise = new Promise<void>((resolve) => {
         resolvePromise = resolve;
       });
 
@@ -360,7 +366,10 @@ describe('Camera Store', () => {
     it('should handle camera limit', async () => {
       // Set up existing cameras
       useCameraStore.setState({
-        cameras: [createMockCamera({ id: 'cam-1' }), createMockCamera({ id: 'cam-2' })],
+        cameras: [
+          createMockCamera({ id: 'cam-1' }),
+          createMockCamera({ id: 'cam-2' }),
+        ],
       });
 
       (supabase.from as jest.Mock).mockImplementation((table) => {
@@ -431,7 +440,9 @@ describe('Camera Store', () => {
       });
 
       await act(async () => {
-        await useCameraStore.getState().updateCamera('cam-1', { name: 'New Name' });
+        await useCameraStore
+          .getState()
+          .updateCamera('cam-1', { name: 'New Name' });
       });
 
       const camera = useCameraStore.getState().cameras[0];
@@ -446,10 +457,14 @@ describe('Camera Store', () => {
 
       // The updateCamera function may throw or set error in store
       try {
-        await useCameraStore.getState().updateCamera('cam-1', { name: 'New Name' });
+        await useCameraStore
+          .getState()
+          .updateCamera('cam-1', { name: 'New Name' });
         // If it doesn't throw, check state
         const state = useCameraStore.getState();
-        expect(state.error !== null || state.cameras[0].name === 'Old Name').toBe(true);
+        expect(
+          state.error !== null || state.cameras[0].name === 'Old Name',
+        ).toBe(true);
       } catch (error) {
         // Expected - function threw for DB error
         expect(error).toBeDefined();
@@ -535,11 +550,11 @@ describe('Camera Store', () => {
         status: 200,
       });
 
-      let result;
+      let result: unknown;
       await act(async () => {
-        result = await useCameraStore.getState().testConnection(
-          'rtsp://192.168.1.100:554/stream'
-        );
+        result = await useCameraStore
+          .getState()
+          .testConnection('rtsp://192.168.1.100:554/stream');
       });
 
       expect(result).toHaveProperty('success');
@@ -553,9 +568,9 @@ describe('Camera Store', () => {
       });
 
       await act(async () => {
-        await useCameraStore.getState().testConnection(
-          'rtsp://192.168.1.100:554/stream'
-        );
+        await useCameraStore
+          .getState()
+          .testConnection('rtsp://192.168.1.100:554/stream');
       });
 
       const tests = useCameraStore.getState().connectionTests;
@@ -566,7 +581,7 @@ describe('Camera Store', () => {
       let result: any;
       await act(async () => {
         result = await useCameraStore.getState().testConnection(
-          'invalid-url-format' // Invalid RTSP URL format
+          'invalid-url-format', // Invalid RTSP URL format
         );
       });
 
@@ -652,7 +667,7 @@ describe('Camera Store', () => {
 
     it('queues an add when offline instead of dropping it', async () => {
       (supabase.auth.getUser as jest.Mock).mockRejectedValueOnce(
-        new TypeError('Network request failed')
+        new TypeError('Network request failed'),
       );
 
       let thrown: { code?: string } | undefined;
@@ -679,7 +694,9 @@ describe('Camera Store', () => {
       expect(state.isOffline).toBe(true);
       expect(state.offlineQueue).toHaveLength(1);
       expect(state.offlineQueue[0].type).toBe('add');
-      expect((state.offlineQueue[0] as { data?: { name?: string } }).data?.name).toBe('Queued Cam');
+      expect(
+        (state.offlineQueue[0] as { data?: { name?: string } }).data?.name,
+      ).toBe('Queued Cam');
       // Persisted so it survives a cold start (not silently dropped)
       expect(await loadOfflineQueue()).toHaveLength(1);
     });
@@ -791,28 +808,32 @@ describe('Camera Store', () => {
 
     it('queues an update when offline instead of dropping it', async () => {
       (supabase.auth.getUser as jest.Mock).mockRejectedValueOnce(
-        new TypeError('Network request failed')
+        new TypeError('Network request failed'),
       );
 
       await expect(
-        useCameraStore.getState().updateCamera('cam-1', { name: 'New Name' })
+        useCameraStore.getState().updateCamera('cam-1', { name: 'New Name' }),
       ).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
 
       const state = useCameraStore.getState();
       expect(state.offlineQueue).toHaveLength(1);
       expect(state.offlineQueue[0].type).toBe('update');
       expect((state.offlineQueue[0] as { id?: string }).id).toBe('cam-1');
-      expect((state.offlineQueue[0] as { data?: { name?: string } }).data?.name).toBe('New Name');
+      expect(
+        (state.offlineQueue[0] as { data?: { name?: string } }).data?.name,
+      ).toBe('New Name');
     });
 
     it('queues a delete when offline instead of dropping it', async () => {
       (supabase.from as jest.Mock).mockReturnValue({
         delete: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockRejectedValue(new TypeError('Network request failed')),
+        eq: jest
+          .fn()
+          .mockRejectedValue(new TypeError('Network request failed')),
       });
 
       await expect(
-        useCameraStore.getState().deleteCamera('cam-1')
+        useCameraStore.getState().deleteCamera('cam-1'),
       ).rejects.toMatchObject({ code: 'NETWORK_ERROR' });
 
       const state = useCameraStore.getState();
@@ -824,9 +845,14 @@ describe('Camera Store', () => {
 
     it('keeps a failed op queued and retries with backoff', async () => {
       useCameraStore.setState({
-        cameras: [createMockCamera({ id: 'cam-1' }), createMockCamera({ id: 'cam-2' })],
+        cameras: [
+          createMockCamera({ id: 'cam-1' }),
+          createMockCamera({ id: 'cam-2' }),
+        ],
       });
-      await useCameraStore.getState().queueOfflineOperation({ type: 'delete', id: 'cam-1' });
+      await useCameraStore
+        .getState()
+        .queueOfflineOperation({ type: 'delete', id: 'cam-1' });
 
       const deleteEq = jest.fn().mockRejectedValue(new Error('Network down'));
       (supabase.from as jest.Mock).mockReturnValue({
@@ -864,9 +890,14 @@ describe('Camera Store', () => {
 
     it('drains successfully replayed ops and clears the queue', async () => {
       useCameraStore.setState({
-        cameras: [createMockCamera({ id: 'cam-1' }), createMockCamera({ id: 'cam-2' })],
+        cameras: [
+          createMockCamera({ id: 'cam-1' }),
+          createMockCamera({ id: 'cam-2' }),
+        ],
       });
-      await useCameraStore.getState().queueOfflineOperation({ type: 'delete', id: 'cam-1' });
+      await useCameraStore
+        .getState()
+        .queueOfflineOperation({ type: 'delete', id: 'cam-1' });
 
       (supabase.from as jest.Mock).mockReturnValue({
         delete: jest.fn().mockReturnThis(),
@@ -907,7 +938,7 @@ describe('Camera Store', () => {
       let state = useCameraStore.getState();
       expect(state.offlineQueue).toHaveLength(1); // data kept, never dropped
       expect((state.offlineQueue[0] as { attempts?: number }).attempts).toBe(
-        OFFLINE_QUEUE_RETRY.maxAttempts
+        OFFLINE_QUEUE_RETRY.maxAttempts,
       ); // no infinite retry spam
       expect(state.offlineQueueError).toBe('Network down'); // failure is visible
       expect(await loadOfflineQueue()).toHaveLength(1);
@@ -934,11 +965,15 @@ describe('Camera Store', () => {
       useCameraStore.setState({
         cameras: [createMockCamera({ id: 'cam-1' })],
       });
-      await useCameraStore.getState().queueOfflineOperation({ type: 'delete', id: 'cam-1' });
+      await useCameraStore
+        .getState()
+        .queueOfflineOperation({ type: 'delete', id: 'cam-1' });
 
       (supabase.from as jest.Mock).mockReturnValue({
         delete: jest.fn().mockReturnThis(),
-        eq: jest.fn().mockRejectedValue(new TypeError('Network request failed')),
+        eq: jest
+          .fn()
+          .mockRejectedValue(new TypeError('Network request failed')),
       });
 
       await act(async () => {
@@ -1068,7 +1103,7 @@ describe('Camera Store', () => {
       });
 
       expect(insertMock).toHaveBeenCalledWith(
-        expect.objectContaining({ rtsp_url: 'rtsp://192.168.1.50:554/stream' })
+        expect.objectContaining({ rtsp_url: 'rtsp://192.168.1.50:554/stream' }),
       );
       const stored = useCameraStore.getState().cameras[0];
       expect(stored.rtspUrl).toBe('rtsp://192.168.1.50:554/stream');
@@ -1086,7 +1121,10 @@ describe('Camera Store', () => {
         data: { user: { id: 'user-1' } },
         error: null,
       });
-      (supabase.from as jest.Mock).mockReturnValue({ update: updateMock, eq: eqMock });
+      (supabase.from as jest.Mock).mockReturnValue({
+        update: updateMock,
+        eq: eqMock,
+      });
 
       await act(async () => {
         await useCameraStore.getState().updateCamera('cam-1', {
@@ -1095,7 +1133,7 @@ describe('Camera Store', () => {
       });
 
       expect(updateMock).toHaveBeenCalledWith(
-        expect.objectContaining({ rtsp_url: 'rtsp://10.0.0.7:554/stream' })
+        expect.objectContaining({ rtsp_url: 'rtsp://10.0.0.7:554/stream' }),
       );
       const stored = useCameraStore.getState().cameras[0];
       expect(stored.rtspUrl).toBe('rtsp://10.0.0.7:554/stream');
@@ -1103,4 +1141,3 @@ describe('Camera Store', () => {
     });
   });
 });
-

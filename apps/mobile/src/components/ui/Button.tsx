@@ -1,16 +1,21 @@
+import { designSystem } from '@/theme/design-system';
 import { forwardRef } from 'react';
 import {
-  TouchableOpacity,
-  Text,
   ActivityIndicator,
   StyleSheet,
-  ViewStyle,
-  TextStyle,
+  Text,
+  type TextStyle,
+  TouchableOpacity,
   type TouchableOpacityProps,
+  type ViewStyle,
 } from 'react-native';
-import { designSystem } from '@/theme/design-system';
 
-type ButtonVariant = 'default' | 'secondary' | 'outline' | 'ghost' | 'destructive';
+type ButtonVariant =
+  | 'default'
+  | 'secondary'
+  | 'outline'
+  | 'ghost'
+  | 'destructive';
 type ButtonSize = 'default' | 'sm' | 'lg' | 'icon';
 
 interface ButtonProps extends TouchableOpacityProps {
@@ -20,7 +25,10 @@ interface ButtonProps extends TouchableOpacityProps {
   children: React.ReactNode;
 }
 
-const getButtonStyle = (variant: ButtonVariant, size: ButtonSize): ViewStyle => {
+const getButtonStyle = (
+  variant: ButtonVariant,
+  size: ButtonSize,
+): ViewStyle => {
   const baseStyle: ViewStyle = {
     flexDirection: 'row',
     alignItems: 'center',
@@ -43,7 +51,7 @@ const getButtonStyle = (variant: ButtonVariant, size: ButtonSize): ViewStyle => 
     outline: {
       backgroundColor: 'transparent',
       borderWidth: 2,
-      borderColor: designSystem.colors.border.light
+      borderColor: designSystem.colors.border.light,
     },
     ghost: { backgroundColor: 'transparent' },
     destructive: { backgroundColor: designSystem.colors.status.danger },
@@ -68,8 +76,22 @@ const getTextStyle = (size: ButtonSize): TextStyle => {
   };
 };
 
-export const Button = forwardRef<React.ElementRef<typeof TouchableOpacity>, ButtonProps>(
-  ({ variant = 'default', size = 'default', loading, disabled, children, style, ...props }, ref) => {
+export const Button = forwardRef<
+  React.ElementRef<typeof TouchableOpacity>,
+  ButtonProps
+>(
+  (
+    {
+      variant = 'default',
+      size = 'default',
+      loading,
+      disabled,
+      children,
+      style,
+      ...props
+    },
+    ref,
+  ) => {
     const isDisabled = disabled || loading;
     const buttonStyle = getButtonStyle(variant, size);
     const textStyle = getTextStyle(size);
@@ -77,11 +99,7 @@ export const Button = forwardRef<React.ElementRef<typeof TouchableOpacity>, Butt
     return (
       <TouchableOpacity
         ref={ref as any}
-        style={[
-          buttonStyle,
-          isDisabled && styles.disabled,
-          style,
-        ]}
+        style={[buttonStyle, isDisabled && styles.disabled, style]}
         disabled={isDisabled}
         activeOpacity={0.8}
         {...props}
@@ -95,7 +113,7 @@ export const Button = forwardRef<React.ElementRef<typeof TouchableOpacity>, Butt
         )}
       </TouchableOpacity>
     );
-  }
+  },
 );
 
 const styles = StyleSheet.create({

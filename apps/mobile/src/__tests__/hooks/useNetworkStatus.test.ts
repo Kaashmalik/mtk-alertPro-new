@@ -2,16 +2,16 @@
  * useNetworkStatus Hook Tests
  */
 
-import { renderHook, act, waitFor } from '@testing-library/react-native';
-import NetInfo from '@react-native-community/netinfo';
 import {
+  type NetworkStatus,
+  getRecommendedQuality,
+  shouldUseHighQuality,
   useNetworkStatus,
   useNetworkStatusWithRefresh,
   waitForNetwork,
-  shouldUseHighQuality,
-  getRecommendedQuality,
-  type NetworkStatus,
 } from '@/hooks/useNetworkStatus';
+import NetInfo from '@react-native-community/netinfo';
+import { act, renderHook, waitFor } from '@testing-library/react-native';
 
 describe('useNetworkStatus Hook', () => {
   beforeEach(() => {
@@ -51,11 +51,14 @@ describe('useNetworkStatus Hook', () => {
 
       // Verify addEventListener was called
       expect(NetInfo.addEventListener).toHaveBeenCalled();
-      
+
       // Eventually should not be loading
-      await waitFor(() => {
-        expect(result.current.isLoading).toBe(false);
-      }, { timeout: 2000 });
+      await waitFor(
+        () => {
+          expect(result.current.isLoading).toBe(false);
+        },
+        { timeout: 2000 },
+      );
     });
 
     it('should have correct initial defaults', () => {
@@ -145,7 +148,7 @@ describe('useNetworkStatus Hook', () => {
       });
 
       const result = waitForNetwork(1000);
-      
+
       expect(result).toBeInstanceOf(Promise);
     });
   });
@@ -251,4 +254,3 @@ describe('useNetworkStatus Hook', () => {
     });
   });
 });
-

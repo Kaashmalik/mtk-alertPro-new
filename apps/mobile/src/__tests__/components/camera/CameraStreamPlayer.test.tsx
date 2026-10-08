@@ -1,11 +1,6 @@
-/**
- * CameraStreamPlayer Component Tests
- */
-
-import React from 'react';
-import { render, fireEvent, waitFor, act } from '@testing-library/react-native';
 import { CameraStreamPlayer } from '@/components/camera/CameraStreamPlayer';
 import { streamingService } from '@/lib/streaming/streamingService';
+import { render, waitFor } from '@testing-library/react-native';
 
 // Mock streaming service
 jest.mock('@/lib/streaming/streamingService', () => ({
@@ -22,10 +17,10 @@ jest.mock('@/lib/streaming/streamingService', () => ({
 
 // Mock expo-av Video component
 jest.mock('expo-av', () => ({
-  Video: jest.fn(({ testID, onPlaybackStatusUpdate, ...props }) => {
+  Video: jest.fn(({ testID, onPlaybackStatusUpdate }) => {
     const React = require('react');
     const { View, Text } = require('react-native');
-    
+
     // Simulate video loading
     React.useEffect(() => {
       if (onPlaybackStatusUpdate) {
@@ -38,7 +33,7 @@ jest.mock('expo-av', () => ({
         }, 100);
       }
     }, []);
-    
+
     return (
       <View testID={testID || 'video-player'}>
         <Text>Mock Video</Text>
@@ -60,7 +55,7 @@ describe('CameraStreamPlayer', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Default mock implementations
     (streamingService.registerCamera as jest.Mock).mockResolvedValue({
       success: true,
@@ -71,14 +66,16 @@ describe('CameraStreamPlayer', () => {
         rtsp: 'rtsp://localhost:8554/cam_test',
       },
     });
-    
+
     (streamingService.getStreamStatus as jest.Mock).mockResolvedValue({
       online: true,
       readers: 1,
     });
-    
+
     (streamingService.unregisterCamera as jest.Mock).mockResolvedValue(true);
-    (streamingService.checkMediaServerHealth as jest.Mock).mockResolvedValue(true);
+    (streamingService.checkMediaServerHealth as jest.Mock).mockResolvedValue(
+      true,
+    );
   });
 
   // =========================================================================
@@ -87,7 +84,7 @@ describe('CameraStreamPlayer', () => {
   describe('Rendering States', () => {
     it('should render without crashing', () => {
       const { toJSON } = render(
-        <CameraStreamPlayer {...defaultProps} autoPlay={false} />
+        <CameraStreamPlayer {...defaultProps} autoPlay={false} />,
       );
 
       expect(toJSON()).toBeTruthy();
@@ -100,12 +97,13 @@ describe('CameraStreamPlayer', () => {
           rtspUrl="rtsp://admin:secret@192.168.1.50:554/stream"
           userId="u1"
           autoPlay={false}
-        />
+        />,
       );
 
       // The player passes through 'connecting' first, then settles to idle
       const urlText = await waitFor(
-        () => getByText(/rtsp:\/\//) as unknown as { props: { children: string } }
+        () =>
+          getByText(/rtsp:\/\//) as unknown as { props: { children: string } },
       );
       const rendered = String(urlText.props.children);
       expect(rendered).toContain('192.168.1.50:554/stream');
@@ -118,40 +116,46 @@ describe('CameraStreamPlayer', () => {
     it('should show connecting state initially when autoPlay is true', () => {
       // Make registration take time
       (streamingService.registerCamera as jest.Mock).mockImplementation(
-        () => new Promise(resolve => setTimeout(() => resolve({
-          success: true,
-          streams: { hls: 'http://test/stream.m3u8' },
-        }), 5000))
+        () =>
+          new Promise((resolve) =>
+            setTimeout(
+              () =>
+                resolve({
+                  success: true,
+                  streams: { hls: 'http://test/stream.m3u8' },
+                }),
+              5000,
+            ),
+          ),
       );
 
       const { getByText } = render(
-        <CameraStreamPlayer {...defaultProps} autoPlay={true} />
+        <CameraStreamPlayer {...defaultProps} autoPlay={true} />,
       );
 
       expect(getByText('Connecting to camera...')).toBeTruthy();
     });
 
     it('should call registerCamera on mount with autoPlay', async () => {
-      render(
-        <CameraStreamPlayer {...defaultProps} autoPlay={true} />
-      );
+      render(<CameraStreamPlayer {...defaultProps} autoPlay={true} />);
 
       await waitFor(() => {
         expect(streamingService.registerCamera).toHaveBeenCalledWith(
           defaultProps.cameraId,
           defaultProps.rtspUrl,
-          defaultProps.userId
+          defaultProps.userId,
+          expect.any(String),
         );
       });
     });
 
     it('should pass correct props', () => {
       const { toJSON } = render(
-        <CameraStreamPlayer 
-          {...defaultProps} 
+        <CameraStreamPlayer
+          {...defaultProps}
           autoPlay={true}
           showControls={true}
-        />
+        />,
       );
 
       expect(toJSON()).toBeTruthy();
@@ -163,9 +167,7 @@ describe('CameraStreamPlayer', () => {
   // =========================================================================
   describe('User Interactions', () => {
     it('should register camera on mount', async () => {
-      render(
-        <CameraStreamPlayer {...defaultProps} autoPlay={true} />
-      );
+      render(<CameraStreamPlayer {...defaultProps} autoPlay={true} />);
 
       await waitFor(() => {
         expect(streamingService.registerCamera).toHaveBeenCalled();
@@ -175,14 +177,14 @@ describe('CameraStreamPlayer', () => {
     it('should handle props correctly', () => {
       const onError = jest.fn();
       const onStreamReady = jest.fn();
-      
+
       const { toJSON } = render(
-        <CameraStreamPlayer 
-          {...defaultProps} 
+        <CameraStreamPlayer
+          {...defaultProps}
           autoPlay={true}
           onError={onError}
           onStreamReady={onStreamReady}
-        />
+        />,
       );
 
       expect(toJSON()).toBeTruthy();
@@ -205,7 +207,7 @@ describe('CameraStreamPlayer', () => {
           onStreamReady={onStreamReady}
           onError={onError}
           onStateChange={onStateChange}
-        />
+        />,
       );
 
       expect(toJSON()).toBeTruthy();
@@ -219,7 +221,7 @@ describe('CameraStreamPlayer', () => {
           {...defaultProps}
           autoPlay={true}
           onStateChange={onStateChange}
-        />
+        />,
       );
 
       await waitFor(() => {
@@ -234,7 +236,7 @@ describe('CameraStreamPlayer', () => {
   describe('Cleanup', () => {
     it('should unregister camera on unmount', async () => {
       const { unmount } = render(
-        <CameraStreamPlayer {...defaultProps} autoPlay={true} />
+        <CameraStreamPlayer {...defaultProps} autoPlay={true} />,
       );
 
       await waitFor(() => {
@@ -243,7 +245,9 @@ describe('CameraStreamPlayer', () => {
 
       unmount();
 
-      expect(streamingService.unregisterCamera).toHaveBeenCalledWith('test-camera-123');
+      expect(streamingService.unregisterCamera).toHaveBeenCalledWith(
+        'test-camera-123',
+      );
     });
   });
 
@@ -257,7 +261,7 @@ describe('CameraStreamPlayer', () => {
           {...defaultProps}
           autoPlay={true}
           showControls={false}
-        />
+        />,
       );
 
       await waitFor(() => {
@@ -275,7 +279,7 @@ describe('CameraStreamPlayer', () => {
   describe('Props Changes', () => {
     it('should reinitialize when cameraId changes', async () => {
       const { rerender } = render(
-        <CameraStreamPlayer {...defaultProps} autoPlay={true} />
+        <CameraStreamPlayer {...defaultProps} autoPlay={true} />,
       );
 
       await waitFor(() => {
@@ -288,7 +292,7 @@ describe('CameraStreamPlayer', () => {
           {...defaultProps}
           cameraId="different-camera"
           autoPlay={true}
-        />
+        />,
       );
 
       await waitFor(() => {
@@ -303,9 +307,7 @@ describe('CameraStreamPlayer', () => {
   // =========================================================================
   describe('Stream Status', () => {
     it('should check stream status after registration', async () => {
-      render(
-        <CameraStreamPlayer {...defaultProps} autoPlay={true} />
-      );
+      render(<CameraStreamPlayer {...defaultProps} autoPlay={true} />);
 
       await waitFor(() => {
         expect(streamingService.registerCamera).toHaveBeenCalled();
@@ -318,15 +320,14 @@ describe('CameraStreamPlayer', () => {
   // =========================================================================
   describe('Service Integration', () => {
     it('should use streamingService correctly', async () => {
-      render(
-        <CameraStreamPlayer {...defaultProps} autoPlay={true} />
-      );
+      render(<CameraStreamPlayer {...defaultProps} autoPlay={true} />);
 
       await waitFor(() => {
         expect(streamingService.registerCamera).toHaveBeenCalledWith(
           'test-camera-123',
           'rtsp://192.168.1.100:554/stream',
-          'user-1'
+          'user-1',
+          expect.any(String),
         );
       });
     });
@@ -338,4 +339,3 @@ describe('CameraStreamPlayer', () => {
     });
   });
 });
-

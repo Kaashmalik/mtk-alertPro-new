@@ -26,7 +26,7 @@ export const COCO_DETECTION_CLASSES: Record<number, CocoDetectionType> = {
 };
 
 export function mapCocoClassToDetectionType(
-  classId: number
+  classId: number,
 ): CocoDetectionType | null {
   return COCO_DETECTION_CLASSES[classId] ?? null;
 }

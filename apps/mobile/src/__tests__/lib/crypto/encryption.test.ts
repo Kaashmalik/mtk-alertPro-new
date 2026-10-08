@@ -1,23 +1,23 @@
 /**
  * Encryption Utility Tests
- * 
+ *
  * @jest-environment node
  */
 
 // Ensure encryption key is present before module import in node environment
 process.env.EXPO_PUBLIC_ENCRYPTION_KEY = 'test-secret-key-32-characters-len!';
 
+import {
+  __resetDeviceKeyForTests,
+  decryptPassword,
+  encryptPassword,
+  generateRandomKey,
+  hashString,
+  initializeEncryption,
+  isEncrypted,
+} from '@/lib/crypto/encryption';
 import CryptoJS from 'crypto-js';
 import * as SecureStore from 'expo-secure-store';
-import {
-  encryptPassword,
-  decryptPassword,
-  hashString,
-  generateRandomKey,
-  isEncrypted,
-  initializeEncryption,
-  __resetDeviceKeyForTests,
-} from '@/lib/crypto/encryption';
 
 describe('Encryption Utility', () => {
   // =========================================================================
@@ -27,9 +27,9 @@ describe('Encryption Utility', () => {
     it('should encrypt a password with salt', () => {
       const password = 'mySecretPassword123';
       const salt = 'user-id-12345';
-      
+
       const encrypted = encryptPassword(password, salt);
-      
+
       expect(encrypted).toBeDefined();
       expect(typeof encrypted).toBe('string');
       expect(encrypted).not.toBe(password);
@@ -40,20 +40,20 @@ describe('Encryption Utility', () => {
       const password = 'samePassword';
       const salt1 = 'salt-1';
       const salt2 = 'salt-2';
-      
+
       const encrypted1 = encryptPassword(password, salt1);
       const encrypted2 = encryptPassword(password, salt2);
-      
+
       expect(encrypted1).not.toBe(encrypted2);
     });
 
     it('should produce decryptable ciphertext for same password and salt', () => {
       const password = 'testPassword';
       const salt = 'consistent-salt';
-      
+
       const encrypted1 = encryptPassword(password, salt);
       const encrypted2 = encryptPassword(password, salt);
-      
+
       // Both encrypted values should decrypt to the same password
       // Note: AES with CryptoJS uses random IV, so ciphertext may differ
       expect(decryptPassword(encrypted1, salt)).toBe(password);
@@ -71,10 +71,10 @@ describe('Encryption Utility', () => {
     it('should handle special characters in password', () => {
       const password = 'P@$$w0rd!#$%^&*(){}[]<>';
       const salt = 'user-123';
-      
+
       const encrypted = encryptPassword(password, salt);
       expect(encrypted).toBeDefined();
-      
+
       // Verify it can be decrypted
       const decrypted = decryptPassword(encrypted, salt);
       expect(decrypted).toBe(password);
@@ -83,10 +83,10 @@ describe('Encryption Utility', () => {
     it('should handle unicode characters in password', () => {
       const password = 'パスワード🔐密码';
       const salt = 'user-456';
-      
+
       const encrypted = encryptPassword(password, salt);
       expect(encrypted).toBeDefined();
-      
+
       const decrypted = decryptPassword(encrypted, salt);
       expect(decrypted).toBe(password);
     });
@@ -94,10 +94,10 @@ describe('Encryption Utility', () => {
     it('should handle very long passwords', () => {
       const password = 'a'.repeat(1000);
       const salt = 'user-789';
-      
+
       const encrypted = encryptPassword(password, salt);
       expect(encrypted).toBeDefined();
-      
+
       const decrypted = decryptPassword(encrypted, salt);
       expect(decrypted).toBe(password);
     });
@@ -110,10 +110,10 @@ describe('Encryption Utility', () => {
     it('should decrypt an encrypted password correctly', () => {
       const originalPassword = 'mySecretPassword123';
       const salt = 'user-id-12345';
-      
+
       const encrypted = encryptPassword(originalPassword, salt);
       const decrypted = decryptPassword(encrypted, salt);
-      
+
       expect(decrypted).toBe(originalPassword);
     });
 
@@ -121,14 +121,16 @@ describe('Encryption Utility', () => {
       const password = 'testPassword';
       const correctSalt = 'correct-salt';
       const wrongSalt = 'wrong-salt';
-      
+
       const encrypted = encryptPassword(password, correctSalt);
-      
+
       expect(() => decryptPassword(encrypted, wrongSalt)).toThrow();
     });
 
     it('should throw error for empty encrypted password', () => {
-      expect(() => decryptPassword('', 'salt')).toThrow('Encrypted password is required');
+      expect(() => decryptPassword('', 'salt')).toThrow(
+        'Encrypted password is required',
+      );
     });
 
     it('should throw error for empty salt', () => {
@@ -143,8 +145,8 @@ describe('Encryption Utility', () => {
     it('should handle decryption of multiple passwords', () => {
       const passwords = ['pass1', 'pass2', 'pass3'];
       const salt = 'shared-salt';
-      
-      passwords.forEach(password => {
+
+      passwords.forEach((password) => {
         const encrypted = encryptPassword(password, salt);
         const decrypted = decryptPassword(encrypted, salt);
         expect(decrypted).toBe(password);
@@ -159,7 +161,7 @@ describe('Encryption Utility', () => {
     it('should create a SHA-256 hash', () => {
       const value = 'test string';
       const hash = hashString(value);
-      
+
       expect(hash).toBeDefined();
       expect(typeof hash).toBe('string');
       expect(hash).toHaveLength(64); // SHA-256 produces 64 hex characters
@@ -167,17 +169,17 @@ describe('Encryption Utility', () => {
 
     it('should produce consistent hash for same input', () => {
       const value = 'consistent value';
-      
+
       const hash1 = hashString(value);
       const hash2 = hashString(value);
-      
+
       expect(hash1).toBe(hash2);
     });
 
     it('should produce different hash for different inputs', () => {
       const hash1 = hashString('value1');
       const hash2 = hashString('value2');
-      
+
       expect(hash1).not.toBe(hash2);
     });
 
@@ -188,7 +190,7 @@ describe('Encryption Utility', () => {
     it('should be case sensitive', () => {
       const hash1 = hashString('Password');
       const hash2 = hashString('password');
-      
+
       expect(hash1).not.toBe(hash2);
     });
   });
@@ -199,7 +201,7 @@ describe('Encryption Utility', () => {
   describe('generateRandomKey', () => {
     it('should generate a random key with default length', () => {
       const key = generateRandomKey();
-      
+
       expect(key).toBeDefined();
       expect(typeof key).toBe('string');
       expect(key).toHaveLength(64); // 32 bytes = 64 hex characters
@@ -208,25 +210,25 @@ describe('Encryption Utility', () => {
     it('should generate key with specified length', () => {
       const key16 = generateRandomKey(16);
       const key64 = generateRandomKey(64);
-      
+
       expect(key16).toHaveLength(32); // 16 bytes = 32 hex characters
       expect(key64).toHaveLength(128); // 64 bytes = 128 hex characters
     });
 
     it('should generate unique keys each time', () => {
       const keys = new Set<string>();
-      
+
       for (let i = 0; i < 100; i++) {
         keys.add(generateRandomKey());
       }
-      
+
       expect(keys.size).toBe(100);
     });
 
     it('should only contain hex characters', () => {
       const key = generateRandomKey();
       const hexRegex = /^[0-9a-f]+$/i;
-      
+
       expect(hexRegex.test(key)).toBe(true);
     });
   });
@@ -237,7 +239,7 @@ describe('Encryption Utility', () => {
   describe('isEncrypted', () => {
     it('should return true for encrypted values', () => {
       const encrypted = encryptPassword('password', 'salt');
-      
+
       expect(isEncrypted(encrypted)).toBe(true);
     });
 
@@ -245,7 +247,7 @@ describe('Encryption Utility', () => {
       // Encrypted values start with U2FsdGVk (base64 for "Salted__")
       const encrypted = encryptPassword('test', 'salt');
       expect(isEncrypted(encrypted)).toBe(true);
-      
+
       // Very short strings that can't be encrypted
       expect(isEncrypted('')).toBe(false);
     });
@@ -283,8 +285,11 @@ describe('Encryption Utility', () => {
      * Produce a pre-v2 ciphertext the way the old CryptoJS passphrase
      * implementation did: `salt:password` encrypted under the environment key.
      */
-    const legacyEncrypt = (password: string, salt: string, key: string): string =>
-      CryptoJS.AES.encrypt(`${salt}:${password}`, key).toString();
+    const legacyEncrypt = (
+      password: string,
+      salt: string,
+      key: string,
+    ): string => CryptoJS.AES.encrypt(`${salt}:${password}`, key).toString();
 
     beforeEach(() => {
       __resetDeviceKeyForTests();
@@ -295,7 +300,11 @@ describe('Encryption Utility', () => {
     });
 
     it('decrypts a legacy row with the environment key when no device key exists', () => {
-      const legacy = legacyEncrypt('hunter2', 'user-1', process.env.EXPO_PUBLIC_ENCRYPTION_KEY!);
+      const legacy = legacyEncrypt(
+        'hunter2',
+        'user-1',
+        process.env.EXPO_PUBLIC_ENCRYPTION_KEY!,
+      );
 
       expect(isEncrypted(legacy)).toBe(true);
       expect(decryptPassword(legacy, 'user-1')).toBe('hunter2');
@@ -305,7 +314,11 @@ describe('Encryption Utility', () => {
       // The upgrade regression: initializeEncryption() creates a SecureStore
       // key on first launch. Decrypting legacy rows with only that key made
       // every previously stored camera password unreadable.
-      const legacy = legacyEncrypt('hunter2', 'user-1', process.env.EXPO_PUBLIC_ENCRYPTION_KEY!);
+      const legacy = legacyEncrypt(
+        'hunter2',
+        'user-1',
+        process.env.EXPO_PUBLIC_ENCRYPTION_KEY!,
+      );
 
       const setItemAsync = jest.fn().mockResolvedValue(undefined);
       const getItemAsync = jest
@@ -319,7 +332,9 @@ describe('Encryption Utility', () => {
       // the environment key, otherwise the legacy decrypt would have passed
       // even with the bug.
       expect(getItemAsync).toHaveBeenCalled();
-      expect('a-brand-new-device-key-000000').not.toBe(process.env.EXPO_PUBLIC_ENCRYPTION_KEY);
+      expect('a-brand-new-device-key-000000').not.toBe(
+        process.env.EXPO_PUBLIC_ENCRYPTION_KEY,
+      );
 
       // A fresh v2 write uses the device key...
       const v2 = encryptPassword('newpass', 'user-1');
@@ -333,13 +348,21 @@ describe('Encryption Utility', () => {
     });
 
     it('rejects a legacy row when no key can open it', () => {
-      const legacy = legacyEncrypt('hunter2', 'user-1', 'some-other-entirely-different-key');
+      const legacy = legacyEncrypt(
+        'hunter2',
+        'user-1',
+        'some-other-entirely-different-key',
+      );
 
       expect(() => decryptPassword(legacy, 'user-1')).toThrow();
     });
 
     it('rejects a legacy row opened with the wrong salt', () => {
-      const legacy = legacyEncrypt('hunter2', 'user-1', process.env.EXPO_PUBLIC_ENCRYPTION_KEY!);
+      const legacy = legacyEncrypt(
+        'hunter2',
+        'user-1',
+        process.env.EXPO_PUBLIC_ENCRYPTION_KEY!,
+      );
 
       expect(() => decryptPassword(legacy, 'user-2')).toThrow();
     });
@@ -357,13 +380,13 @@ describe('Encryption Utility', () => {
         'with spaces and\ttabs',
         'a'.repeat(500),
       ];
-      
-      passwords.forEach(password => {
+
+      passwords.forEach((password) => {
         const salt = generateRandomKey(16);
         const encrypted = encryptPassword(password, salt);
-        
+
         expect(isEncrypted(encrypted)).toBe(true);
-        
+
         const decrypted = decryptPassword(encrypted, salt);
         expect(decrypted).toBe(password);
       });
@@ -374,19 +397,18 @@ describe('Encryption Utility', () => {
         password: `password-${i}`,
         salt: `salt-${i}`,
       }));
-      
+
       const results = await Promise.all(
         operations.map(async ({ password, salt }) => {
           const encrypted = encryptPassword(password, salt);
           const decrypted = decryptPassword(encrypted, salt);
           return { original: password, decrypted };
-        })
+        }),
       );
-      
+
       results.forEach(({ original, decrypted }) => {
         expect(decrypted).toBe(original);
       });
     });
   });
 });
-

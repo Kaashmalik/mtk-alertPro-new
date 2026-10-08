@@ -1,6 +1,6 @@
 /**
  * Jest Configuration for MTK AlertPro Mobile App
- * 
+ *
  * @type {import('jest').Config}
  */
 module.exports = {
@@ -80,4 +80,3 @@ module.exports = {
   // Max workers for parallel execution
   maxWorkers: '50%',
 };
-

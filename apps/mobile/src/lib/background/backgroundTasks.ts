@@ -1,16 +1,14 @@
 /**
  * Background Tasks
  * Manages background processing for detection and monitoring
- * 
+ *
  * @module lib/background/backgroundTasks
  */
 
-import * as TaskManager from 'expo-task-manager';
+import { logError } from '@/lib/utils/errorHandler';
 import * as BackgroundFetch from 'expo-background-fetch';
 import * as Notifications from 'expo-notifications';
-import { logError } from '@/lib/utils/errorHandler';
-import { useCameraStore } from '@/stores/cameraStore';
-import { testCameraConnection } from '@/lib/camera/connectionService';
+import * as TaskManager from 'expo-task-manager';
 
 // ============================================================================
 // Task Names
@@ -40,7 +38,7 @@ TaskManager.defineTask(TASK_NAMES.DETECTION, async () => {
   try {
     // Note: Full on-device detection may not work in background on iOS
     // due to memory and processing limitations.
-    // 
+    //
     // For production, consider:
     // 1. Server-side detection with push notifications
     // 2. On-device detection only when app is foregrounded
@@ -48,7 +46,7 @@ TaskManager.defineTask(TASK_NAMES.DETECTION, async () => {
 
     // For now, we'll just check camera health
     const { useCameraStore } = await import('@/stores/cameraStore');
-    const cameras = useCameraStore.getState().cameras.filter(c => c.isActive);
+    const cameras = useCameraStore.getState().cameras.filter((c) => c.isActive);
 
     if (cameras.length === 0) {
       console.log('[BackgroundTask] No active cameras');
@@ -56,13 +54,15 @@ TaskManager.defineTask(TASK_NAMES.DETECTION, async () => {
     }
 
     // Check if any cameras are offline
-    const { testCameraConnection } = await import('@/lib/camera/connectionService');
+    const { testCameraConnection } = await import(
+      '@/lib/camera/connectionService'
+    );
     let offlineCount = 0;
 
     for (const camera of cameras) {
       const result = await testCameraConnection(camera.rtspUrl, {
         timeoutMs: 5000,
-        retryCount: 0
+        retryCount: 0,
       });
 
       if (!result.success) {
@@ -99,17 +99,20 @@ TaskManager.defineTask(TASK_NAMES.DETECTION, async () => {
  * Define the notification handler task
  * Handles notification responses when app is in background
  */
-TaskManager.defineTask(TASK_NAMES.NOTIFICATION_HANDLER, async ({ data, error }) => {
-  if (error) {
-    console.error('[BackgroundTask] Notification handler error:', error);
-    return;
-  }
+TaskManager.defineTask(
+  TASK_NAMES.NOTIFICATION_HANDLER,
+  async ({ data, error }) => {
+    if (error) {
+      console.error('[BackgroundTask] Notification handler error:', error);
+      return;
+    }
 
-  console.log('[BackgroundTask] Notification handler received:', data);
+    console.log('[BackgroundTask] Notification handler received:', data);
 
-  // Handle notification data
-  // This can be used to process notification actions
-});
+    // Handle notification data
+    // This can be used to process notification actions
+  },
+);
 
 // ============================================================================
 // Registration Functions
@@ -117,13 +120,15 @@ TaskManager.defineTask(TASK_NAMES.NOTIFICATION_HANDLER, async ({ data, error }) 
 
 /**
  * Register background detection task
- * 
+ *
  * @returns Whether registration was successful
  */
 export async function registerBackgroundDetection(): Promise<boolean> {
   try {
     // Check if task is already registered
-    const isRegistered = await TaskManager.isTaskRegisteredAsync(TASK_NAMES.DETECTION);
+    const isRegistered = await TaskManager.isTaskRegisteredAsync(
+      TASK_NAMES.DETECTION,
+    );
 
     if (isRegistered) {
       console.log('[BackgroundTasks] Detection task already registered');
@@ -133,14 +138,17 @@ export async function registerBackgroundDetection(): Promise<boolean> {
     // Register the background fetch task
     await BackgroundFetch.registerTaskAsync(TASK_NAMES.DETECTION, {
       minimumInterval: 60 * 15, // 15 minutes (iOS minimum)
-      stopOnTerminate: false,   // Keep running after app is terminated
-      startOnBoot: true,        // Start on device boot (Android)
+      stopOnTerminate: false, // Keep running after app is terminated
+      startOnBoot: true, // Start on device boot (Android)
     });
 
     console.log('[BackgroundTasks] Detection task registered');
     return true;
   } catch (error) {
-    console.error('[BackgroundTasks] Failed to register detection task:', error);
+    console.error(
+      '[BackgroundTasks] Failed to register detection task:',
+      error,
+    );
     logError(error, 'registerBackgroundDetection');
     return false;
   }
@@ -151,14 +159,19 @@ export async function registerBackgroundDetection(): Promise<boolean> {
  */
 export async function unregisterBackgroundDetection(): Promise<void> {
   try {
-    const isRegistered = await TaskManager.isTaskRegisteredAsync(TASK_NAMES.DETECTION);
+    const isRegistered = await TaskManager.isTaskRegisteredAsync(
+      TASK_NAMES.DETECTION,
+    );
 
     if (isRegistered) {
       await BackgroundFetch.unregisterTaskAsync(TASK_NAMES.DETECTION);
       console.log('[BackgroundTasks] Detection task unregistered');
     }
   } catch (error) {
-    console.error('[BackgroundTasks] Failed to unregister detection task:', error);
+    console.error(
+      '[BackgroundTasks] Failed to unregister detection task:',
+      error,
+    );
   }
 }
 
@@ -256,4 +269,3 @@ export async function forceRunDetection(): Promise<void> {
     console.error('[BackgroundTasks] Manual run failed:', error);
   }
 }
-

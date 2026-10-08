@@ -4,7 +4,6 @@
 
 import {
   DetectionManager,
-  type DetectionEvent,
   type DetectionManagerConfig,
 } from '@/features/detection/detectionManager';
 import { createMockCamera } from '../../setup';
@@ -24,7 +23,9 @@ jest.mock('@/features/detection/detectionService', () => ({
 }));
 
 jest.mock('@/features/detection/motionDetector', () => ({
-  detectMotionBetweenFrames: jest.fn().mockResolvedValue({ motion: false, score: 0 }),
+  detectMotionBetweenFrames: jest
+    .fn()
+    .mockResolvedValue({ motion: false, score: 0 }),
 }));
 
 jest.mock('@/features/detection/frameCaptureService', () => ({
@@ -55,9 +56,13 @@ describe('Detection Manager', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    const { detectionService } = require('@/features/detection/detectionService');
+    const {
+      detectionService,
+    } = require('@/features/detection/detectionService');
     detectionService.isInFallbackMode.mockReturnValue(false);
-    const { detectMotionBetweenFrames } = require('@/features/detection/motionDetector');
+    const {
+      detectMotionBetweenFrames,
+    } = require('@/features/detection/motionDetector');
     detectMotionBetweenFrames.mockResolvedValue({ motion: false, score: 0 });
     manager = new DetectionManager({
       captureIntervalMs: 100,
@@ -75,8 +80,12 @@ describe('Detection Manager', () => {
   // =========================================================================
   describe('initialize', () => {
     it('should initialize detection system', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
-      const { detectionService } = require('@/features/detection/detectionService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
 
       await manager.initialize();
 
@@ -85,8 +94,12 @@ describe('Detection Manager', () => {
     });
 
     it('should throw if initialization fails', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
-      frameCaptureService.initialize.mockRejectedValueOnce(new Error('Init failed'));
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
+      frameCaptureService.initialize.mockRejectedValueOnce(
+        new Error('Init failed'),
+      );
 
       await expect(manager.initialize()).rejects.toThrow('Init failed');
     });
@@ -101,7 +114,9 @@ describe('Detection Manager', () => {
     });
 
     it('should start monitoring camera with detection enabled', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       const camera = createMockCamera({
         detectionSettings: { person: true, vehicle: true },
       });
@@ -111,14 +126,16 @@ describe('Detection Manager', () => {
       expect(frameCaptureService.startPeriodicCapture).toHaveBeenCalledWith(
         camera.id,
         expect.any(Number),
-        expect.any(Function)
+        expect.any(Function),
       );
       expect(manager.isMonitoring()).toBe(true);
       expect(manager.getMonitoredCameraCount()).toBe(1);
     });
 
     it('should skip camera with no detection enabled', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       const camera = createMockCamera({
         detectionSettings: { person: false, vehicle: false },
       });
@@ -130,7 +147,9 @@ describe('Detection Manager', () => {
     });
 
     it('should not duplicate monitoring for same camera', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       const camera = createMockCamera();
 
       await manager.startMonitoring(camera);
@@ -140,8 +159,12 @@ describe('Detection Manager', () => {
     });
 
     it('should process a frame and notify when detection passes the threshold', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
-      const { detectionService } = require('@/features/detection/detectionService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
       const { sendLocalNotification } = require('@/lib/notifications/service');
 
       const camera = createMockCamera({
@@ -155,23 +178,32 @@ describe('Detection Manager', () => {
       });
 
       await manager.startMonitoring(camera);
-      const captureCallback = frameCaptureService.startPeriodicCapture.mock.calls[0][2];
+      const captureCallback =
+        frameCaptureService.startPeriodicCapture.mock.calls[0][2];
 
       detectionService.detect.mockResolvedValue([
-        { type: 'person', confidence: 0.6, boundingBox: { x: 0, y: 0, width: 10, height: 10 } },
+        {
+          type: 'person',
+          confidence: 0.6,
+          boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+        },
       ]);
 
       await captureCallback('/frame.jpg', new Date());
 
       expect(sendLocalNotification).toHaveBeenCalledTimes(1);
       expect(sendLocalNotification).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Person Detected' })
+        expect.objectContaining({ title: 'Person Detected' }),
       );
     });
 
     it('should apply refreshed settings to an already-monitored camera', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
-      const { detectionService } = require('@/features/detection/detectionService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
       const { sendLocalNotification } = require('@/lib/notifications/service');
 
       const camera = createMockCamera({
@@ -185,7 +217,8 @@ describe('Detection Manager', () => {
       });
 
       await manager.startMonitoring(camera);
-      const captureCallback = frameCaptureService.startPeriodicCapture.mock.calls[0][2];
+      const captureCallback =
+        frameCaptureService.startPeriodicCapture.mock.calls[0][2];
 
       // Coordinator re-syncs with stricter sensitivity after a settings change
       await manager.startMonitoring({
@@ -198,7 +231,11 @@ describe('Detection Manager', () => {
       expect(manager.getMonitoredCameraCount()).toBe(1);
 
       detectionService.detect.mockResolvedValue([
-        { type: 'person', confidence: 0.6, boundingBox: { x: 0, y: 0, width: 10, height: 10 } },
+        {
+          type: 'person',
+          confidence: 0.6,
+          boundingBox: { x: 0, y: 0, width: 10, height: 10 },
+        },
       ]);
 
       await captureCallback('/frame.jpg', new Date());
@@ -232,9 +269,15 @@ describe('Detection Manager', () => {
     });
 
     it('should still alert on motion when AI model is offline even if motion toggle is off', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
-      const { detectionService } = require('@/features/detection/detectionService');
-      const { detectMotionBetweenFrames } = require('@/features/detection/motionDetector');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
+      const {
+        detectMotionBetweenFrames,
+      } = require('@/features/detection/motionDetector');
       const { sendLocalNotification } = require('@/lib/notifications/service');
 
       // Home profile: person on, motion explicitly off
@@ -250,7 +293,8 @@ describe('Detection Manager', () => {
       });
 
       await manager.startMonitoring(camera);
-      const captureCallback = frameCaptureService.startPeriodicCapture.mock.calls[0][2];
+      const captureCallback =
+        frameCaptureService.startPeriodicCapture.mock.calls[0][2];
 
       // Offline: AI returns nothing, but pixel motion is detected
       detectionService.isInFallbackMode.mockReturnValue(true);
@@ -260,14 +304,20 @@ describe('Detection Manager', () => {
       await captureCallback('/frame.jpg', new Date());
 
       expect(sendLocalNotification).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Motion Detected' })
+        expect.objectContaining({ title: 'Motion Detected' }),
       );
     });
 
     it('should suppress motion alerts when AI is available and motion toggle is off', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
-      const { detectionService } = require('@/features/detection/detectionService');
-      const { detectMotionBetweenFrames } = require('@/features/detection/motionDetector');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
+      const {
+        detectMotionBetweenFrames,
+      } = require('@/features/detection/motionDetector');
       const { sendLocalNotification } = require('@/lib/notifications/service');
 
       const camera = createMockCamera({
@@ -282,7 +332,8 @@ describe('Detection Manager', () => {
       });
 
       await manager.startMonitoring(camera);
-      const captureCallback = frameCaptureService.startPeriodicCapture.mock.calls[0][2];
+      const captureCallback =
+        frameCaptureService.startPeriodicCapture.mock.calls[0][2];
 
       detectionService.isInFallbackMode.mockReturnValue(false);
       detectionService.detect.mockResolvedValue([]);
@@ -294,8 +345,12 @@ describe('Detection Manager', () => {
     });
 
     it('should not motion-alert offline when the camera has no detection types enabled', async () => {
-      const { detectionService } = require('@/features/detection/detectionService');
-      const { detectMotionBetweenFrames } = require('@/features/detection/motionDetector');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
+      const {
+        detectMotionBetweenFrames,
+      } = require('@/features/detection/motionDetector');
       const { sendLocalNotification } = require('@/lib/notifications/service');
 
       const camera = createMockCamera({
@@ -345,13 +400,17 @@ describe('Detection Manager', () => {
     });
 
     it('should stop monitoring specific camera', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       const camera = createMockCamera();
 
       await manager.startMonitoring(camera);
       manager.stopMonitoring(camera.id);
 
-      expect(frameCaptureService.stopPeriodicCapture).toHaveBeenCalledWith(camera.id);
+      expect(frameCaptureService.stopPeriodicCapture).toHaveBeenCalledWith(
+        camera.id,
+      );
       expect(manager.getMonitoredCameraCount()).toBe(0);
     });
 
@@ -370,7 +429,9 @@ describe('Detection Manager', () => {
     });
 
     it('should stop all monitoring', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       const cameras = [
         createMockCamera({ id: 'cam-1' }),
         createMockCamera({ id: 'cam-2' }),
@@ -394,7 +455,7 @@ describe('Detection Manager', () => {
   describe('onDetection', () => {
     it('should register and call event handlers', async () => {
       const handler = jest.fn();
-      
+
       const unsubscribe = manager.onDetection(handler);
 
       // Handler should be registered
@@ -403,7 +464,7 @@ describe('Detection Manager', () => {
 
     it('should unsubscribe handler', () => {
       const handler = jest.fn();
-      
+
       const unsubscribe = manager.onDetection(handler);
       unsubscribe();
 
@@ -431,7 +492,7 @@ describe('Detection Manager', () => {
 
     it('should preserve unmodified settings', () => {
       const original = manager.getConfig();
-      
+
       manager.updateConfig({ minConfidence: 0.9 });
 
       const updated = manager.getConfig();
@@ -502,8 +563,12 @@ describe('Detection Manager', () => {
   // =========================================================================
   describe('dispose', () => {
     it('should dispose of all resources', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
-      const { detectionService } = require('@/features/detection/detectionService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
+      const {
+        detectionService,
+      } = require('@/features/detection/detectionService');
 
       await manager.initialize();
       await manager.dispose();
@@ -513,7 +578,9 @@ describe('Detection Manager', () => {
     });
 
     it('should stop all monitoring on dispose', async () => {
-      const { frameCaptureService } = require('@/features/detection/frameCaptureService');
+      const {
+        frameCaptureService,
+      } = require('@/features/detection/frameCaptureService');
       const camera = createMockCamera();
 
       await manager.initialize();
@@ -525,4 +592,3 @@ describe('Detection Manager', () => {
     });
   });
 });
-

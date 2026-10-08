@@ -15,10 +15,16 @@
  * @module lib/emergency/emergencyService
  */
 
-import { AppState, Linking, type AppStateStatus, Vibration } from 'react-native';
 import { alarmService } from '@/lib/audio/alarmService';
 import { sendEmergencyNotification } from '@/lib/notifications/service';
+import { formatTimeOfDay } from '@/lib/utils/date';
 import { useSettingsStore } from '@/stores/settingsStore';
+import {
+  AppState,
+  type AppStateStatus,
+  Linking,
+  Vibration,
+} from 'react-native';
 
 export type EmergencyReason = 'manual' | 'panic' | 'test';
 export type EmergencyStatus = 'idle' | 'active' | 'resolved';
@@ -61,8 +67,11 @@ let vibrationTimer: ReturnType<typeof setInterval> | null = null;
 let appStateSub: { remove: () => void } | null = null;
 
 function emit(): void {
-  const snapshot: EmergencyState = { ...state, event: state.event ? { ...state.event } : null };
-  listeners.forEach((listener) => listener(snapshot));
+  const snapshot: EmergencyState = {
+    ...state,
+    event: state.event ? { ...state.event } : null,
+  };
+  for (const listener of listeners) listener(snapshot);
 }
 
 function stopVibrationLoop(): void {
@@ -112,11 +121,13 @@ function unwatchAppState(): void {
  * Fire-and-forget: a server failure must not interrupt the alarm.
  */
 async function persistEmergencyAlert(
-  event: EmergencyEvent
+  event: EmergencyEvent,
 ): Promise<string | null> {
   try {
     const { supabase } = await import('@/lib/supabase/client');
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) {
       console.warn('[Emergency] No auth user; skipping persist');
       return null;
@@ -129,7 +140,10 @@ async function persistEmergencyAlert(
         type: 'emergency',
         confidence: 1,
         emergency_reason: event.reason,
-        metadata: { note: event.note ?? null, cameraName: event.cameraName ?? null },
+        metadata: {
+          note: event.note ?? null,
+          cameraName: event.cameraName ?? null,
+        },
         is_read: true,
       })
       .select('id')
@@ -169,7 +183,9 @@ async function finalizePersistedAlert(): Promise<void> {
 async function notifyTrustedContacts(event: EmergencyEvent): Promise<void> {
   try {
     const { supabase } = await import('@/lib/supabase/client');
-    const { data: { user } } = await supabase.auth.getUser();
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
     if (!user) return;
 
     const { data, error } = await supabase
@@ -184,11 +200,13 @@ async function notifyTrustedContacts(event: EmergencyEvent): Promise<void> {
       return;
     }
 
-    const when = event.startedAt.toLocaleTimeString();
+    const when = formatTimeOfDay(event.startedAt);
     const where = event.cameraName ? ` at ${event.cameraName}` : '';
     const body = `URGENT: An SOS was triggered on MTK AlertPro${where} at ${when}.${event.note ? ` Note: ${event.note}` : ''}`;
 
-    const numbers = contacts.map((c) => c.phone.replace(/[^\d+]/g, '')).join(',');
+    const numbers = contacts
+      .map((c) => c.phone.replace(/[^\d+]/g, ''))
+      .join(',');
     const url = `sms:${numbers}?&body=${encodeURIComponent(body)}`;
     const supported = await Linking.canOpenURL(url);
     if (supported) {
@@ -210,7 +228,7 @@ async function notifyTrustedContacts(event: EmergencyEvent): Promise<void> {
  */
 export async function triggerEmergency(
   reason: EmergencyReason = 'manual',
-  options: { note?: string; cameraName?: string } = {}
+  options: { note?: string; cameraName?: string } = {},
 ): Promise<void> {
   // Claim the token before any await so a rapid resolve() cannot be undone by
   // a slow playAlarm() resuming afterwards.
@@ -249,10 +267,13 @@ export async function triggerEmergency(
     try {
       await sendEmergencyNotification(
         options.note || 'Emergency button pressed',
-        options.cameraName
+        options.cameraName,
       );
     } catch (error) {
-      console.error('[Emergency] Failed to post emergency notification:', error);
+      console.error(
+        '[Emergency] Failed to post emergency notification:',
+        error,
+      );
     }
   }
 

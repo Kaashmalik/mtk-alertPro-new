@@ -1,6 +1,6 @@
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
-import { Wifi, Router, Search, CheckCircle } from 'lucide-react-native';
-import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
+import { borderRadius, colors, fontSize, spacing } from '@/lib/theme';
+import { CheckCircle, Wifi } from 'lucide-react-native';
+import { ScrollView, StyleSheet, Text, View } from 'react-native';
 
 export function RouterLANGuide() {
   return (
@@ -10,7 +10,9 @@ export function RouterLANGuide() {
           <Wifi size={32} color={colors.brand.accent} />
         </View>
         <Text style={styles.title}>Find Cameras on Your Network</Text>
-        <Text style={styles.subtitle}>Follow these steps to discover IP cameras on your LAN</Text>
+        <Text style={styles.subtitle}>
+          Follow these steps to discover IP cameras on your LAN
+        </Text>
       </View>
 
       {/* Step 1 */}
@@ -21,7 +23,9 @@ export function RouterLANGuide() {
         <View style={styles.stepContent}>
           <Text style={styles.stepTitle}>Check Your Router</Text>
           <Text style={styles.stepDescription}>
-            Log into your router's admin panel (usually at 192.168.1.1 or 192.168.0.1) and look for "Connected Devices" or "DHCP Clients" list.
+            Log into your router's admin panel (usually at 192.168.1.1 or
+            192.168.0.1) and look for "Connected Devices" or "DHCP Clients"
+            list.
           </Text>
           <View style={styles.ipExample}>
             <Text style={styles.ipText}>Common Router IPs:</Text>
@@ -40,12 +44,15 @@ export function RouterLANGuide() {
         <View style={styles.stepContent}>
           <Text style={styles.stepTitle}>Identify Camera Devices</Text>
           <Text style={styles.stepDescription}>
-            Look for devices with names like "IPCam", "Camera", or manufacturer names (Hikvision, Dahua, Reolink, etc.). Note their IP addresses.
+            Look for devices with names like "IPCam", "Camera", or manufacturer
+            names (Hikvision, Dahua, Reolink, etc.). Note their IP addresses.
           </Text>
           <View style={styles.tipCard}>
             <Text style={styles.tipTitle}>💡 Pro Tip:</Text>
             <Text style={styles.tipText}>
-              Cameras often have MAC addresses starting with specific prefixes. Common ones: Hikvision (44:19:B6), Dahua (64:32:A8), Reolink (BC:2E:48)
+              Cameras often have MAC addresses starting with specific prefixes.
+              Common ones: Hikvision (44:19:B6), Dahua (64:32:A8), Reolink
+              (BC:2E:48)
             </Text>
           </View>
         </View>
@@ -59,13 +66,16 @@ export function RouterLANGuide() {
         <View style={styles.stepContent}>
           <Text style={styles.stepTitle}>Use Network Scanner (Optional)</Text>
           <Text style={styles.stepDescription}>
-            Download a network scanner app like "Fing" or "Advanced IP Scanner" to automatically discover all devices on your network.
+            Download a network scanner app like "Fing" or "Advanced IP Scanner"
+            to automatically discover all devices on your network.
           </Text>
           <View style={styles.appCard}>
             <Text style={styles.appTitle}>Recommended Apps:</Text>
             <Text style={styles.appItem}>📱 Fing (iOS/Android)</Text>
             <Text style={styles.appItem}>💻 Advanced IP Scanner (Windows)</Text>
-            <Text style={styles.appItem}>🔍 Angry IP Scanner (Cross-platform)</Text>
+            <Text style={styles.appItem}>
+              🔍 Angry IP Scanner (Cross-platform)
+            </Text>
           </View>
         </View>
       </View>
@@ -78,7 +88,9 @@ export function RouterLANGuide() {
         <View style={styles.stepContent}>
           <Text style={styles.stepTitle}>Test Camera Access</Text>
           <Text style={styles.stepDescription}>
-            Once you have the IP address, try accessing the camera's web interface by entering http://[CAMERA_IP] in your browser. You may need default credentials from the manual.
+            Once you have the IP address, try accessing the camera's web
+            interface by entering http://[CAMERA_IP] in your browser. You may
+            need default credentials from the manual.
           </Text>
           <View style={styles.defaultCreds}>
             <Text style={styles.credsTitle}>Common Default Logins:</Text>
@@ -97,14 +109,17 @@ export function RouterLANGuide() {
         <View style={styles.stepContent}>
           <Text style={styles.stepTitle}>Add to MTK AlertPro</Text>
           <Text style={styles.stepDescription}>
-            Return to the Add Camera screen, select your camera brand, and enter the IP address you found. Include the username and password for authentication.
+            Return to the Add Camera screen, select your camera brand, and enter
+            the IP address you found. Include the username and password for
+            authentication.
           </Text>
         </View>
       </View>
 
       <View style={styles.footer}>
         <Text style={styles.footerText}>
-          ⚠️ Important: Ensure your phone and cameras are on the same network (Wi-Fi) for local access.
+          ⚠️ Important: Ensure your phone and cameras are on the same network
+          (Wi-Fi) for local access.
         </Text>
       </View>
     </ScrollView>
@@ -201,7 +216,7 @@ const styles = StyleSheet.create({
     marginBottom: 2,
   },
   tipCard: {
-    backgroundColor: colors.status.warning + '15',
+    backgroundColor: `${colors.status.warning}15`,
     borderLeftWidth: 3,
     borderLeftColor: colors.status.warning,
     borderRadius: borderRadius.md,
@@ -260,7 +275,7 @@ const styles = StyleSheet.create({
     marginHorizontal: spacing.xxl,
     marginBottom: spacing.xxxl,
     borderWidth: 1,
-    borderColor: colors.status.warning + '40',
+    borderColor: `${colors.status.warning}40`,
   },
   footerText: {
     fontSize: fontSize.sm,

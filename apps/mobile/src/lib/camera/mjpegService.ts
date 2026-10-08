@@ -63,7 +63,9 @@ const SNAPSHOT_PATH_TEMPLATES = [
  * Build origin for derived candidates, preserving any user:pass@ userinfo
  * so auth cameras keep working on sibling snapshot paths.
  */
-function buildOrigin(parsed: NonNullable<ReturnType<typeof parseHttpStreamUrl>>): string {
+function buildOrigin(
+  parsed: NonNullable<ReturnType<typeof parseHttpStreamUrl>>,
+): string {
   const userinfo =
     parsed.username !== undefined
       ? `${encodeURIComponent(parsed.username)}:${encodeURIComponent(parsed.password || '')}@`
@@ -105,7 +107,11 @@ export function getSnapshotCandidates(url: string): string[] {
   if (pathWithSearch) {
     const sep = pathWithSearch.includes('?') ? '&' : '?';
     candidates.push(`${origin}${pathWithSearch}${sep}frame=1`);
-    if (lowerPath.includes('mjpg') || lowerPath.includes('mjpeg') || lowerPath.includes('videostream')) {
+    if (
+      lowerPath.includes('mjpg') ||
+      lowerPath.includes('mjpeg') ||
+      lowerPath.includes('videostream')
+    ) {
       candidates.push(`${origin}/snapshot.jpg`);
     }
   }
@@ -131,7 +137,8 @@ export function blobToDataUri(blob: Blob): Promise<string> {
         reject(new Error('Failed to read image data'));
       }
     };
-    reader.onerror = () => reject(reader.error || new Error('FileReader error'));
+    reader.onerror = () =>
+      reject(reader.error || new Error('FileReader error'));
     reader.readAsDataURL(blob);
   });
 }
@@ -148,20 +155,26 @@ function toBase64(value: string): string {
     }
   }
   const bytes = new Uint8Array(
-    Array.from(value).flatMap(ch => {
+    Array.from(value).flatMap((ch) => {
       const code = ch.codePointAt(0) ?? 0;
       if (code < 0x80) return [code];
       if (code < 0x800) return [0xc0 | (code >> 6), 0x80 | (code & 0x3f)];
-      if (code < 0x10000) return [0xe0 | (code >> 12), 0x80 | ((code >> 6) & 0x3f), 0x80 | (code & 0x3f)];
+      if (code < 0x10000)
+        return [
+          0xe0 | (code >> 12),
+          0x80 | ((code >> 6) & 0x3f),
+          0x80 | (code & 0x3f),
+        ];
       return [
         0xf0 | (code >> 18),
         0x80 | ((code >> 12) & 0x3f),
         0x80 | ((code >> 6) & 0x3f),
         0x80 | (code & 0x3f),
       ];
-    })
+    }),
   );
-  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
+  const chars =
+    'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/';
   let out = '';
   for (let i = 0; i < bytes.length; i += 3) {
     const b0 = bytes[i];
@@ -175,9 +188,14 @@ function toBase64(value: string): string {
   return out;
 }
 
-function buildAuthHeaders(username?: string, password?: string): Record<string, string> {
+function buildAuthHeaders(
+  username?: string,
+  password?: string,
+): Record<string, string> {
   if (!username) return {};
-  return { Authorization: `Basic ${toBase64(`${username}:${password || ''}`)}` };
+  return {
+    Authorization: `Basic ${toBase64(`${username}:${password || ''}`)}`,
+  };
 }
 
 /**
@@ -187,7 +205,8 @@ function buildAuthHeaders(username?: string, password?: string): Record<string, 
 async function extractFirstJpeg(blob: Blob): Promise<Blob | null> {
   if (blob.size < 4) return null;
   // Cap scan to 2MB — a single MJPEG frame never exceeds this in practice
-  const scanBlob = blob.size > 2 * 1024 * 1024 ? blob.slice(0, 2 * 1024 * 1024) : blob;
+  const scanBlob =
+    blob.size > 2 * 1024 * 1024 ? blob.slice(0, 2 * 1024 * 1024) : blob;
   const buf = await scanBlob.arrayBuffer();
   const bytes = new Uint8Array(buf);
 
@@ -225,9 +244,14 @@ export async function fetchSnapshotFrame(
     username?: string;
     password?: string;
     signal?: AbortSignal;
-  } = {}
+  } = {},
 ): Promise<string | null> {
-  const { timeoutMs = DEFAULT_TIMEOUT_MS, username, password, signal } = options;
+  const {
+    timeoutMs = DEFAULT_TIMEOUT_MS,
+    username,
+    password,
+    signal,
+  } = options;
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
   // Propagate an outer cancellation (used to stop losing candidate probes).
@@ -251,7 +275,9 @@ export async function fetchSnapshotFrame(
       return null;
     }
 
-    const contentType = (response.headers?.get?.('content-type') || '').toLowerCase();
+    const contentType = (
+      response.headers?.get?.('content-type') || ''
+    ).toLowerCase();
 
     // HTML / JSON error pages are not frames
     if (
@@ -263,7 +289,8 @@ export async function fetchSnapshotFrame(
     }
 
     const isMultipart = contentType.includes('multipart');
-    const isJpegType = contentType.includes('image/jpeg') || contentType.includes('image/jpg');
+    const isJpegType =
+      contentType.includes('image/jpeg') || contentType.includes('image/jpg');
     const isImageType = contentType.startsWith('image/') || isMultipart;
 
     // Prefer image/* content types; also accept octet-stream / unknown if body is JPEG
@@ -309,18 +336,24 @@ export async function resolveFrameUrl(
     password?: string;
     skipCandidates?: ReadonlySet<string>;
     concurrency?: number;
-  } = {}
+  } = {},
 ): Promise<string | null> {
   const all = getSnapshotCandidates(url);
   const candidates = options.skipCandidates?.size
-    ? all.filter(c => !options.skipCandidates!.has(c))
+    ? all.filter((c) => !options.skipCandidates!.has(c))
     : all;
 
   // Everything we know about is currently failing; force a full re-sweep
   // rather than spinning on an empty list forever.
   const probeList = candidates.length > 0 ? candidates : all;
-  const perCandidateTimeout = Math.min(options.timeoutMs ?? DEFAULT_TIMEOUT_MS, 3000);
-  const concurrency = Math.max(1, Math.min(options.concurrency ?? 6, probeList.length));
+  const perCandidateTimeout = Math.min(
+    options.timeoutMs ?? DEFAULT_TIMEOUT_MS,
+    3000,
+  );
+  const concurrency = Math.max(
+    1,
+    Math.min(options.concurrency ?? 6, probeList.length),
+  );
 
   const group = new AbortController();
   let settled = false;
@@ -413,7 +446,7 @@ export function createMjpegStream(options: MjpegStreamOptions): MjpegStream {
 
   const setState = (next: MjpegStreamState) => {
     state = next;
-    listeners.forEach(listener => listener(state));
+    listeners.forEach((listener) => listener(state));
   };
 
   const activeSkipSet = (): ReadonlySet<string> => {
@@ -447,12 +480,12 @@ export function createMjpegStream(options: MjpegStreamOptions): MjpegStream {
 
     resolveFailures += 1;
     const backoff = Math.min(
-      RESOLVE_COOLDOWN_MS * Math.pow(2, resolveFailures - 1),
-      MAX_RESOLVE_BACKOFF_MS
+      RESOLVE_COOLDOWN_MS * 2 ** (resolveFailures - 1),
+      MAX_RESOLVE_BACKOFF_MS,
     );
     nextResolveAttemptAt = Date.now() + backoff;
     console.log(
-      `[MjpegStream] No snapshot endpoint found; next attempt in ${Math.round(backoff / 1000)}s`
+      `[MjpegStream] No snapshot endpoint found; next attempt in ${Math.round(backoff / 1000)}s`,
     );
     return { url: null, attempted: true };
   };
@@ -487,7 +520,11 @@ export function createMjpegStream(options: MjpegStreamOptions): MjpegStream {
       }
 
       if (frameUrl && running && gen === generation) {
-        const uri = await fetchSnapshotFrame(frameUrl, { timeoutMs, username, password: pass });
+        const uri = await fetchSnapshotFrame(frameUrl, {
+          timeoutMs,
+          username,
+          password: pass,
+        });
         if (!running || gen !== generation) return;
 
         if (uri) {

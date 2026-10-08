@@ -3,12 +3,11 @@
  */
 
 import {
+  createHealthMonitor,
+  formatLatency,
+  getConnectionQuality,
   testCameraConnection,
   testConnectionViaMediaServer,
-  createHealthMonitor,
-  getConnectionQuality,
-  formatLatency,
-  type ConnectionTestResult,
 } from '@/lib/camera/connectionService';
 
 describe('Connection Service', () => {
@@ -27,7 +26,9 @@ describe('Connection Service', () => {
         status: 200,
       });
 
-      const result = await testCameraConnection('rtsp://192.168.1.100:554/stream');
+      const result = await testCameraConnection(
+        'rtsp://192.168.1.100:554/stream',
+      );
 
       expect(result.success).toBe(true);
       expect(result.latency).toBeDefined();
@@ -40,7 +41,9 @@ describe('Connection Service', () => {
         status: 401,
       });
 
-      const result = await testCameraConnection('rtsp://192.168.1.100:554/stream');
+      const result = await testCameraConnection(
+        'rtsp://192.168.1.100:554/stream',
+      );
 
       expect(result.success).toBe(true);
     });
@@ -66,12 +69,14 @@ describe('Connection Service', () => {
         headers: { get: () => 'multipart/x-mixed-replace' },
       });
 
-      const result = await testCameraConnection('http://192.168.1.100/videostream.cgi');
+      const result = await testCameraConnection(
+        'http://192.168.1.100/videostream.cgi',
+      );
 
       expect(result.success).toBe(true);
       expect(global.fetch).toHaveBeenCalledWith(
         'http://192.168.1.100/videostream.cgi',
-        expect.objectContaining({ method: 'GET' })
+        expect.objectContaining({ method: 'GET' }),
       );
     });
 
@@ -82,7 +87,9 @@ describe('Connection Service', () => {
         headers: { get: () => null },
       });
 
-      const result = await testCameraConnection('http://192.168.1.100/snapshot.jpg');
+      const result = await testCameraConnection(
+        'http://192.168.1.100/snapshot.jpg',
+      );
       expect(result.success).toBe(true);
     });
 
@@ -93,33 +100,43 @@ describe('Connection Service', () => {
     });
 
     it('should return failure for invalid IP address', async () => {
-      const result = await testCameraConnection('rtsp://999.999.999.999:554/stream');
+      const result = await testCameraConnection(
+        'rtsp://999.999.999.999:554/stream',
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toContain('Invalid IP address');
     });
 
     it('should return failure on network error', async () => {
-      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Network error'));
+      (global.fetch as jest.Mock).mockRejectedValueOnce(
+        new Error('Network error'),
+      );
 
-      const result = await testCameraConnection('rtsp://192.168.1.100:554/stream');
+      const result = await testCameraConnection(
+        'rtsp://192.168.1.100:554/stream',
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toBeDefined();
     });
 
     it('should return failure on timeout', async () => {
-      (global.fetch as jest.Mock).mockImplementationOnce(() => 
-        new Promise((_, reject) => {
-          const error = new Error('Aborted');
-          error.name = 'AbortError';
-          reject(error);
-        })
+      (global.fetch as jest.Mock).mockImplementationOnce(
+        () =>
+          new Promise((_, reject) => {
+            const error = new Error('Aborted');
+            error.name = 'AbortError';
+            reject(error);
+          }),
       );
 
-      const result = await testCameraConnection('rtsp://192.168.1.100:554/stream', {
-        timeoutMs: 100,
-      });
+      const result = await testCameraConnection(
+        'rtsp://192.168.1.100:554/stream',
+        {
+          timeoutMs: 100,
+        },
+      );
 
       expect(result.success).toBe(false);
       // Error message may vary - just check it exists
@@ -131,10 +148,13 @@ describe('Connection Service', () => {
         .mockRejectedValueOnce(new Error('Fail 1'))
         .mockResolvedValueOnce({ ok: true, status: 200 });
 
-      const result = await testCameraConnection('rtsp://192.168.1.100:554/stream', {
-        retryCount: 1,
-        retryDelayMs: 10,
-      });
+      const result = await testCameraConnection(
+        'rtsp://192.168.1.100:554/stream',
+        {
+          retryCount: 1,
+          retryDelayMs: 10,
+        },
+      );
 
       expect(result.success).toBe(true);
       expect(global.fetch).toHaveBeenCalledTimes(2);
@@ -144,7 +164,7 @@ describe('Connection Service', () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
 
       const result = await testCameraConnection(
-        'rtsp://admin:password@192.168.1.100:554/stream'
+        'rtsp://admin:password@192.168.1.100:554/stream',
       );
 
       expect(result.success).toBe(true);
@@ -153,20 +173,24 @@ describe('Connection Service', () => {
     it('should handle custom port', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
 
-      const result = await testCameraConnection('rtsp://192.168.1.100:8554/stream');
+      const result = await testCameraConnection(
+        'rtsp://192.168.1.100:8554/stream',
+      );
 
       expect(result.success).toBe(true);
       // Should try HTTP on same port
       expect(global.fetch).toHaveBeenCalledWith(
         expect.stringContaining(':8554'),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
     it('should handle hostname instead of IP', async () => {
       (global.fetch as jest.Mock).mockResolvedValueOnce({ ok: true });
 
-      const result = await testCameraConnection('rtsp://camera.local:554/stream');
+      const result = await testCameraConnection(
+        'rtsp://camera.local:554/stream',
+      );
 
       expect(result.success).toBe(true);
     });
@@ -183,7 +207,7 @@ describe('Connection Service', () => {
 
       const result = await testConnectionViaMediaServer(
         'http://localhost:3001',
-        'rtsp://192.168.1.100:554/stream'
+        'rtsp://192.168.1.100:554/stream',
       );
 
       expect(result.success).toBe(true);
@@ -198,7 +222,7 @@ describe('Connection Service', () => {
 
       const result = await testConnectionViaMediaServer(
         'http://localhost:3001',
-        'rtsp://192.168.1.100:554/stream'
+        'rtsp://192.168.1.100:554/stream',
       );
 
       expect(result.success).toBe(false);
@@ -212,7 +236,7 @@ describe('Connection Service', () => {
 
       const result = await testConnectionViaMediaServer(
         'http://localhost:3001',
-        'rtsp://192.168.1.100:554/stream'
+        'rtsp://192.168.1.100:554/stream',
       );
 
       expect(result.success).toBe(false);
@@ -220,11 +244,13 @@ describe('Connection Service', () => {
     });
 
     it('should handle fetch error', async () => {
-      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Server unavailable'));
+      (global.fetch as jest.Mock).mockRejectedValueOnce(
+        new Error('Server unavailable'),
+      );
 
       const result = await testConnectionViaMediaServer(
         'http://localhost:3001',
-        'rtsp://192.168.1.100:554/stream'
+        'rtsp://192.168.1.100:554/stream',
       );
 
       expect(result.success).toBe(false);
@@ -237,27 +263,31 @@ describe('Connection Service', () => {
   // =========================================================================
   describe('createHealthMonitor', () => {
     it('should return cleanup function', () => {
-      const cameras = [{ id: 'cam-1', rtspUrl: 'rtsp://192.168.1.100:554/stream' }];
-      
+      const cameras = [
+        { id: 'cam-1', rtspUrl: 'rtsp://192.168.1.100:554/stream' },
+      ];
+
       const cleanup = createHealthMonitor(cameras, jest.fn(), 30000);
-      
+
       expect(typeof cleanup).toBe('function');
       cleanup();
     });
 
     it('should accept empty camera array', () => {
       const cleanup = createHealthMonitor([], jest.fn(), 1000);
-      
+
       expect(typeof cleanup).toBe('function');
       cleanup();
     });
 
     it('should handle callback function', () => {
       const onStatusChange = jest.fn();
-      const cameras = [{ id: 'cam-1', rtspUrl: 'rtsp://192.168.1.100:554/stream' }];
+      const cameras = [
+        { id: 'cam-1', rtspUrl: 'rtsp://192.168.1.100:554/stream' },
+      ];
 
       const cleanup = createHealthMonitor(cameras, onStatusChange, 60000);
-      
+
       // Just verify it was set up correctly
       expect(onStatusChange).toBeDefined();
       cleanup();
@@ -266,7 +296,10 @@ describe('Connection Service', () => {
     it('reports online on the first successful heartbeat', async () => {
       jest.useFakeTimers();
       try {
-        (global.fetch as jest.Mock).mockResolvedValue({ ok: true, status: 200 });
+        (global.fetch as jest.Mock).mockResolvedValue({
+          ok: true,
+          status: 200,
+        });
         const updates: Array<{ id: string; status: string }> = [];
 
         const cleanup = createHealthMonitor(
@@ -382,4 +415,3 @@ describe('Connection Service', () => {
     });
   });
 });
-

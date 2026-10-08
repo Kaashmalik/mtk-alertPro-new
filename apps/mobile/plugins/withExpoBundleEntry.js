@@ -1,4 +1,7 @@
-const { withAppBuildGradle, createRunOncePlugin } = require('expo/config-plugins');
+const {
+  withAppBuildGradle,
+  createRunOncePlugin,
+} = require('expo/config-plugins');
 
 const MARKER = '// mtk-expo-entry-override';
 
@@ -19,7 +22,9 @@ const MARKER = '// mtk-expo-entry-override';
 function withExpoBundleEntry(config) {
   return withAppBuildGradle(config, (modConfig) => {
     if (modConfig.modResults.language !== 'groovy') {
-      throw new Error('withExpoBundleEntry: can only modify Groovy build.gradle files.');
+      throw new Error(
+        'withExpoBundleEntry: can only modify Groovy build.gradle files.',
+      );
     }
 
     const contents = modConfig.modResults.contents;
@@ -31,7 +36,9 @@ function withExpoBundleEntry(config) {
     const anchor = 'bundleCommand = "export:embed"';
 
     if (!contents.includes(anchor)) {
-      throw new Error('withExpoBundleEntry: could not find the "bundleCommand" anchor in app/build.gradle.');
+      throw new Error(
+        'withExpoBundleEntry: could not find the "bundleCommand" anchor in app/build.gradle.',
+      );
     }
 
     const snippet = `
@@ -47,4 +54,8 @@ function withExpoBundleEntry(config) {
   });
 }
 
-module.exports = createRunOncePlugin(withExpoBundleEntry, 'mtk-expo-entry-override', '1.0.0');
+module.exports = createRunOncePlugin(
+  withExpoBundleEntry,
+  'mtk-expo-entry-override',
+  '1.0.0',
+);

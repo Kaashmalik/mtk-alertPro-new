@@ -18,7 +18,8 @@ export interface ParsedHttpStreamUrl {
   password?: string;
 }
 
-const MJPEG_PATTERN = /mjpeg|mjpg|videostream|video\.mjpg|multipart\/x-mixed-replace|snapshot/i;
+const MJPEG_PATTERN =
+  /mjpeg|mjpg|videostream|video\.mjpg|multipart\/x-mixed-replace|snapshot/i;
 
 /**
  * Detect the stream protocol for a camera URL
@@ -55,15 +56,15 @@ export function parseHttpStreamUrl(url: string): ParsedHttpStreamUrl | null {
   try {
     // URL is available in React Native (whatwg-url polyfill)
     const parsed = new URL(raw);
-    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
+    if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      return null;
     if (!parsed.hostname) return null;
 
-    const port =
-      parsed.port
-        ? parseInt(parsed.port, 10)
-        : parsed.protocol === 'https:'
-          ? 443
-          : 80;
+    const port = parsed.port
+      ? Number.parseInt(parsed.port, 10)
+      : parsed.protocol === 'https:'
+        ? 443
+        : 80;
 
     return {
       protocol: parsed.protocol,
@@ -71,8 +72,12 @@ export function parseHttpStreamUrl(url: string): ParsedHttpStreamUrl | null {
       port,
       path: parsed.pathname || '/',
       search: `${parsed.pathname || '/'}${parsed.search || ''}`,
-      username: parsed.username ? decodeURIComponent(parsed.username) : undefined,
-      password: parsed.password ? decodeURIComponent(parsed.password) : undefined,
+      username: parsed.username
+        ? decodeURIComponent(parsed.username)
+        : undefined,
+      password: parsed.password
+        ? decodeURIComponent(parsed.password)
+        : undefined,
     };
   } catch {
     return null;

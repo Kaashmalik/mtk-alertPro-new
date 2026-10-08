@@ -1,24 +1,25 @@
+import { Button, Input } from '@/components/ui';
+import { getConfirmRedirectUrl } from '@/lib/auth/confirmRedirect';
+import { supabase } from '@/lib/supabase/client';
+import { colors, fontSize, spacing } from '@/lib/theme';
+import { zodResolver } from '@hookform/resolvers/zod';
+import { router } from 'expo-router';
+import { ArrowLeft, Mail } from 'lucide-react-native';
 import { useState } from 'react';
+import { Controller, useForm } from 'react-hook-form';
 import {
-  View,
-  Text,
   Alert,
-  StyleSheet,
-  TouchableOpacity,
-  StatusBar,
   KeyboardAvoidingView,
   Platform,
   ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
-import { Mail, ArrowLeft } from 'lucide-react-native';
-import { useForm, Controller } from 'react-hook-form';
-import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
-import { Button, Input } from '@/components/ui';
-import { supabase } from '@/lib/supabase/client';
-import { colors, spacing, fontSize } from '@/lib/theme';
 
 const schema = z.object({
   email: z.string().email('Invalid email address'),
@@ -41,8 +42,12 @@ export default function ForgotPasswordScreen() {
   const onSubmit = async (data: FormData) => {
     setIsLoading(true);
     try {
+      // Route recovery through the same confirm page as sign-up so the link
+      // opens a real https page when a web origin is configured, and still
+      // deep-links into the app when it is not. The page verifies the token and
+      // then forwards to /reset-password to collect the new secret.
       const { error } = await supabase.auth.resetPasswordForEmail(data.email, {
-        redirectTo: 'mtkalertpro://reset-password',
+        redirectTo: getConfirmRedirectUrl(),
       });
 
       if (error) throw error;
@@ -50,10 +55,11 @@ export default function ForgotPasswordScreen() {
       Alert.alert(
         'Check your email',
         'We sent you a password reset link. Check your inbox.',
-        [{ text: 'OK', onPress: () => router.back() }]
+        [{ text: 'OK', onPress: () => router.back() }],
       );
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to send reset email';
+      const message =
+        error instanceof Error ? error.message : 'Failed to send reset email';
       Alert.alert('Error', message);
     } finally {
       setIsLoading(false);
@@ -65,10 +71,7 @@ export default function ForgotPasswordScreen() {
       <StatusBar barStyle="light-content" backgroundColor={colors.bg.primary} />
 
       {/* Back Button */}
-      <TouchableOpacity
-        onPress={() => router.back()}
-        style={styles.backButton}
-      >
+      <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
         <ArrowLeft size={24} color={colors.text.primary} />
         <Text style={styles.backText}>Back</Text>
       </TouchableOpacity>
@@ -85,9 +88,7 @@ export default function ForgotPasswordScreen() {
           keyboardDismissMode="on-drag"
         >
           <View style={styles.content}>
-            <Text style={styles.title}>
-              Forgot Password?
-            </Text>
+            <Text style={styles.title}>Forgot Password?</Text>
             <Text style={styles.subtitle}>
               Enter your email and we'll send you a link to reset your password.
             </Text>

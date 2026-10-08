@@ -9,9 +9,9 @@
  * @module lib/camera/cameraCache
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import type { Camera } from '@/types';
-import type { CameraHealth, CameraConnectionStatus } from './connectionService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import type { CameraConnectionStatus, CameraHealth } from './connectionService';
 import { sanitizeRtspUrl } from './rtspHelper';
 
 export const CAMERAS_CACHE_KEY = 'cameras-cache';
@@ -70,13 +70,14 @@ export interface CachedQueuedOperation {
 // ---------------------------------------------------------------------------
 
 export function serializeHealth(
-  health: Record<string, CameraHealth>
+  health: Record<string, CameraHealth>,
 ): Record<string, SerializedHealth> {
   const out: Record<string, SerializedHealth> = {};
   for (const [id, h] of Object.entries(health)) {
     out[id] = {
       ...h,
-      lastOnline: h.lastOnline instanceof Date ? h.lastOnline.toISOString() : undefined,
+      lastOnline:
+        h.lastOnline instanceof Date ? h.lastOnline.toISOString() : undefined,
       lastChecked:
         h.lastChecked instanceof Date ? h.lastChecked.toISOString() : undefined,
       lastTest: {
@@ -92,7 +93,7 @@ export function serializeHealth(
 }
 
 export function deserializeHealth(
-  raw: Record<string, SerializedHealth>
+  raw: Record<string, SerializedHealth>,
 ): Record<string, CameraHealth> {
   const out: Record<string, CameraHealth> = {};
   for (const [id, h] of Object.entries(raw)) {
@@ -154,11 +155,26 @@ function sanitizeCamera(c: Camera): Camera {
 function isValidCamera(c: unknown): c is Camera {
   if (!c || typeof c !== 'object') return false;
   const cam = c as Partial<Camera>;
-  return (
-    typeof cam.id === 'string' &&
-    typeof cam.name === 'string' &&
-    typeof cam.rtspUrl === 'string'
-  );
+  if (
+    typeof cam.id !== 'string' ||
+    typeof cam.name !== 'string' ||
+    typeof cam.rtspUrl !== 'string'
+  ) {
+    return false;
+  }
+  // detectionSettings must be an object. A cache entry written before this
+  // check (or a partially-saved camera) can carry null, which would then throw
+  // across the whole camera detail screen on every cold start.
+  if (cam.detectionSettings !== undefined) {
+    if (
+      cam.detectionSettings === null ||
+      typeof cam.detectionSettings !== 'object' ||
+      Array.isArray(cam.detectionSettings)
+    ) {
+      return false;
+    }
+  }
+  return true;
 }
 
 // ---------------------------------------------------------------------------
@@ -220,7 +236,7 @@ export async function loadCamerasCache(): Promise<Camera[]> {
 
 /** Persist heartbeat health snapshots */
 export async function saveHealthCache(
-  health: Record<string, CameraHealth>
+  health: Record<string, CameraHealth>,
 ): Promise<void> {
   try {
     const envelope: HealthCacheEnvelope = {
@@ -268,7 +284,7 @@ export async function loadOfflineQueue(): Promise<CachedQueuedOperation[]> {
       (op): op is CachedQueuedOperation =>
         !!op &&
         typeof op === 'object' &&
-        (op as CachedQueuedOperation).type !== undefined
+        (op as CachedQueuedOperation).type !== undefined,
     );
   } catch {
     return [];
@@ -280,7 +296,7 @@ export async function loadOfflineQueue(): Promise<CachedQueuedOperation[]> {
  * Empty queue removes the key; failures are swallowed (best-effort like other caches).
  */
 export async function saveOfflineQueue(
-  queue: CachedQueuedOperation[]
+  queue: CachedQueuedOperation[],
 ): Promise<void> {
   try {
     if (queue.length === 0) {

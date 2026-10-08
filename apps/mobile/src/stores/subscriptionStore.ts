@@ -1,30 +1,31 @@
 /**
  * Subscription Store
- * 
+ *
  * Manages subscription state, plan limits, and payment handling
  * with proper backend synchronization
  */
 
-import { create } from 'zustand';
-import { useMemo } from 'react';
-import { persist, createJSONStorage } from 'zustand/middleware';
-import AsyncStorage from '@react-native-async-storage/async-storage';
-import { supabase } from '@/lib/supabase/client';
-import { logError } from '@/lib/utils/errorHandler';
-import { useCameraStore } from '@/stores/cameraStore';
 import { adMobService } from '@/lib/ads/adMobService';
 import {
+  PLAN_LIMITS,
+  type PlanLimits,
+  type SubscriptionTier,
+  // Aliased: the store exposes its own `canAddCamera` action.
+  canAddCamera as canAddCameraLimit,
   getPlanLimits,
   isPaidTier,
   isTierActive,
   normalizeTier,
   remainingCameras,
-  // Aliased: the store exposes its own `canAddCamera` action.
-  canAddCamera as canAddCameraLimit,
-  PLAN_LIMITS,
-  type SubscriptionTier,
-  type PlanLimits,
 } from '@/lib/subscription/planLimits';
+import { supabase } from '@/lib/supabase/client';
+import { logError } from '@/lib/utils/errorHandler';
+import { useCameraStore } from '@/stores/cameraStore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { useEffect, useMemo, useState } from 'react';
+import { AppState } from 'react-native';
+import { create } from 'zustand';
+import { createJSONStorage, persist } from 'zustand/middleware';
 
 // Re-exported so existing `from '@/stores/subscriptionStore'` imports keep
 // working. The definitions now live in lib/subscription/planLimits.
@@ -50,23 +51,23 @@ export interface SubscriptionState {
   currentTier: SubscriptionTier;
   expiresAt: Date | null;
   isActive: boolean;
-  
+
   // Plan details
   plans: SubscriptionPlan[];
   currentPlan: SubscriptionPlan | null;
-  
+
   // Usage tracking
   usage: {
     camerasUsed: number;
     storageUsedGB: number;
     alertsThisMonth: number;
   };
-  
+
   // Loading states
   isLoading: boolean;
   isUpgrading: boolean;
   error: string | null;
-  
+
   // Actions
   initialize: () => Promise<void>;
   refreshSubscription: () => Promise<void>;
@@ -74,7 +75,9 @@ export interface SubscriptionState {
   canAddCamera: () => boolean;
   getRemainingCameras: () => number;
   getUpgradeUrl: (planId: SubscriptionTier) => string;
-  requestUpgrade: (planId: SubscriptionTier) => Promise<{ success: boolean; message: string }>;
+  requestUpgrade: (
+    planId: SubscriptionTier,
+  ) => Promise<{ success: boolean; message: string }>;
   updateUsage: (usage: Partial<SubscriptionState['usage']>) => void;
   clearError: () => void;
 }
@@ -91,13 +94,13 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     currency: 'PKR',
     period: 'monthly',
     features: [
-      `${PLAN_LIMITS.free.maxCameras} Cameras Maximum`,
-      'Person & Vehicle Detection',
+      `${PLAN_LIMITS.free.maxCameras} Cameras`,
+      'Person, Vehicle & Animal Detection',
       'Home, Farm & Shop scene modes',
       `${PLAN_LIMITS.free.maxAlertHistory}-Day Alert History`,
-      'Email Notifications',
-      'Standard Quality Streams',
-      'Basic Support',
+      'SD (480p) Stream Quality',
+      'Push Notifications',
+      'Help Center & Community Support',
     ],
     limits: PLAN_LIMITS.free,
   },
@@ -110,15 +113,17 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     popular: true,
     features: [
       'Unlimited Cameras',
-      'Person & Vehicle Detection',
+      'Person, Vehicle & Animal Detection',
       'All scene modes (Parking, Warehouse, School…)',
       `${PLAN_LIMITS.pro.maxAlertHistory}-Day Alert History`,
       'Push + Email Notifications',
-      'HD/4K Stream Quality',
+      // Pro is capped at HD (720p) by PLAN_LIMITS.streamQuality and enforced in
+      // resolveEffectiveQuality. Claiming 4K here contradicted the entitlement.
+      'HD (720p) Stream Quality',
       `${PLAN_LIMITS.pro.maxCloudStorageGB}GB Cloud Storage`,
-      'Priority Support',
       'Red Alert Mode',
       'Custom Detection Zones',
+      'Ad-free experience',
     ],
     limits: PLAN_LIMITS.pro,
   },
@@ -128,18 +133,20 @@ const SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
     price: 1500,
     currency: 'PKR',
     period: 'monthly',
+    // Only features the app actually delivers. This list previously advertised
+    // People Counting, Multi-User Management, Custom Integrations and "SLA
+    // Guaranteed Uptime" — none of which were implemented, so the plan was
+    // selling imaginary entitlements (a refund/chargeback and Play policy risk).
+    // Unbuilt features belong in the roadmap, not on a customer's receipt.
     features: [
       'Unlimited Cameras',
-      'Advanced AI Analytics',
-      'People Counting',
+      'Full HD (1080p) Stream Quality',
       'All scene detection profiles',
       'Unlimited Alert History',
-      'Multi-User Management',
       'Unlimited Cloud Storage',
-      'API Access',
-      '24/7 Premium Support',
-      'Custom Integrations',
-      'SLA Guaranteed Uptime',
+      'Custom Detection Zones',
+      'Red Alert Mode',
+      'Ad-free experience',
     ],
     limits: PLAN_LIMITS.business,
   },
@@ -170,10 +177,12 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       // Initialize subscription from backend
       initialize: async () => {
         set({ isLoading: true, error: null });
-        
+
         try {
-          const { data: { user } } = await supabase.auth.getUser();
-          
+          const {
+            data: { user },
+          } = await supabase.auth.getUser();
+
           if (!user) {
             set({ isLoading: false });
             return;
@@ -204,7 +213,8 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           const effectiveTier = isTierActive(tier, expiresAt) ? tier : 'free';
 
           const currentPlan =
-            SUBSCRIPTION_PLANS.find((p) => p.id === effectiveTier) ?? SUBSCRIPTION_PLANS[0];
+            SUBSCRIPTION_PLANS.find((p) => p.id === effectiveTier) ??
+            SUBSCRIPTION_PLANS[0];
 
           // Fetch usage stats
           const { count: cameraCount } = await supabase
@@ -232,9 +242,9 @@ export const useSubscriptionStore = create<SubscriptionState>()(
           });
         } catch (error: any) {
           logError(error, 'SubscriptionStore.initialize');
-          set({ 
-            isLoading: false, 
-            error: error.message || 'Failed to load subscription' 
+          set({
+            isLoading: false,
+            error: error.message || 'Failed to load subscription',
           });
         }
       },
@@ -250,7 +260,9 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       // immediately reports no access.
       checkFeatureAccess: (feature) => {
         const { currentTier, expiresAt } = get();
-        const tier = isTierActive(currentTier, expiresAt) ? currentTier : 'free';
+        const tier = isTierActive(currentTier, expiresAt)
+          ? currentTier
+          : 'free';
         const value = getPlanLimits(tier)[feature];
         if (typeof value === 'boolean') return value;
         if (typeof value === 'number') return value > 0;
@@ -262,37 +274,41 @@ export const useSubscriptionStore = create<SubscriptionState>()(
       // server-counted check - this must never be treated as enforcement.
       canAddCamera: () => {
         const { currentTier, expiresAt, usage } = get();
-        const tier = isTierActive(currentTier, expiresAt) ? currentTier : 'free';
+        const tier = isTierActive(currentTier, expiresAt)
+          ? currentTier
+          : 'free';
         return canAddCameraLimit(tier, usage.camerasUsed);
       },
 
       // Get remaining camera slots
       getRemainingCameras: () => {
         const { currentTier, expiresAt, usage } = get();
-        const tier = isTierActive(currentTier, expiresAt) ? currentTier : 'free';
+        const tier = isTierActive(currentTier, expiresAt)
+          ? currentTier
+          : 'free';
         return remainingCameras(tier, usage.camerasUsed);
       },
 
       // Get WhatsApp upgrade URL
       getUpgradeUrl: (planId: SubscriptionTier) => {
-        const plan = SUBSCRIPTION_PLANS.find(p => p.id === planId);
+        const plan = SUBSCRIPTION_PLANS.find((p) => p.id === planId);
         if (!plan) return '';
-        
+
         const WHATSAPP_NUMBER = '923038111297';
         const message = encodeURIComponent(
-          `Hi, I want to upgrade to MTK AlertPro ${plan.name} plan (Rs. ${plan.price}/month). Please guide me.`
+          `Hi, I want to upgrade to MTK AlertPro ${plan.name} plan (Rs. ${plan.price}/month). Please guide me.`,
         );
-        
+
         return `https://wa.me/${WHATSAPP_NUMBER}?text=${message}`;
       },
 
       // Request upgrade (opens WhatsApp or payment flow)
       requestUpgrade: async (planId: SubscriptionTier) => {
         set({ isUpgrading: true, error: null });
-        
+
         try {
           const { currentTier } = get();
-          
+
           if (planId === currentTier) {
             return { success: false, message: 'You are already on this plan' };
           }
@@ -301,11 +317,16 @@ export const useSubscriptionStore = create<SubscriptionState>()(
             // Downgrade goes through a SECURITY DEFINER RPC: the RLS hardening
             // migration revoked column-level UPDATE on subscription fields, so a
             // direct .update() on profiles is rejected by Postgres.
-            const { data, error } = await supabase.rpc('downgrade_subscription');
+            const { data, error } = await supabase.rpc(
+              'downgrade_subscription',
+            );
 
             if (error) {
               set({ isUpgrading: false, error: error.message });
-              return { success: false, message: `Downgrade failed: ${error.message}` };
+              return {
+                success: false,
+                message: `Downgrade failed: ${error.message}`,
+              };
             }
 
             const result = data as { success?: boolean; error?: string } | null;
@@ -322,18 +343,18 @@ export const useSubscriptionStore = create<SubscriptionState>()(
 
           // For paid plans, return WhatsApp URL
           const url = get().getUpgradeUrl(planId);
-          
+
           set({ isUpgrading: false });
-          return { 
-            success: true, 
+          return {
+            success: true,
             message: 'Opening WhatsApp for upgrade',
             url,
           } as any;
         } catch (error: any) {
           logError(error, 'SubscriptionStore.requestUpgrade');
-          set({ 
-            isUpgrading: false, 
-            error: error.message || 'Upgrade request failed' 
+          set({
+            isUpgrading: false,
+            error: error.message || 'Upgrade request failed',
           });
           return { success: false, message: error.message };
         }
@@ -357,8 +378,28 @@ export const useSubscriptionStore = create<SubscriptionState>()(
         expiresAt: state.expiresAt,
         usage: state.usage,
       }),
-    }
-  )
+      // JSON storage has no reviver, so a persisted Date comes back as an ISO
+      // string and `expiresAt` silently stops being a Date. Revive it here so
+      // every consumer can trust the declared type.
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<SubscriptionState> | undefined;
+        const raw = saved?.expiresAt;
+        const expiresAt =
+          raw instanceof Date
+            ? raw
+            : typeof raw === 'string' || typeof raw === 'number'
+              ? new Date(raw)
+              : null;
+
+        return {
+          ...current,
+          ...saved,
+          expiresAt:
+            expiresAt && !Number.isNaN(expiresAt.getTime()) ? expiresAt : null,
+        };
+      },
+    },
+  ),
 );
 
 // ============================================================================
@@ -384,13 +425,17 @@ export const useSubscriptionStore = create<SubscriptionState>()(
  */
 let lastKnownCameraCount = useCameraStore.getState().cameras.length;
 if (lastKnownCameraCount !== 0) {
-  useSubscriptionStore.getState().updateUsage({ camerasUsed: lastKnownCameraCount });
+  useSubscriptionStore
+    .getState()
+    .updateUsage({ camerasUsed: lastKnownCameraCount });
 }
 
 useCameraStore.subscribe((state) => {
   if (state.cameras.length === lastKnownCameraCount) return;
   lastKnownCameraCount = state.cameras.length;
-  useSubscriptionStore.getState().updateUsage({ camerasUsed: lastKnownCameraCount });
+  useSubscriptionStore
+    .getState()
+    .updateUsage({ camerasUsed: lastKnownCameraCount });
 });
 
 /**
@@ -409,7 +454,57 @@ const syncAdEntitlement = () => {
 syncAdEntitlement();
 useSubscriptionStore.subscribe(syncAdEntitlement);
 
+// Ad suppression only refreshed on a store change, so a plan that expired
+// mid-session kept suppressing ads. Re-check at the expiry boundary and on
+// foreground, matching useIsPremium.
+if (typeof AppState !== 'undefined') {
+  AppState.addEventListener('change', (state) => {
+    if (state === 'active') syncAdEntitlement();
+  });
+
+  useSubscriptionStore.subscribe((state) => {
+    const remaining = state.expiresAt
+      ? state.expiresAt.getTime() - Date.now()
+      : null;
+    if (
+      remaining !== null &&
+      remaining > 0 &&
+      remaining <= 24 * 60 * 60 * 1000
+    ) {
+      setTimeout(syncAdEntitlement, remaining + 1000);
+    }
+  });
+}
+
 // ============================================================================
+
+/**
+ * Re-render premium consumers when a subscription lapses mid-session.
+ *
+ * isTierActive() is a pure function of the clock, but the memoised result only
+ * recomputed when tier/expiresAt changed. A user whose plan expired while the
+ * app sat open kept every paid feature -- and kept ad suppression -- until some
+ * unrelated store write happened. Ticking at the expiry boundary closes that.
+ */
+function useExpiryBoundary(expiresAt: Date | null): number {
+  const [now, setNow] = useState(() => Date.now());
+
+  useEffect(() => {
+    if (!expiresAt) return undefined;
+    const remaining = expiresAt.getTime() - Date.now();
+    // Already past, or so far out that a timer is not worth holding open; the
+    // re-check on next focus covers those.
+    if (remaining <= 0 || remaining > MAX_EXPIRY_TIMER_MS) return undefined;
+
+    const timer = setTimeout(() => setNow(Date.now()), remaining + 1000);
+    return () => clearTimeout(timer);
+  }, [expiresAt]);
+
+  return now;
+}
+
+/** ~24.8 days; setTimeout overflows past this on some platforms. */
+const MAX_EXPIRY_TIMER_MS = 24 * 60 * 60 * 1000;
 
 export const useIsPremium = () => {
   const tier = useSubscriptionStore((state) => state.currentTier);
@@ -418,7 +513,11 @@ export const useIsPremium = () => {
   // subscription kept granting paid features until initialize() happened to
   // run again. The persisted tier is a render hint; initialize() on bootstrap
   // re-verifies it against the server.
-  return useMemo(() => isTierActive(tier, expiresAt), [tier, expiresAt]);
+  const now = useExpiryBoundary(expiresAt);
+  return useMemo(
+    () => isTierActive(tier, expiresAt, now),
+    [tier, expiresAt, now],
+  );
 };
 
 export const usePlanLimits = () => {
@@ -433,4 +532,3 @@ export const usePlanLimits = () => {
     return getPlanLimits('free');
   }, [currentTier, expiresAt]);
 };
-

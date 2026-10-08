@@ -19,13 +19,13 @@ export function getNativeRtspCapabilities(): NativeRtspCapabilities {
 
   try {
     // Optional peer dependency — only present in custom Dev Client builds
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     require('react-native-vlc-media-player');
     return { available: true };
   } catch {
     return {
       available: false,
-      reason: 'react-native-vlc-media-player not linked — see docs/guides/NATIVE_LAN_RTSP.md',
+      reason:
+        'react-native-vlc-media-player not linked — see docs/guides/NATIVE_LAN_RTSP.md',
     };
   }
 }

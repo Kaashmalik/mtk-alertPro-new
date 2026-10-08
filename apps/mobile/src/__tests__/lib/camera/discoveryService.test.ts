@@ -2,19 +2,19 @@
  * Discovery service tests (pure helpers + orchestrated flow with mocks)
  */
 
-import NetInfo from '@react-native-community/netinfo';
 import {
-  generateHostIps,
-  ipToInt,
-  intToIp,
-  mapManufacturerToBrand,
   buildSoapEnvelope,
-  parseOnvifDeviceInformation,
+  discoverCameras,
+  generateHostIps,
+  intToIp,
+  ipToInt,
+  mapManufacturerToBrand,
   parseMediaXAddr,
+  parseOnvifDeviceInformation,
   parseProfileToken,
   parseStreamUri,
-  discoverCameras,
 } from '@/lib/camera/discoveryService';
+import NetInfo from '@react-native-community/netinfo';
 
 describe('discoveryService', () => {
   beforeEach(() => {
@@ -52,7 +52,9 @@ describe('discoveryService', () => {
 
   describe('mapManufacturerToBrand', () => {
     it('maps known manufacturers', () => {
-      expect(mapManufacturerToBrand('Hikvision', 'DS-2CD2143')).toBe('hikvision');
+      expect(mapManufacturerToBrand('Hikvision', 'DS-2CD2143')).toBe(
+        'hikvision',
+      );
       expect(mapManufacturerToBrand('Dahua', 'IPC-HFW')).toBe('dahua');
       expect(mapManufacturerToBrand('Reolink', 'RLC-810A')).toBe('reolink');
       expect(mapManufacturerToBrand('AXIS', 'M3045')).toBe('axis');
@@ -86,7 +88,10 @@ describe('discoveryService', () => {
     });
 
     it('escapes XML special chars in username', () => {
-      const xml = buildSoapEnvelope('<x/>', { username: 'a<b>&c', password: 'p' });
+      const xml = buildSoapEnvelope('<x/>', {
+        username: 'a<b>&c',
+        password: 'p',
+      });
       expect(xml).toContain('a&lt;b&gt;&amp;c');
     });
   });
@@ -127,7 +132,9 @@ describe('discoveryService', () => {
             </tds:GetCapabilitiesResponse>
           </s:Body>
         </s:Envelope>`;
-      expect(parseMediaXAddr(caps)).toBe('http://192.168.1.10/onvif/media_service');
+      expect(parseMediaXAddr(caps)).toBe(
+        'http://192.168.1.10/onvif/media_service',
+      );
     });
 
     it('parses profile token', () => {
@@ -150,7 +157,7 @@ describe('discoveryService', () => {
           </trt:StreamUri>
         </trt:GetStreamUriResponse>`;
       expect(parseStreamUri(stream)).toBe(
-        'rtsp://192.168.1.10:554/Streaming/Channels/101'
+        'rtsp://192.168.1.10:554/Streaming/Channels/101',
       );
     });
 
@@ -205,7 +212,11 @@ describe('discoveryService', () => {
           // HEAD probes: only .5 is "live"
           if (!init?.method || init.method === 'HEAD') {
             if (url.startsWith('http://192.168.1.5:')) {
-              return Promise.resolve({ ok: true, status: 200, headers: { get: () => null } });
+              return Promise.resolve({
+                ok: true,
+                status: 200,
+                headers: { get: () => null },
+              });
             }
             return Promise.reject(new Error('Network error'));
           }
@@ -244,13 +255,13 @@ describe('discoveryService', () => {
             status: 404,
             text: async () => '',
           });
-        }
+        },
       );
 
       const progress: string[] = [];
       const cameras = await discoverCameras({
         subnet: { ip: '192.168.1.50', subnetMask: '255.255.255.0' },
-        onProgress: p => progress.push(p.phase),
+        onProgress: (p) => progress.push(p.phase),
         timeoutMs: 50,
       });
 
@@ -259,12 +270,14 @@ describe('discoveryService', () => {
       expect(progress).toContain('done');
 
       // Narrow to the live host for assertions (scan is /24)
-      const found = cameras.find(c => c.ip === '192.168.1.5');
+      const found = cameras.find((c) => c.ip === '192.168.1.5');
       expect(found).toBeDefined();
       expect(found?.onvif).toBe(true);
       expect(found?.manufacturer).toBe('Hikvision');
       expect(found?.brandId).toBe('hikvision');
-      expect(found?.rtspUrl).toBe('rtsp://192.168.1.5:554/Streaming/Channels/101');
+      expect(found?.rtspUrl).toBe(
+        'rtsp://192.168.1.5:554/Streaming/Channels/101',
+      );
     });
 
     it('respects abort signal', async () => {

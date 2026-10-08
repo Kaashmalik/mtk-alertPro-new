@@ -2,20 +2,20 @@
  * Camera cache tests — cold-start stale-while-revalidate helpers
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import {
-  saveCamerasCache,
-  loadCamerasCache,
-  saveHealthCache,
-  loadHealthCache,
-  loadOfflineQueue,
-  clearCameraCache,
-  serializeHealth,
-  deserializeHealth,
   CAMERAS_CACHE_KEY,
   HEALTH_CACHE_KEY,
+  clearCameraCache,
+  deserializeHealth,
+  loadCamerasCache,
+  loadHealthCache,
+  loadOfflineQueue,
+  saveCamerasCache,
+  saveHealthCache,
+  serializeHealth,
 } from '@/lib/camera/cameraCache';
 import type { CameraHealth } from '@/lib/camera/connectionService';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createMockCamera } from '../../setup';
 
 function makeHealth(overrides: Partial<CameraHealth> = {}): CameraHealth {
@@ -58,8 +58,12 @@ describe('cameraCache', () => {
       expect(loaded).toHaveLength(1);
       expect(loaded[0].id).toBe('cam-1');
       expect(loaded[0].createdAt).toBeInstanceOf(Date);
-      expect(loaded[0].createdAt.toISOString()).toBe('2024-01-15T08:00:00.000Z');
-      expect(loaded[0].updatedAt.toISOString()).toBe('2024-02-01T09:30:00.000Z');
+      expect(loaded[0].createdAt.toISOString()).toBe(
+        '2024-01-15T08:00:00.000Z',
+      );
+      expect(loaded[0].updatedAt.toISOString()).toBe(
+        '2024-02-01T09:30:00.000Z',
+      );
     });
 
     it('writes versioned envelope', async () => {
@@ -85,7 +89,11 @@ describe('cameraCache', () => {
     it('returns [] on wrong version', async () => {
       await AsyncStorage.setItem(
         CAMERAS_CACHE_KEY,
-        JSON.stringify({ version: 99, savedAt: 1, cameras: [createMockCamera()] })
+        JSON.stringify({
+          version: 99,
+          savedAt: 1,
+          cameras: [createMockCamera()],
+        }),
       );
       expect(await loadCamerasCache()).toEqual([]);
     });
@@ -98,7 +106,13 @@ describe('cameraCache', () => {
           name: 'Legacy',
           rtspUrl: 'rtsp://10.0.0.1/stream',
           isActive: true,
-          detectionSettings: { person: true, vehicle: true, sensitivity: 0.7, notificationsEnabled: true, alarmEnabled: true },
+          detectionSettings: {
+            person: true,
+            vehicle: true,
+            sensitivity: 0.7,
+            notificationsEnabled: true,
+            alarmEnabled: true,
+          },
           createdAt: '2023-01-01T00:00:00.000Z',
           updatedAt: '2023-01-01T00:00:00.000Z',
         },
@@ -118,7 +132,7 @@ describe('cameraCache', () => {
         null as unknown as ReturnType<typeof createMockCamera>,
       ]);
       const loaded = await loadCamerasCache();
-      expect(loaded.map(c => c.id)).toEqual(['good']);
+      expect(loaded.map((c) => c.id)).toEqual(['good']);
     });
 
     it('never persists credential-bearing URLs', async () => {
@@ -144,7 +158,13 @@ describe('cameraCache', () => {
           name: 'Legacy',
           rtspUrl: 'rtsp://admin:pw@10.0.0.1/stream',
           isActive: true,
-          detectionSettings: { person: true, vehicle: true, sensitivity: 0.7, notificationsEnabled: true, alarmEnabled: true },
+          detectionSettings: {
+            person: true,
+            vehicle: true,
+            sensitivity: 0.7,
+            notificationsEnabled: true,
+            alarmEnabled: true,
+          },
           createdAt: '2023-01-01T00:00:00.000Z',
           updatedAt: '2023-01-01T00:00:00.000Z',
         },
@@ -186,7 +206,11 @@ describe('cameraCache', () => {
 
     it('serialize/deserialize preserves isOnline and failureCount', () => {
       const health = {
-        'cam-1': makeHealth({ status: 'offline', isOnline: false, failureCount: 3 }),
+        'cam-1': makeHealth({
+          status: 'offline',
+          isOnline: false,
+          failureCount: 3,
+        }),
       };
       const round = deserializeHealth(serializeHealth(health));
       expect(round['cam-1'].status).toBe('offline');
@@ -199,7 +223,12 @@ describe('cameraCache', () => {
     it('round-trips queue entries', async () => {
       const queue = [
         { type: 'delete' as const, id: 'cam-9', timestamp: Date.now() },
-        { type: 'update' as const, id: 'cam-1', data: { name: 'X' }, timestamp: Date.now() },
+        {
+          type: 'update' as const,
+          id: 'cam-1',
+          data: { name: 'X' },
+          timestamp: Date.now(),
+        },
       ];
       await AsyncStorage.setItem('camera-offline-queue', JSON.stringify(queue));
 

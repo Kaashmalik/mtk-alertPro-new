@@ -1,24 +1,21 @@
 /**
  * Offline Indicator Component
- * 
+ *
  * Shows network status and provides offline-aware UI feedback
  */
 
-import React, { useEffect, useState } from 'react';
-import {
-  View,
-  Text,
-  StyleSheet,
-  Animated,
-  TouchableOpacity,
-  Dimensions,
-  Platform,
-} from 'react-native';
-import { WifiOff, RefreshCw, Wifi, AlertTriangle } from 'lucide-react-native';
-import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
 import { useNetworkStatus } from '@/hooks/useNetworkStatus';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { borderRadius, colors, fontSize, spacing } from '@/lib/theme';
+import { AlertTriangle, RefreshCw, Wifi, WifiOff } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import {
+  Animated,
+  Platform,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 // ============================================================================
 // Types
@@ -56,6 +53,7 @@ export function OfflineIndicator({
 
   // Note: isInternetReachable removed as it's not available in NetworkStatus type
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     if (isOffline) {
       setIsVisible(true);
@@ -84,6 +82,11 @@ export function OfflineIndicator({
         { transform: [{ translateY: slideAnim }] },
         style,
       ]}
+      // Losing connectivity is a silent, invisible event for a screen-reader
+      // user unless the banner announces itself. `polite` so it does not
+      // interrupt whatever is being read.
+      accessibilityLiveRegion="polite"
+      accessibilityRole="alert"
     >
       <View style={styles.indicatorContent}>
         {isOffline ? (
@@ -91,7 +94,12 @@ export function OfflineIndicator({
             <WifiOff size={16} color={colors.status.error} />
             <Text style={styles.indicatorText}>No Internet Connection</Text>
             {onRetry && (
-              <TouchableOpacity onPress={onRetry} style={styles.retryButton}>
+              <TouchableOpacity
+                onPress={onRetry}
+                style={styles.retryButton}
+                accessibilityRole="button"
+                accessibilityLabel="Retry connection"
+              >
                 <RefreshCw size={14} color={colors.status.error} />
               </TouchableOpacity>
             )}
@@ -99,7 +107,9 @@ export function OfflineIndicator({
         ) : (
           <>
             <Wifi size={16} color={colors.status.success} />
-            <Text style={[styles.indicatorText, { color: colors.status.success }]}>
+            <Text
+              style={[styles.indicatorText, { color: colors.status.success }]}
+            >
               Connected
             </Text>
           </>
@@ -122,6 +132,7 @@ export function NetworkBanner({
   const [slideAnim] = useState(new Animated.Value(-100));
   const [isVisible, setIsVisible] = useState(false);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     if (visible) {
       setIsVisible(true);
@@ -176,7 +187,7 @@ export function NetworkBanner({
     restored: {
       icon: <Wifi size={20} color="white" />,
       text: 'Connection restored',
-      subtext: 'You\'re back online',
+      subtext: "You're back online",
       bgColor: colors.status.success,
     },
   };
@@ -220,6 +231,7 @@ export function OfflineOverlay({ onRetry, message }: OfflineOverlayProps) {
   const { isConnected } = useNetworkStatus();
   const [fadeAnim] = useState(new Animated.Value(0));
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     Animated.timing(fadeAnim, {
       toValue: isConnected ? 0 : 1,
@@ -267,10 +279,14 @@ export function ConnectionQualityIndicator({
   const { isConnected, isWifi, isCellular, isExpensive } = useNetworkStatus();
 
   const getQuality = () => {
-    if (!isConnected) return { level: 0, label: 'Offline', color: colors.status.error };
-    if (isWifi && !isExpensive) return { level: 3, label: 'Excellent', color: colors.status.success };
-    if (isWifi && isExpensive) return { level: 2, label: 'Good', color: colors.status.warning };
-    if (isCellular) return { level: 1, label: 'Fair', color: colors.status.warning };
+    if (!isConnected)
+      return { level: 0, label: 'Offline', color: colors.status.error };
+    if (isWifi && !isExpensive)
+      return { level: 3, label: 'Excellent', color: colors.status.success };
+    if (isWifi && isExpensive)
+      return { level: 2, label: 'Good', color: colors.status.warning };
+    if (isCellular)
+      return { level: 1, label: 'Fair', color: colors.status.warning };
     return { level: 2, label: 'Good', color: colors.status.success };
   };
 
@@ -349,7 +365,11 @@ const styles = StyleSheet.create({
     padding: spacing.xs,
   },
   banner: {
-    width: SCREEN_WIDTH,
+    // Was a module-scope Dimensions.get('window') snapshot, so the banner kept
+    // the boot width after rotation/resize. Stretching to the parent is
+    // inherently responsive.
+    alignSelf: 'stretch',
+    width: '100%',
     paddingTop: spacing.xl,
     paddingBottom: spacing.md,
     paddingHorizontal: spacing.lg,
@@ -453,4 +473,3 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 });
-

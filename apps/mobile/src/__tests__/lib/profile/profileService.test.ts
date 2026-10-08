@@ -3,12 +3,15 @@
  * store so the shared-device camera cache wipe actually runs.
  */
 
-import AsyncStorage from '@react-native-async-storage/async-storage';
+import {
+  CAMERAS_CACHE_KEY,
+  clearCameraCache,
+  saveCamerasCache,
+} from '@/lib/camera/cameraCache';
 import { profileService } from '@/lib/profile/profileService';
 import { useAuthStore } from '@/stores/authStore';
 import { useCameraStore } from '@/stores/cameraStore';
-import { CAMERAS_CACHE_KEY, clearCameraCache, saveCamerasCache } from '@/lib/camera/cameraCache';
-import { supabase } from '@/lib/supabase/client';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 import { createMockCamera } from '../../setup';
 
 jest.mock('@/lib/supabase/client', () => ({
@@ -21,7 +24,9 @@ jest.mock('@/lib/supabase/client', () => ({
         error: null,
       }),
       signOut: jest.fn().mockResolvedValue({ error: null }),
-      getSession: jest.fn().mockResolvedValue({ data: { session: null }, error: null }),
+      getSession: jest
+        .fn()
+        .mockResolvedValue({ data: { session: null }, error: null }),
     },
     from: jest.fn((table: string) => {
       if (table === 'profiles') {
@@ -30,7 +35,10 @@ jest.mock('@/lib/supabase/client', () => ({
           eq: jest.fn().mockResolvedValue({ error: null }),
         };
       }
-      return { select: jest.fn().mockReturnThis(), single: jest.fn().mockResolvedValue({ data: null, error: null }) };
+      return {
+        select: jest.fn().mockReturnThis(),
+        single: jest.fn().mockResolvedValue({ data: null, error: null }),
+      };
     }),
   },
 }));

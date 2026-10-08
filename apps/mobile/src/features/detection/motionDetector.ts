@@ -17,7 +17,7 @@ export interface MotionResult {
 export async function detectMotionBetweenFrames(
   prevPath: string | null,
   nextPath: string,
-  threshold = 0.08
+  threshold = 0.08,
 ): Promise<MotionResult> {
   if (!prevPath) {
     return { motion: false, score: 0 };
@@ -47,7 +47,10 @@ export async function detectMotionBetweenFrames(
     const sizeDelta =
       Math.abs(a.length - b.length) / Math.max(a.length, b.length, 1);
 
-    const score = Math.min(1, diff / Math.max(samples, 1) * 0.7 + sizeDelta * 0.3);
+    const score = Math.min(
+      1,
+      (diff / Math.max(samples, 1)) * 0.7 + sizeDelta * 0.3,
+    );
     return { motion: score >= threshold, score };
   } catch {
     return { motion: false, score: 0 };

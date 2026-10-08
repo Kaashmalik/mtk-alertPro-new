@@ -1,12 +1,12 @@
 /**
  * Camera Connection Service
  * Provides camera connectivity testing and health monitoring
- * 
+ *
  * @module lib/camera/connectionService
  */
 
-import { parseRtspUrl } from './rtspHelper';
 import { detectStreamProtocol, parseHttpStreamUrl } from './protocol';
+import { parseRtspUrl } from './rtspHelper';
 
 /**
  * Result of a camera connection test
@@ -58,7 +58,11 @@ export interface CameraHealth {
  * - reconnecting: transient failures, heartbeat still retrying
  * - offline: sustained failures past the offline threshold
  */
-export type CameraConnectionStatus = 'online' | 'offline' | 'reconnecting' | 'unknown';
+export type CameraConnectionStatus =
+  | 'online'
+  | 'offline'
+  | 'reconnecting'
+  | 'unknown';
 
 /**
  * Configuration for connection testing
@@ -80,11 +84,11 @@ const DEFAULT_CONFIG: ConnectionTestConfig = {
 
 /**
  * Test camera connectivity by attempting to reach the camera's HTTP interface
- * 
+ *
  * @param rtspUrl - The RTSP URL of the camera
  * @param config - Test configuration
  * @returns ConnectionTestResult
- * 
+ *
  * @example
  * ```ts
  * const result = await testCameraConnection('rtsp://192.168.1.100:554/stream');
@@ -95,9 +99,12 @@ const DEFAULT_CONFIG: ConnectionTestConfig = {
  */
 export async function testCameraConnection(
   streamUrl: string,
-  config: Partial<ConnectionTestConfig> = {}
+  config: Partial<ConnectionTestConfig> = {},
 ): Promise<ConnectionTestResult> {
-  const { timeoutMs, retryCount, retryDelayMs } = { ...DEFAULT_CONFIG, ...config };
+  const { timeoutMs, retryCount, retryDelayMs } = {
+    ...DEFAULT_CONFIG,
+    ...config,
+  };
   const startTime = Date.now();
   const protocol = detectStreamProtocol(streamUrl);
 
@@ -107,7 +114,8 @@ export async function testCameraConnection(
     if (!parsedHttp) {
       return {
         success: false,
-        error: 'Invalid HTTP stream URL. Expected: http(s)://[user:pass@]host[:port]/path',
+        error:
+          'Invalid HTTP stream URL. Expected: http(s)://[user:pass@]host[:port]/path',
         timestamp: new Date(),
       };
     }
@@ -128,7 +136,8 @@ export async function testCameraConnection(
         }
         lastError = result.error;
       } catch (error) {
-        lastError = error instanceof Error ? error.message : 'Connection test failed';
+        lastError =
+          error instanceof Error ? error.message : 'Connection test failed';
       }
     }
 
@@ -154,7 +163,8 @@ export async function testCameraConnection(
   if (!parsed) {
     return {
       success: false,
-      error: 'Invalid RTSP URL format. Expected: rtsp://[user:pass@]ip[:port]/path',
+      error:
+        'Invalid RTSP URL format. Expected: rtsp://[user:pass@]ip[:port]/path',
       timestamp: new Date(),
     };
   }
@@ -173,7 +183,7 @@ export async function testCameraConnection(
       const mediaResult = await testConnectionViaMediaServer(
         MEDIA_SERVER_URL,
         streamUrl,
-        timeoutMs
+        timeoutMs,
       );
       if (mediaResult.success) {
         return mediaResult;
@@ -193,7 +203,11 @@ export async function testCameraConnection(
     }
 
     try {
-      const result = await performConnectionTest(parsed.ip, parsed.port, timeoutMs);
+      const result = await performConnectionTest(
+        parsed.ip,
+        parsed.port,
+        timeoutMs,
+      );
 
       if (result.success) {
         return {
@@ -205,7 +219,8 @@ export async function testCameraConnection(
 
       lastError = result.error;
     } catch (error) {
-      lastError = error instanceof Error ? error.message : 'Connection test failed';
+      lastError =
+        error instanceof Error ? error.message : 'Connection test failed';
     }
   }
 
@@ -224,7 +239,7 @@ export async function testCameraConnection(
  */
 async function performHttpStreamTest(
   url: string,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<Omit<ConnectionTestResult, 'timestamp'>> {
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
@@ -300,7 +315,7 @@ async function performHttpStreamTest(
 async function performConnectionTest(
   ip: string,
   rtspPort: number,
-  timeoutMs: number
+  timeoutMs: number,
 ): Promise<Omit<ConnectionTestResult, 'timestamp'>> {
   // Most IP cameras have a web interface on port 80
   // Try to reach it as a basic connectivity check
@@ -340,7 +355,7 @@ async function performConnectionTest(
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ ip, port: rtspPort }),
               signal: AbortSignal.timeout(Math.min(timeoutMs / 2, 3000)),
-            }
+            },
           );
           if (streamCheck.ok) {
             const streamData = await streamCheck.json();
@@ -350,11 +365,13 @@ async function performConnectionTest(
             };
           }
         }
-      } catch (streamError) {
+      } catch (_streamError) {
         // Media server check failed, but HTTP check passed - still consider it online
-        console.warn('[ConnectionTest] Media server check failed, using HTTP result');
+        console.warn(
+          '[ConnectionTest] Media server check failed, using HTTP result',
+        );
       }
-      
+
       return { success: true };
     }
 
@@ -375,7 +392,7 @@ async function performConnectionTest(
 
       // Check for common network errors
       const message = error.message.toLowerCase();
-      
+
       if (message.includes('network') || message.includes('failed to fetch')) {
         return {
           success: false,
@@ -401,7 +418,7 @@ async function performConnectionTest(
 /**
  * Test connection via media server
  * This provides more accurate RTSP testing when a media server is available
- * 
+ *
  * @param mediaServerUrl - URL of the media server API
  * @param rtspUrl - The RTSP URL to test
  * @param timeoutMs - Timeout in milliseconds
@@ -409,7 +426,7 @@ async function performConnectionTest(
 export async function testConnectionViaMediaServer(
   mediaServerUrl: string,
   rtspUrl: string,
-  timeoutMs: number = 10000
+  timeoutMs = 10000,
 ): Promise<ConnectionTestResult> {
   const startTime = Date.now();
 
@@ -417,37 +434,46 @@ export async function testConnectionViaMediaServer(
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
-    const response = await fetch(`${mediaServerUrl}/api/cameras/test-connection`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ rtspUrl }),
-      signal: controller.signal,
-    });
+    try {
+      const response = await fetch(
+        `${mediaServerUrl}/api/cameras/test-connection`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ rtspUrl }),
+          signal: controller.signal,
+        },
+      );
 
-    clearTimeout(timeoutId);
+      if (!response.ok) {
+        return {
+          success: false,
+          error: `Server error: ${response.status}`,
+          latency: Date.now() - startTime,
+          timestamp: new Date(),
+        };
+      }
 
-    if (!response.ok) {
+      const data = await response.json();
+
       return {
-        success: false,
-        error: `Server error: ${response.status}`,
+        success: data.connected === true,
+        error: data.connected ? undefined : 'Camera stream not available',
         latency: Date.now() - startTime,
+        streamInfo: data.streamInfo,
         timestamp: new Date(),
       };
+    } finally {
+      // Clear on the throw path too. A rejected fetch (offline device, server
+      // down) previously left the abort timer armed for the full timeout,
+      // keeping the event loop -- and the jest worker -- alive.
+      clearTimeout(timeoutId);
     }
-
-    const data = await response.json();
-
-    return {
-      success: data.connected === true,
-      error: data.connected ? undefined : 'Camera stream not available',
-      latency: Date.now() - startTime,
-      streamInfo: data.streamInfo,
-      timestamp: new Date(),
-    };
   } catch (error) {
     return {
       success: false,
-      error: error instanceof Error ? error.message : 'Media server test failed',
+      error:
+        error instanceof Error ? error.message : 'Media server test failed',
       latency: Date.now() - startTime,
       timestamp: new Date(),
     };
@@ -483,14 +509,14 @@ const HEARTBEAT_TEST_CONFIG: Partial<ConnectionTestConfig> = {
 export function createHealthMonitor(
   cameras: Array<{ id: string; rtspUrl: string }>,
   onStatusChange: (cameraId: string, health: CameraHealth) => void,
-  intervalMs: number = 30000
+  intervalMs = 30000,
 ): () => void {
   const healthMap = new Map<string, CameraHealth>();
   let isRunning = true;
   let inFlight = false;
 
   // Initialize health records — status stays 'unknown' until the first probe
-  cameras.forEach(camera => {
+  cameras.forEach((camera) => {
     healthMap.set(camera.id, {
       cameraId: camera.id,
       status: 'unknown',
@@ -504,9 +530,15 @@ export function createHealthMonitor(
     });
   });
 
-  const checkCamera = async (camera: { id: string; rtspUrl: string }): Promise<void> => {
+  const checkCamera = async (camera: {
+    id: string;
+    rtspUrl: string;
+  }): Promise<void> => {
     try {
-      const result = await testCameraConnection(camera.rtspUrl, HEARTBEAT_TEST_CONFIG);
+      const result = await testCameraConnection(
+        camera.rtspUrl,
+        HEARTBEAT_TEST_CONFIG,
+      );
 
       if (!isRunning) return;
       const current = healthMap.get(camera.id);
@@ -518,7 +550,8 @@ export function createHealthMonitor(
         status = 'online';
       } else {
         const failures = current.failureCount + 1;
-        status = failures >= OFFLINE_FAILURE_THRESHOLD ? 'offline' : 'reconnecting';
+        status =
+          failures >= OFFLINE_FAILURE_THRESHOLD ? 'offline' : 'reconnecting';
       }
 
       const newHealth: CameraHealth = {
@@ -582,20 +615,22 @@ function isValidIp(ip: string): boolean {
   }
 
   const parts = ip.split('.').map(Number);
-  return parts.every(part => part >= 0 && part <= 255);
+  return parts.every((part) => part >= 0 && part <= 255);
 }
 
 /**
  * Simple delay helper
  */
 function delay(ms: number): Promise<void> {
-  return new Promise(resolve => setTimeout(resolve, ms));
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
  * Get connection quality based on latency
  */
-export function getConnectionQuality(latency: number): 'excellent' | 'good' | 'fair' | 'poor' {
+export function getConnectionQuality(
+  latency: number,
+): 'excellent' | 'good' | 'fair' | 'poor' {
   if (latency < 100) return 'excellent';
   if (latency < 300) return 'good';
   if (latency < 1000) return 'fair';
@@ -611,4 +646,3 @@ export function formatLatency(latency: number): string {
   }
   return `${(latency / 1000).toFixed(1)}s`;
 }
-

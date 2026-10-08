@@ -11,3 +11,4 @@ export {
   type NetworkStatus,
 } from './useNetworkStatus';
 
+export { useAdEntitlementSync } from './useAdEntitlement';

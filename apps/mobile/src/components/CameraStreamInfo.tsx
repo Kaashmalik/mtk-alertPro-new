@@ -1,7 +1,13 @@
-import { View, Text, StyleSheet, Linking, TouchableOpacity } from 'react-native';
-import { AlertCircle, ExternalLink, Server } from 'lucide-react-native';
-import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
 import { getMediaServerEnvHint } from '@/lib/streaming/mediaServerHealth';
+import { borderRadius, colors, fontSize, spacing } from '@/lib/theme';
+import { AlertCircle, ExternalLink, Server } from 'lucide-react-native';
+import {
+  Linking,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 /**
  * Honest media-edge setup card (no fake stream claims)
@@ -9,7 +15,7 @@ import { getMediaServerEnvHint } from '@/lib/streaming/mediaServerHealth';
 export function CameraStreamInfo() {
   const openGuide = () => {
     Linking.openURL(
-      'https://github.com/Kaashmalik/mtk-alert-pro/blob/main/server/README.md'
+      'https://github.com/Kaashmalik/mtk-alert-pro/blob/main/server/README.md',
     );
   };
 
@@ -28,9 +34,15 @@ export function CameraStreamInfo() {
       <Text style={styles.envHint}>{getMediaServerEnvHint()}</Text>
 
       <View style={styles.bulletList}>
-        <Text style={styles.bullet}>• Start: server MediaMTX + `pnpm --filter @mtk/api dev`</Text>
-        <Text style={styles.bullet}>• Set EXPO_PUBLIC_MEDIA_SERVER_URL to your LAN IP:3001</Text>
-        <Text style={styles.bullet}>• Prefer WebRTC when available; app plays HLS via expo-av</Text>
+        <Text style={styles.bullet}>
+          • Start: server MediaMTX + `pnpm --filter @mtk/api dev`
+        </Text>
+        <Text style={styles.bullet}>
+          • Set EXPO_PUBLIC_MEDIA_SERVER_URL to your LAN IP:3001
+        </Text>
+        <Text style={styles.bullet}>
+          • Prefer WebRTC when available; app plays HLS via expo-av
+        </Text>
       </View>
 
       <TouchableOpacity style={styles.guideButton} onPress={openGuide}>
@@ -41,7 +53,8 @@ export function CameraStreamInfo() {
       <View style={styles.noteRow}>
         <AlertCircle size={14} color={colors.text.muted} />
         <Text style={styles.note}>
-          The app never shows a sample video. You will see a clear offline or server-unavailable state instead.
+          The app never shows a sample video. You will see a clear offline or
+          server-unavailable state instead.
         </Text>
       </View>
     </View>
@@ -55,7 +68,7 @@ const styles = StyleSheet.create({
     padding: spacing.lg,
     margin: spacing.lg,
     borderWidth: 1,
-    borderColor: colors.status.warning + '40',
+    borderColor: `${colors.status.warning}40`,
   },
   header: {
     flexDirection: 'row',

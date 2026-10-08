@@ -10,9 +10,9 @@
  * @module lib/audio/customAlarmSound
  */
 
-import * as FileSystem from 'expo-file-system/legacy';
-import AsyncStorage from '@react-native-async-storage/async-storage';
 import { logError } from '@/lib/utils/errorHandler';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as FileSystem from 'expo-file-system/legacy';
 
 const CUSTOM_SOUND_KEY = 'custom-alarm-sound-uri';
 const CUSTOM_SOUND_NAME_KEY = 'custom-alarm-sound-name';
@@ -35,7 +35,16 @@ async function ensureDir(): Promise<boolean> {
 }
 
 /** Audio extensions the alarm player can open. */
-const SUPPORTED_EXTENSIONS = ['.m4a', '.mp3', '.aac', '.wav', '.aiff', '.caf', '.3gp', '.ogg'];
+const SUPPORTED_EXTENSIONS = [
+  '.m4a',
+  '.mp3',
+  '.aac',
+  '.wav',
+  '.aiff',
+  '.caf',
+  '.3gp',
+  '.ogg',
+];
 
 /** Fallback for sources the picker returned without a usable extension. */
 const DEFAULT_EXTENSION = '.m4a';
@@ -80,7 +89,7 @@ function resolveSource(sourceUri: string): string {
  */
 export async function saveCustomAlarmSound(
   sourceUri: string,
-  displayName?: string
+  displayName?: string,
 ): Promise<CustomAlarmSound | null> {
   try {
     if (!(await ensureDir())) {
@@ -98,7 +107,8 @@ export async function saveCustomAlarmSound(
     await AsyncStorage.setItem(CUSTOM_SOUND_KEY, dest);
     await AsyncStorage.setItem(
       CUSTOM_SOUND_NAME_KEY,
-      displayName?.trim() || `Custom sound (${ext.replace('.', '').toUpperCase()})`
+      displayName?.trim() ||
+        `Custom sound (${ext.replace('.', '').toUpperCase()})`,
     );
 
     return { uri: dest, name: displayName?.trim() || 'Custom sound' };

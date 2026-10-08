@@ -1,4 +1,7 @@
-const { withProjectBuildGradle, createRunOncePlugin } = require('expo/config-plugins');
+const {
+  withProjectBuildGradle,
+  createRunOncePlugin,
+} = require('expo/config-plugins');
 
 const MARKER = '// mtk-kotlin-metadata-skip';
 
@@ -13,7 +16,9 @@ const MARKER = '// mtk-kotlin-metadata-skip';
 function withKotlinMetadataSkip(config) {
   return withProjectBuildGradle(config, (config) => {
     if (config.modResults.language !== 'groovy') {
-      throw new Error('withKotlinMetadataSkip: can only modify Groovy build.gradle files.');
+      throw new Error(
+        'withKotlinMetadataSkip: can only modify Groovy build.gradle files.',
+      );
     }
 
     const contents = config.modResults.contents;
@@ -36,4 +41,8 @@ subprojects {
   });
 }
 
-module.exports = createRunOncePlugin(withKotlinMetadataSkip, 'mtk-kotlin-metadata-skip', '1.0.0');
+module.exports = createRunOncePlugin(
+  withKotlinMetadataSkip,
+  'mtk-kotlin-metadata-skip',
+  '1.0.0',
+);

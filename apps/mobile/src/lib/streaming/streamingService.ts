@@ -1,15 +1,18 @@
 /**
  * Streaming Service
  * Manages camera stream registration and playback with the media server
- * 
+ *
  * @module lib/streaming/streamingService
  */
 
+import type { StreamResolution } from '@/lib/subscription/planLimits';
 import { logError, withRetry } from '@/lib/utils/errorHandler';
 
 // Configuration from environment
-const MEDIA_SERVER_URL = process.env.EXPO_PUBLIC_MEDIA_SERVER_URL || 'http://localhost:3001';
-const HLS_SERVER_URL = process.env.EXPO_PUBLIC_HLS_SERVER_URL || 'http://localhost:8888';
+const MEDIA_SERVER_URL =
+  process.env.EXPO_PUBLIC_MEDIA_SERVER_URL || 'http://localhost:3001';
+const HLS_SERVER_URL =
+  process.env.EXPO_PUBLIC_HLS_SERVER_URL || 'http://localhost:8888';
 
 /**
  * Stream URLs for different playback methods
@@ -73,13 +76,16 @@ export interface ConnectionTest {
 class StreamingService {
   /** Set of currently registered camera IDs */
   private registeredCameras: Set<string> = new Set();
-  
+
   /** Cache of stream URLs */
   private streamUrlCache: Map<string, StreamUrls> = new Map();
-  
+
   /** Stream status cache with timestamps */
-  private statusCache: Map<string, { status: StreamStatus; timestamp: number }> = new Map();
-  
+  private statusCache: Map<
+    string,
+    { status: StreamStatus; timestamp: number }
+  > = new Map();
+
   /** Status cache TTL in ms */
   private readonly STATUS_CACHE_TTL = 5000; // 5 seconds
 
@@ -103,13 +109,19 @@ class StreamingService {
     try {
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 4000);
-      const response = await fetch(`${MEDIA_SERVER_URL}/health`, {
-        signal: controller.signal,
-      });
-      clearTimeout(timeoutId);
-      this.mediaServerHealthy = response.ok;
-      this.lastHealthCheck = Date.now();
-      return this.mediaServerHealthy;
+      try {
+        const response = await fetch(`${MEDIA_SERVER_URL}/health`, {
+          signal: controller.signal,
+        });
+        this.mediaServerHealthy = response.ok;
+        this.lastHealthCheck = Date.now();
+        return this.mediaServerHealthy;
+      } finally {
+        // Clear on the throw path too. Previously this only ran on success, so
+        // every failed health check (offline device, server down -- the common
+        // case) left a 4s timer armed, holding the event loop open.
+        clearTimeout(timeoutId);
+      }
     } catch {
       this.mediaServerHealthy = false;
       this.lastHealthCheck = Date.now();
@@ -129,7 +141,7 @@ class StreamingService {
    */
   getPreferredPlayUrl(
     cameraId: string,
-    prefer: 'hls' | 'webrtc' = 'hls'
+    prefer: 'hls' | 'webrtc' = 'hls',
   ): string | null {
     const cached = this.streamUrlCache.get(cameraId);
     if (!cached) return null;
@@ -144,19 +156,20 @@ class StreamingService {
   /**
    * Test if an RTSP URL is valid and camera is reachable
    * This goes through the media server for proper RTSP testing
-   * 
+   *
    * @param rtspUrl - The RTSP URL to test
    * @returns Connection test result
    */
   async testConnection(rtspUrl: string): Promise<ConnectionTest> {
     try {
       const response = await withRetry(
-        () => fetch(`${MEDIA_SERVER_URL}/api/cameras/test-connection`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ rtspUrl }),
-        }),
-        { maxRetries: 2, delayMs: 1000 }
+        () =>
+          fetch(`${MEDIA_SERVER_URL}/api/cameras/test-connection`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ rtspUrl }),
+          }),
+        { maxRetries: 2, delayMs: 1000 },
       );
 
       if (!response.ok) {
@@ -176,7 +189,8 @@ class StreamingService {
       logError(error, 'StreamingService.testConnection');
       return {
         connected: false,
-        error: error instanceof Error ? error.message : 'Connection test failed',
+        error:
+          error instanceof Error ? error.message : 'Connection test failed',
       };
     }
   }
@@ -184,7 +198,7 @@ class StreamingService {
   /**
    * Register a camera with the media server
    * This sets up the RTSP → HLS conversion
-   * 
+   *
    * @param cameraId - Unique camera identifier
    * @param rtspUrl - Camera's RTSP URL
    * @param userId - User who owns the camera
@@ -193,13 +207,17 @@ class StreamingService {
   async registerCamera(
     cameraId: string,
     rtspUrl: string,
-    userId: string
+    userId: string,
+    quality?: StreamResolution,
   ): Promise<StreamRegistration> {
     try {
       const response = await fetch(`${MEDIA_SERVER_URL}/api/cameras/register`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cameraId, rtspUrl, userId }),
+        // `quality` is the plan-capped target resolution (resolveEffectiveQuality).
+        // The media server transcodes to it; sending it keeps the server from
+        // defaulting to a resolution the user's plan does not include.
+        body: JSON.stringify({ cameraId, rtspUrl, userId, quality }),
       });
 
       if (!response.ok) {
@@ -211,11 +229,11 @@ class StreamingService {
       }
 
       const data = await response.json();
-      
+
       if (data.success && data.streams) {
         this.registeredCameras.add(cameraId);
         this.streamUrlCache.set(cameraId, data.streams);
-        
+
         return {
           success: true,
           pathName: data.pathName,
@@ -231,7 +249,8 @@ class StreamingService {
       logError(error, 'StreamingService.registerCamera');
       return {
         success: false,
-        error: error instanceof Error ? error.message : 'Failed to register camera',
+        error:
+          error instanceof Error ? error.message : 'Failed to register camera',
       };
     }
   }
@@ -239,7 +258,7 @@ class StreamingService {
   /**
    * Unregister a camera from the media server
    * Call this when done viewing a stream
-   * 
+   *
    * @param cameraId - Camera to unregister
    * @returns Whether unregistration was successful
    */
@@ -247,7 +266,7 @@ class StreamingService {
     try {
       const response = await fetch(
         `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/unregister`,
-        { method: 'DELETE' }
+        { method: 'DELETE' },
       );
 
       this.registeredCameras.delete(cameraId);
@@ -266,12 +285,15 @@ class StreamingService {
 
   /**
    * Get current stream status
-   * 
+   *
    * @param cameraId - Camera to check
    * @param useCache - Whether to use cached status (default: true)
    * @returns Stream status
    */
-  async getStreamStatus(cameraId: string, useCache: boolean = true): Promise<StreamStatus> {
+  async getStreamStatus(
+    cameraId: string,
+    useCache = true,
+  ): Promise<StreamStatus> {
     // Check cache first
     if (useCache) {
       const cached = this.statusCache.get(cameraId);
@@ -282,7 +304,7 @@ class StreamingService {
 
     try {
       const response = await fetch(
-        `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/status`
+        `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/status`,
       );
 
       if (!response.ok) {
@@ -290,7 +312,7 @@ class StreamingService {
       }
 
       const status = await response.json();
-      
+
       // Update cache
       this.statusCache.set(cameraId, {
         status,
@@ -298,14 +320,14 @@ class StreamingService {
       });
 
       return status;
-    } catch (error) {
+    } catch (_error) {
       return { online: false, readers: 0 };
     }
   }
 
   /**
    * Get HLS stream URL for a camera
-   * 
+   *
    * @param cameraId - Camera ID
    * @returns HLS stream URL
    */
@@ -315,7 +337,7 @@ class StreamingService {
     if (cached) {
       return cached.hls;
     }
-    
+
     // Generate URL based on naming convention
     const pathName = `cam_${cameraId.replace(/-/g, '')}`;
     return `${HLS_SERVER_URL}/${pathName}/index.m3u8`;
@@ -323,7 +345,7 @@ class StreamingService {
 
   /**
    * Get WebRTC stream URL for a camera (lower latency)
-   * 
+   *
    * @param cameraId - Camera ID
    * @returns WebRTC stream URL
    */
@@ -332,7 +354,7 @@ class StreamingService {
     if (cached) {
       return cached.webrtc;
     }
-    
+
     const pathName = `cam_${cameraId.replace(/-/g, '')}`;
     const webrtcPort = 8889;
     const baseUrl = MEDIA_SERVER_URL.replace(':3001', '');
@@ -341,7 +363,7 @@ class StreamingService {
 
   /**
    * Check if a camera is currently registered
-   * 
+   *
    * @param cameraId - Camera ID to check
    * @returns Whether the camera is registered
    */
@@ -351,7 +373,7 @@ class StreamingService {
 
   /**
    * Capture a snapshot from the stream
-   * 
+   *
    * @param cameraId - Camera to capture from
    * @returns Snapshot URL or null if failed
    */
@@ -359,7 +381,7 @@ class StreamingService {
     try {
       const response = await fetch(
         `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/snapshot`,
-        { method: 'POST' }
+        { method: 'POST' },
       );
 
       if (!response.ok) {
@@ -369,7 +391,7 @@ class StreamingService {
       const data = await response.json();
       // Normalize relative snapshot paths to absolute media-server URLs
       let snapshotUrl: string | null = data.snapshotUrl || null;
-      if (snapshotUrl && snapshotUrl.startsWith('/')) {
+      if (snapshotUrl?.startsWith('/')) {
         snapshotUrl = `${MEDIA_SERVER_URL}${snapshotUrl}`;
       }
       return snapshotUrl;
@@ -381,14 +403,14 @@ class StreamingService {
 
   /**
    * Start recording a camera stream
-   * 
+   *
    * @param cameraId - Camera to record
    * @param durationSeconds - Recording duration (default: 30s, max: 300s)
    * @returns Whether recording started successfully
    */
   async startRecording(
     cameraId: string,
-    durationSeconds: number = 30
+    durationSeconds = 30,
   ): Promise<boolean> {
     try {
       const response = await fetch(
@@ -397,7 +419,7 @@ class StreamingService {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ durationSeconds }),
-        }
+        },
       );
 
       return response.ok;
@@ -409,7 +431,7 @@ class StreamingService {
 
   /**
    * Stop recording a camera stream
-   * 
+   *
    * @param cameraId - Camera to stop recording
    * @returns Whether recording stopped successfully
    */
@@ -417,7 +439,7 @@ class StreamingService {
     try {
       const response = await fetch(
         `${MEDIA_SERVER_URL}/api/cameras/${cameraId}/record/stop`,
-        { method: 'POST' }
+        { method: 'POST' },
       );
 
       return response.ok;
@@ -432,9 +454,9 @@ class StreamingService {
    */
   async unregisterAll(): Promise<void> {
     const cameras = Array.from(this.registeredCameras);
-    
+
     await Promise.all(
-      cameras.map(cameraId => this.unregisterCamera(cameraId))
+      cameras.map((cameraId) => this.unregisterCamera(cameraId)),
     );
   }
 
@@ -452,4 +474,3 @@ export const streamingService = new StreamingService();
 
 // Export class for testing
 export { StreamingService };
-

@@ -4,7 +4,7 @@
 
 describe('stream reconnect backoff', () => {
   function backoff(baseMs: number, retryCount: number, maxMs = 30000): number {
-    return Math.min(baseMs * Math.pow(2, retryCount), maxMs);
+    return Math.min(baseMs * 2 ** retryCount, maxMs);
   }
 
   it('doubles each retry until cap', () => {

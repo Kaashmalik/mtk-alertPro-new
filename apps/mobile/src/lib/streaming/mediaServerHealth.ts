@@ -7,14 +7,14 @@ import { streamingService } from './streamingService';
 export type MediaEdgeStatus = 'unknown' | 'online' | 'offline';
 
 let cachedStatus: MediaEdgeStatus = 'unknown';
-let listeners = new Set<(status: MediaEdgeStatus) => void>();
+const listeners = new Set<(status: MediaEdgeStatus) => void>();
 
 export function getCachedMediaEdgeStatus(): MediaEdgeStatus {
   return cachedStatus;
 }
 
 export function subscribeMediaEdgeStatus(
-  listener: (status: MediaEdgeStatus) => void
+  listener: (status: MediaEdgeStatus) => void,
 ): () => void {
   listeners.add(listener);
   listener(cachedStatus);
@@ -25,7 +25,7 @@ export function subscribeMediaEdgeStatus(
 
 function setStatus(status: MediaEdgeStatus) {
   cachedStatus = status;
-  listeners.forEach((l) => l(status));
+  for (const l of listeners) l(status);
 }
 
 /**

@@ -1,24 +1,54 @@
 /**
  * Home Screen / Dashboard
- * 
+ *
  * Main surveillance control center with master defense switch,
  * live camera grid, recent alerts, and storage playback.
  */
 
-import { useEffect, useCallback, useState } from 'react';
+import { AlertCard } from '@/components/animated';
+import { LiveCameraGrid } from '@/components/camera/LiveCameraGrid';
+import { RecordingsModal } from '@/components/camera/RecordingsModal';
+import { EmergencyButton } from '@/components/emergency/EmergencyButton';
+import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  RefreshControl,
-  StyleSheet,
-  StatusBar,
-  Dimensions,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { router } from 'expo-router';
+  type MediaEdgeStatus,
+  refreshMediaEdgeHealth,
+  subscribeMediaEdgeStatus,
+} from '@/lib/streaming/mediaServerHealth';
+import {
+  useAlertStore,
+  useAuthStore,
+  useCameraStore,
+  useIsPremium,
+  useSettingsStore,
+} from '@/stores';
+import { designSystem } from '@/theme/design-system';
+import * as Haptics from 'expo-haptics';
 import { LinearGradient } from 'expo-linear-gradient';
+import { router } from 'expo-router';
+import {
+  Bell,
+  Camera,
+  Car,
+  Crown,
+  HardDrive,
+  Plus,
+  Settings,
+  Shield,
+  Users,
+  WifiOff,
+  Zap,
+} from 'lucide-react-native';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  RefreshControl,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 import Animated, {
   useSharedValue,
   useAnimatedStyle,
@@ -26,44 +56,7 @@ import Animated, {
   FadeInDown,
   FadeInUp,
 } from 'react-native-reanimated';
-import {
-  Shield,
-  Camera,
-  Bell,
-  Activity,
-  Plus,
-  Settings,
-  Crown,
-  WifiOff,
-  Users,
-  Car,
-  Zap,
-  HardDrive,
-  CheckCircle2,
-  Play,
-  Radio,
-} from 'lucide-react-native';
-import * as Haptics from 'expo-haptics';
-import {
-  useAuthStore,
-  useCameraStore,
-  useAlertStore,
-  useSettingsStore,
-  useIsPremium,
-} from '@/stores';
-import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
-import { designSystem } from '@/theme/design-system';
-import { AlertCard } from '@/components/animated';
-import { EmergencyButton } from '@/components/emergency/EmergencyButton';
-import { RecordingsModal } from '@/components/camera/RecordingsModal';
-import { LiveCameraGrid } from '@/components/camera/LiveCameraGrid';
-import {
-  refreshMediaEdgeHealth,
-  subscribeMediaEdgeStatus,
-  type MediaEdgeStatus,
-} from '@/lib/streaming/mediaServerHealth';
-
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 export default function HomeScreen() {
   const user = useAuthStore((state) => state.user);
@@ -76,13 +69,8 @@ export default function HomeScreen() {
   const detection = useSettingsStore((state) => state.detection);
   const isPremium = useIsPremium();
 
-  const {
-    isMonitoring,
-    toggleMasterDetection,
-    toggleArmed,
-    armed,
-    activeMonitoringCount,
-  } = useDetectionCoordinator();
+  const { toggleMasterDetection, toggleArmed, armed, activeMonitoringCount } =
+    useDetectionCoordinator();
 
   const [showRecordingsModal, setShowRecordingsModal] = useState(false);
   const [mediaStatus, setMediaStatus] = useState<MediaEdgeStatus>('unknown');
@@ -90,6 +78,7 @@ export default function HomeScreen() {
   // Animation values
   const toggleScale = useSharedValue(1);
 
+  // biome-ignore lint/correctness/useExhaustiveDependencies: run once on mount; store actions are stable refs
   useEffect(() => {
     fetchCameras();
     fetchAlerts();
@@ -150,7 +139,10 @@ export default function HomeScreen() {
 
   return (
     <View style={styles.container}>
-      <StatusBar barStyle="light-content" backgroundColor={designSystem.colors.background.primary} />
+      <StatusBar
+        barStyle="light-content"
+        backgroundColor={designSystem.colors.background.primary}
+      />
 
       <ScrollView
         style={styles.scrollView}
@@ -166,14 +158,22 @@ export default function HomeScreen() {
       >
         <SafeAreaView edges={['top']}>
           {/* Header */}
-          <Animated.View entering={FadeInDown.duration(600)} style={styles.header}>
+          <Animated.View
+            entering={FadeInDown.duration(600)}
+            style={styles.header}
+          >
             <View style={styles.headerLeft}>
               <Text style={styles.greeting}>{getGreeting()}</Text>
               <View style={styles.nameRow}>
-                <Text style={styles.userName}>{user?.displayName || 'Home Security'}</Text>
+                <Text style={styles.userName}>
+                  {user?.displayName || 'Home Security'}
+                </Text>
                 {isPremium && (
                   <View style={styles.premiumBadge}>
-                    <Crown size={12} color={designSystem.colors.status.warning} />
+                    <Crown
+                      size={12}
+                      color={designSystem.colors.status.warning}
+                    />
                     <Text style={styles.premiumText}>PRO</Text>
                   </View>
                 )}
@@ -188,7 +188,10 @@ export default function HomeScreen() {
           </Animated.View>
 
           {/* Master Defense / Red Alert Toggle */}
-          <Animated.View entering={FadeInDown.delay(100).duration(600)} style={styles.redAlertContainer}>
+          <Animated.View
+            entering={FadeInDown.delay(100).duration(600)}
+            style={styles.redAlertContainer}
+          >
             {mediaStatus === 'offline' && (
               <TouchableOpacity
                 style={styles.mediaBanner}
@@ -196,7 +199,8 @@ export default function HomeScreen() {
               >
                 <WifiOff size={16} color={designSystem.colors.status.warning} />
                 <Text style={styles.mediaBannerText}>
-                  Media server offline — RTSP live & AI snapshots unavailable. Tap to retry.
+                  Media server offline — RTSP live & AI snapshots unavailable.
+                  Tap to retry.
                 </Text>
               </TouchableOpacity>
             )}
@@ -215,7 +219,9 @@ export default function HomeScreen() {
               >
                 <Shield
                   size={16}
-                  color={(armed ?? true) ? '#22C55E' : designSystem.colors.text.muted}
+                  color={
+                    (armed ?? true) ? '#22C55E' : designSystem.colors.text.muted
+                  }
                 />
                 <Text style={styles.armChipText}>
                   {(armed ?? true) ? 'ARMED' : 'DISARMED'}
@@ -262,7 +268,9 @@ export default function HomeScreen() {
                   <View style={styles.redAlertText}>
                     <View style={styles.statusBadgeRow}>
                       <Text style={styles.redAlertTitle}>
-                        {detection.redAlertMode ? 'SYSTEM ARMED' : 'STANDBY MODE'}
+                        {detection.redAlertMode
+                          ? 'SYSTEM ARMED'
+                          : 'STANDBY MODE'}
                       </Text>
                       <View
                         style={[
@@ -309,21 +317,34 @@ export default function HomeScreen() {
           </Animated.View>
 
           {/* Quick Metrics Grid */}
-          <Animated.View entering={FadeInDown.delay(200).duration(600)} style={styles.statsGrid}>
+          <Animated.View
+            entering={FadeInDown.delay(200).duration(600)}
+            style={styles.statsGrid}
+          >
             <TouchableOpacity
               style={styles.statCard}
               onPress={() => router.push('/(tabs)/cameras')}
               activeOpacity={0.8}
             >
-              <View style={[styles.statIcon, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+              <View
+                style={[
+                  styles.statIcon,
+                  { backgroundColor: 'rgba(59, 130, 246, 0.15)' },
+                ]}
+              >
                 <Camera size={20} color={designSystem.colors.status.info} />
               </View>
               <Text style={styles.statValue}>{activeCameras}</Text>
               <Text style={styles.statLabel}>Active Cameras</Text>
               {offlineCameras > 0 && (
                 <View style={styles.offlineBadge}>
-                  <WifiOff size={10} color={designSystem.colors.status.danger} />
-                  <Text style={styles.offlineText}>{offlineCameras} offline</Text>
+                  <WifiOff
+                    size={10}
+                    color={designSystem.colors.status.danger}
+                  />
+                  <Text style={styles.offlineText}>
+                    {offlineCameras} offline
+                  </Text>
                 </View>
               )}
             </TouchableOpacity>
@@ -333,7 +354,12 @@ export default function HomeScreen() {
               onPress={() => router.push('/(tabs)/alerts')}
               activeOpacity={0.8}
             >
-              <View style={[styles.statIcon, { backgroundColor: 'rgba(239, 68, 68, 0.15)' }]}>
+              <View
+                style={[
+                  styles.statIcon,
+                  { backgroundColor: 'rgba(239, 68, 68, 0.15)' },
+                ]}
+              >
                 <Bell size={20} color={designSystem.colors.status.danger} />
               </View>
               <Text style={styles.statValue}>{unreadCount}</Text>
@@ -341,7 +367,12 @@ export default function HomeScreen() {
             </TouchableOpacity>
 
             <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+              <View
+                style={[
+                  styles.statIcon,
+                  { backgroundColor: 'rgba(245, 158, 11, 0.15)' },
+                ]}
+              >
                 <Users size={20} color={designSystem.colors.status.warning} />
               </View>
               <Text style={styles.statValue}>{personAlerts}</Text>
@@ -349,7 +380,12 @@ export default function HomeScreen() {
             </View>
 
             <View style={styles.statCard}>
-              <View style={[styles.statIcon, { backgroundColor: 'rgba(6, 182, 212, 0.15)' }]}>
+              <View
+                style={[
+                  styles.statIcon,
+                  { backgroundColor: 'rgba(6, 182, 212, 0.15)' },
+                ]}
+              >
                 <Car size={20} color="#06B6D4" />
               </View>
               <Text style={styles.statValue}>{vehicleAlerts}</Text>
@@ -358,7 +394,10 @@ export default function HomeScreen() {
           </Animated.View>
 
           {/* Quick Actions Bar */}
-          <Animated.View entering={FadeInDown.delay(300).duration(600)} style={styles.section}>
+          <Animated.View
+            entering={FadeInDown.delay(300).duration(600)}
+            style={styles.section}
+          >
             <Text style={styles.sectionTitle}>Quick Surveillance Actions</Text>
             <View style={styles.quickActions}>
               <TouchableOpacity
@@ -367,7 +406,10 @@ export default function HomeScreen() {
                 activeOpacity={0.8}
               >
                 <LinearGradient
-                  colors={[designSystem.colors.primary[500], designSystem.colors.primary[600]]}
+                  colors={[
+                    designSystem.colors.primary[500],
+                    designSystem.colors.primary[600],
+                  ]}
                   style={styles.actionGradient}
                 >
                   <Plus size={20} color="white" />
@@ -380,7 +422,12 @@ export default function HomeScreen() {
                 onPress={() => router.push('/(tabs)/cameras')}
                 activeOpacity={0.8}
               >
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
+                <View
+                  style={[
+                    styles.actionIcon,
+                    { backgroundColor: 'rgba(59, 130, 246, 0.15)' },
+                  ]}
+                >
                   <Camera size={20} color={designSystem.colors.status.info} />
                 </View>
                 <Text style={styles.actionLabel}>Live Feeds</Text>
@@ -391,7 +438,12 @@ export default function HomeScreen() {
                 onPress={() => setShowRecordingsModal(true)}
                 activeOpacity={0.8}
               >
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
+                <View
+                  style={[
+                    styles.actionIcon,
+                    { backgroundColor: 'rgba(56, 189, 248, 0.15)' },
+                  ]}
+                >
                   <HardDrive size={20} color="#38BDF8" />
                 </View>
                 <Text style={styles.actionLabel}>Clips & Storage</Text>
@@ -402,21 +454,35 @@ export default function HomeScreen() {
                 onPress={() => router.push('/subscription')}
                 activeOpacity={0.8}
               >
-                <View style={[styles.actionIcon, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
+                <View
+                  style={[
+                    styles.actionIcon,
+                    { backgroundColor: 'rgba(245, 158, 11, 0.15)' },
+                  ]}
+                >
                   <Crown size={20} color={designSystem.colors.status.warning} />
                 </View>
-                <Text style={styles.actionLabel}>{isPremium ? 'PRO Active' : 'Upgrade'}</Text>
+                <Text style={styles.actionLabel}>
+                  {isPremium ? 'PRO Active' : 'Upgrade'}
+                </Text>
               </TouchableOpacity>
             </View>
           </Animated.View>
 
           {/* Live mosaic */}
           {cameras.length > 0 && user?.id && (
-            <Animated.View entering={FadeInDown.delay(400).duration(600)} style={styles.section}>
+            <Animated.View
+              entering={FadeInDown.delay(400).duration(600)}
+              style={styles.section}
+            >
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Live Mosaic</Text>
-                <TouchableOpacity onPress={() => router.push('/(tabs)/cameras')}>
-                  <Text style={styles.viewAll}>View All ({cameras.length})</Text>
+                <TouchableOpacity
+                  onPress={() => router.push('/(tabs)/cameras')}
+                >
+                  <Text style={styles.viewAll}>
+                    View All ({cameras.length})
+                  </Text>
                 </TouchableOpacity>
               </View>
               <LiveCameraGrid cameras={cameras} userId={user.id} maxTiles={4} />
@@ -424,7 +490,10 @@ export default function HomeScreen() {
           )}
 
           {/* Recent Alerts */}
-          <Animated.View entering={FadeInDown.delay(500).duration(600)} style={styles.section}>
+          <Animated.View
+            entering={FadeInDown.delay(500).duration(600)}
+            style={styles.section}
+          >
             <View style={styles.sectionHeader}>
               <Text style={styles.sectionTitle}>Recent Security Alerts</Text>
               <TouchableOpacity onPress={() => router.push('/(tabs)/alerts')}>
@@ -437,7 +506,9 @@ export default function HomeScreen() {
                 <View style={styles.emptyIconContainer}>
                   <Shield size={32} color={designSystem.colors.text.muted} />
                 </View>
-                <Text style={styles.emptyTitle}>Surveillance Perimeter Clear</Text>
+                <Text style={styles.emptyTitle}>
+                  Surveillance Perimeter Clear
+                </Text>
                 <Text style={styles.emptyText}>
                   No threats detected. All cameras are monitoring on-device.
                 </Text>
@@ -446,21 +517,25 @@ export default function HomeScreen() {
               recentAlerts.map((alert, index) => {
                 const cam = cameras.find((c) => c.id === alert.cameraId);
                 return (
-                <View
-                  key={alert.id}
-                  style={index !== recentAlerts.length - 1 ? { marginBottom: designSystem.spacing.sm } : {}}
-                >
-                  <AlertCard
-                    id={alert.id}
-                    type={alert.type as any}
-                    confidence={alert.confidence}
-                    timestamp={new Date(alert.createdAt)}
-                    thumbnailUrl={alert.snapshotUrl}
-                    cameraName={cam?.name || 'Camera'}
-                    onPress={() => router.push('/(tabs)/alerts')}
-                  />
-                </View>
-              );
+                  <View
+                    key={alert.id}
+                    style={
+                      index !== recentAlerts.length - 1
+                        ? { marginBottom: designSystem.spacing.sm }
+                        : {}
+                    }
+                  >
+                    <AlertCard
+                      id={alert.id}
+                      type={alert.type as any}
+                      confidence={alert.confidence}
+                      timestamp={new Date(alert.createdAt)}
+                      thumbnailUrl={alert.snapshotUrl}
+                      cameraName={cam?.name || 'Camera'}
+                      onPress={() => router.push('/(tabs)/alerts')}
+                    />
+                  </View>
+                );
               })
             )}
           </Animated.View>
@@ -474,17 +549,26 @@ export default function HomeScreen() {
                 activeOpacity={0.9}
               >
                 <LinearGradient
-                  colors={['rgba(239, 68, 68, 0.2)', 'rgba(245, 158, 11, 0.15)']}
+                  colors={[
+                    'rgba(239, 68, 68, 0.2)',
+                    'rgba(245, 158, 11, 0.15)',
+                  ]}
                   start={{ x: 0, y: 0 }}
                   end={{ x: 1, y: 0 }}
                   style={styles.upgradeGradient}
                 >
                   <View style={styles.upgradeContent}>
-                    <Crown size={24} color={designSystem.colors.status.warning} />
+                    <Crown
+                      size={24}
+                      color={designSystem.colors.status.warning}
+                    />
                     <View style={styles.upgradeText}>
-                      <Text style={styles.upgradeTitle}>Upgrade to MTK AlertPro</Text>
+                      <Text style={styles.upgradeTitle}>
+                        Upgrade to MTK AlertPro
+                      </Text>
                       <Text style={styles.upgradeSubtitle}>
-                        Unlock Unlimited Cameras, Face Recognition, & Cloud Backup
+                        Unlock Unlimited Cameras, Face Recognition, & Cloud
+                        Backup
                       </Text>
                     </View>
                   </View>
@@ -730,7 +814,9 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   statCard: {
-    width: (SCREEN_WIDTH - 40) / 2,
+    // Was (SCREEN_WIDTH - 40) / 2, frozen at the boot width. The row is
+    // flexWrap + space-between, so a percentage is inherently responsive.
+    width: '48%',
     backgroundColor: '#1E293B',
     padding: 14,
     borderRadius: 14,
@@ -793,7 +879,8 @@ const styles = StyleSheet.create({
   },
   actionButton: {
     alignItems: 'center',
-    width: (SCREEN_WIDTH - 56) / 4,
+    // Was (SCREEN_WIDTH - 56) / 4; see statCard above.
+    width: '22%',
   },
   actionGradient: {
     width: 52,

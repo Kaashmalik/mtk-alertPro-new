@@ -1,6 +1,4 @@
-import { Dimensions, Platform, useWindowDimensions } from 'react-native';
-
-const { width, height } = Dimensions.get('window');
+import { Platform, useWindowDimensions } from 'react-native';
 
 /**
  * MTK AlertPro Design System
@@ -36,7 +34,7 @@ export const designSystem = {
       success: '#10B981', // Emerald 500
       warning: '#F59E0B', // Amber 500
       danger: '#EF4444', // Red 500
-      info: '#3B82F6',   // Blue 500
+      info: '#3B82F6', // Blue 500
       inactive: '#64748B', // Slate 500
     },
 
@@ -57,7 +55,7 @@ export const designSystem = {
       light: 'rgba(255, 255, 255, 0.1)',
       medium: 'rgba(0, 0, 0, 0.5)',
       heavy: 'rgba(0, 0, 0, 0.8)',
-    }
+    },
   },
 
   // Spacing System (8px grid)
@@ -72,10 +70,11 @@ export const designSystem = {
   },
 
   // Layout Helpers
+  // screenWidth/screenHeight were removed: they were captured once at module
+  // load (stale on rotation/tablet/resize) and had no consumers. Use the
+  // reactive useLayout() hook below for any screen-size-dependent value.
   layout: {
-    screenWidth: width,
-    screenHeight: height,
-    gutter: 16,        // Standard horizontal padding
+    gutter: 16, // Standard horizontal padding
     radius: {
       sm: 4,
       md: 8,
@@ -83,7 +82,7 @@ export const designSystem = {
       xl: 20,
       xxl: 32,
       full: 9999,
-    }
+    },
   },
 
   // Typography System
@@ -91,7 +90,10 @@ export const designSystem = {
     fontFamily: {
       regular: Platform.select({ ios: 'Inter', android: 'Inter-Regular' }),
       medium: Platform.select({ ios: 'Inter-Medium', android: 'Inter-Medium' }),
-      semibold: Platform.select({ ios: 'Inter-SemiBold', android: 'Inter-SemiBold' }),
+      semibold: Platform.select({
+        ios: 'Inter-SemiBold',
+        android: 'Inter-SemiBold',
+      }),
       bold: Platform.select({ ios: 'Inter-Bold', android: 'Inter-Bold' }),
     },
     // Font Sizes
@@ -109,7 +111,7 @@ export const designSystem = {
       tight: 1.25,
       normal: 1.5,
       relaxed: 1.75,
-    }
+    },
   },
 
   // Animation Constants (Reanimated v3)
@@ -131,7 +133,7 @@ export const designSystem = {
       stiff: { damping: 20, stiffness: 200 },
       default: { damping: 20, stiffness: 90 },
       bouncy: { damping: 10, stiffness: 100 },
-    }
+    },
   },
 
   // Elevation / Shadows
@@ -171,8 +173,8 @@ export const designSystem = {
         shadowOpacity: 0.5,
         shadowRadius: 10,
         elevation: 5,
-      }
-    }
+      },
+    },
   },
 };
 
@@ -209,5 +211,8 @@ export function useLayout() {
 export function useGridColumns(minTileWidth = 260, maxColumns = 4): number {
   const { width } = useWindowDimensions();
   const gutter = Math.min(24, Math.max(16, Math.round(width * 0.04)));
-  return Math.max(2, Math.min(maxColumns, Math.floor((width - gutter * 2) / minTileWidth)));
+  return Math.max(
+    2,
+    Math.min(maxColumns, Math.floor((width - gutter * 2) / minTileWidth)),
+  );
 }

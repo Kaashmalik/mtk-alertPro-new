@@ -6,16 +6,23 @@
  * @module components/camera/MjpegStreamPlayer
  */
 
-import React, { useEffect, useRef, useState, useCallback } from 'react';
-import { View, Image, TouchableOpacity, Text, StyleSheet, ActivityIndicator } from 'react-native';
-import { Play, RefreshCw, WifiOff, Camera } from 'lucide-react-native';
-import {
-  createMjpegStream,
-  MjpegStream,
-  MjpegStreamState,
-} from '@/lib/camera/mjpegService';
 import { cameraMediaService } from '@/lib/camera/cameraMediaService';
-import { colors, spacing, fontSize, borderRadius } from '@/lib/theme';
+import {
+  type MjpegStream,
+  type MjpegStreamState,
+  createMjpegStream,
+} from '@/lib/camera/mjpegService';
+import { borderRadius, colors, fontSize, spacing } from '@/lib/theme';
+import { Camera, Play, RefreshCw, WifiOff } from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  ActivityIndicator,
+  Image,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
 
 export interface MjpegStreamPlayerProps {
   /** HTTP(MJPEG/snapshot) stream URL */
@@ -63,7 +70,7 @@ export function MjpegStreamPlayer({
   const startStream = useCallback(() => {
     if (!streamRef.current) {
       streamRef.current = createMjpegStream({ url, fps, username, password });
-      streamRef.current.subscribe(state => {
+      streamRef.current.subscribe((state) => {
         setStreamState(state);
         if (state.status === 'live' && state.frame) {
           updateState('playing');
@@ -78,10 +85,7 @@ export function MjpegStreamPlayer({
     streamRef.current.start();
   }, [url, fps, username, password, updateState]);
 
-  const stopStream = useCallback(() => {
-    streamRef.current?.stop();
-  }, []);
-
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     if (autoPlay) {
       startStream();
@@ -136,7 +140,9 @@ export function MjpegStreamPlayer({
         <View style={styles.centerOverlay}>
           <ActivityIndicator size="large" color={colors.brand.red} />
           <Text style={styles.connectingText}>Connecting to camera…</Text>
-          <Text style={styles.connectingSubtext}>Locating snapshot endpoint</Text>
+          <Text style={styles.connectingSubtext}>
+            Locating snapshot endpoint
+          </Text>
         </View>
       </View>
     );
@@ -184,7 +190,9 @@ export function MjpegStreamPlayer({
             styles.liveDot,
             {
               backgroundColor:
-                streamState.status === 'live' ? colors.status.success : colors.status.error,
+                streamState.status === 'live'
+                  ? colors.status.success
+                  : colors.status.error,
             },
           ]}
         />
@@ -195,10 +203,21 @@ export function MjpegStreamPlayer({
 
       {/* Top-right actions */}
       <View style={styles.topActions}>
-        <TouchableOpacity style={styles.actionButton} onPress={handleScreenshot}>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={handleScreenshot}
+          accessibilityRole="button"
+          accessibilityLabel="Take screenshot"
+        >
           <Camera size={18} color="white" />
         </TouchableOpacity>
-        <TouchableOpacity style={styles.actionButton} onPress={handleRetry}>
+        <TouchableOpacity
+          style={styles.actionButton}
+          onPress={handleRetry}
+          accessibilityRole="button"
+          accessibilityLabel="Reconnect stream"
+          accessibilityHint="Retries the camera connection"
+        >
           <RefreshCw size={18} color="white" />
         </TouchableOpacity>
       </View>

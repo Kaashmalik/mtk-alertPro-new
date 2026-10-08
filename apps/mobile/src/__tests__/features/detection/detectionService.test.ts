@@ -97,7 +97,10 @@ describe('DetectionService offline fallback', () => {
     expect(NetInfo.addEventListener).toHaveBeenCalled();
 
     // Reconnect — listener should kick off retry (default mock resolves)
-    NetInfo.__fireNetworkEvent({ isConnected: true, isInternetReachable: true });
+    NetInfo.__fireNetworkEvent({
+      isConnected: true,
+      isInternetReachable: true,
+    });
     await new Promise((r) => setTimeout(r, 20));
 
     expect(detectionService.isInFallbackMode()).toBe(false);

@@ -2,11 +2,11 @@
  * Recording Service Tests
  */
 
-import * as FileSystem from 'expo-file-system';
 import {
-  RecordingService,
   type RecordingInfo,
+  RecordingService,
 } from '@/lib/recording/recordingService';
+import * as FileSystem from 'expo-file-system';
 
 describe('Recording Service', () => {
   let service: RecordingService;
@@ -25,7 +25,9 @@ describe('Recording Service', () => {
   // =========================================================================
   describe('initialize', () => {
     it('should create recordings directory', async () => {
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({ exists: false });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({
+        exists: false,
+      });
 
       await service.initialize();
 
@@ -33,7 +35,9 @@ describe('Recording Service', () => {
     });
 
     it('should not create directory if it exists', async () => {
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({ exists: true });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValueOnce({
+        exists: true,
+      });
 
       await service.initialize();
 
@@ -55,7 +59,7 @@ describe('Recording Service', () => {
         .mockResolvedValueOnce({ exists: true }) // directory
         .mockResolvedValueOnce({ exists: true }); // history file
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
-        JSON.stringify(mockHistory)
+        JSON.stringify(mockHistory),
       );
 
       await service.initialize();
@@ -80,7 +84,9 @@ describe('Recording Service', () => {
   // =========================================================================
   describe('startRecording', () => {
     beforeEach(async () => {
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+        exists: true,
+      });
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValue('[]');
       await service.initialize();
     });
@@ -110,7 +116,7 @@ describe('Recording Service', () => {
       await service.startRecording('camera-123');
 
       await expect(service.startRecording('camera-123')).rejects.toThrow(
-        'Camera is already recording'
+        'Camera is already recording',
       );
     });
 
@@ -156,7 +162,9 @@ describe('Recording Service', () => {
   // =========================================================================
   describe('stopRecording', () => {
     beforeEach(async () => {
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+        exists: true,
+      });
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValue('[]');
       (FileSystem.writeAsStringAsync as jest.Mock).mockResolvedValue(undefined);
       await service.initialize();
@@ -165,7 +173,10 @@ describe('Recording Service', () => {
     it('should stop active recording', async () => {
       // Start recording first
       (global.fetch as jest.Mock)
-        .mockResolvedValueOnce({ ok: true, json: async () => ({ success: true }) }) // start
+        .mockResolvedValueOnce({
+          ok: true,
+          json: async () => ({ success: true }),
+        }) // start
         .mockResolvedValueOnce({ ok: true }) // stop
         .mockResolvedValueOnce({ ok: false, status: 404 }); // download (fails for test)
 
@@ -189,7 +200,9 @@ describe('Recording Service', () => {
   // =========================================================================
   describe('getActiveRecording', () => {
     beforeEach(async () => {
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+        exists: true,
+      });
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValue('[]');
       await service.initialize();
     });
@@ -210,7 +223,9 @@ describe('Recording Service', () => {
   // =========================================================================
   describe('getActiveRecordings', () => {
     beforeEach(async () => {
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+        exists: true,
+      });
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValue('[]');
       await service.initialize();
     });
@@ -228,23 +243,41 @@ describe('Recording Service', () => {
   describe('getCameraRecordings', () => {
     it('should filter recordings by camera', async () => {
       const mockHistory: RecordingInfo[] = [
-        { id: 'rec_1', cameraId: 'cam-1', startTime: new Date(), duration: 30, status: 'completed' },
-        { id: 'rec_2', cameraId: 'cam-2', startTime: new Date(), duration: 30, status: 'completed' },
-        { id: 'rec_3', cameraId: 'cam-1', startTime: new Date(), duration: 30, status: 'completed' },
+        {
+          id: 'rec_1',
+          cameraId: 'cam-1',
+          startTime: new Date(),
+          duration: 30,
+          status: 'completed',
+        },
+        {
+          id: 'rec_2',
+          cameraId: 'cam-2',
+          startTime: new Date(),
+          duration: 30,
+          status: 'completed',
+        },
+        {
+          id: 'rec_3',
+          cameraId: 'cam-1',
+          startTime: new Date(),
+          duration: 30,
+          status: 'completed',
+        },
       ];
 
       (FileSystem.getInfoAsync as jest.Mock)
         .mockResolvedValueOnce({ exists: true })
         .mockResolvedValueOnce({ exists: true });
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
-        JSON.stringify(mockHistory)
+        JSON.stringify(mockHistory),
       );
 
       await service.initialize();
 
       const cam1Recordings = service.getCameraRecordings('cam-1');
       expect(cam1Recordings).toHaveLength(2);
-      expect(cam1Recordings.every(r => r.cameraId === 'cam-1')).toBe(true);
+      expect(cam1Recordings.every((r) => r.cameraId === 'cam-1')).toBe(true);
     });
   });
 
@@ -264,9 +297,11 @@ describe('Recording Service', () => {
         },
       ];
 
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+        exists: true,
+      });
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
-        JSON.stringify(mockHistory)
+        JSON.stringify(mockHistory),
       );
       (FileSystem.writeAsStringAsync as jest.Mock).mockResolvedValue(undefined);
       await service.initialize();
@@ -284,7 +319,7 @@ describe('Recording Service', () => {
 
       expect(FileSystem.deleteAsync).toHaveBeenCalledWith(
         expect.stringContaining('rec_1'),
-        expect.any(Object)
+        expect.any(Object),
       );
     });
 
@@ -326,7 +361,7 @@ describe('Recording Service', () => {
         .mockResolvedValueOnce({ exists: true, size: 1024 }) // rec_1
         .mockResolvedValueOnce({ exists: true, size: 2048 }); // rec_2
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
-        JSON.stringify(mockHistory)
+        JSON.stringify(mockHistory),
       );
 
       await service.initialize();
@@ -344,18 +379,23 @@ describe('Recording Service', () => {
   // =========================================================================
   describe('cleanupOldRecordings', () => {
     it('should remove oldest recordings beyond limit', async () => {
-      const mockHistory: RecordingInfo[] = Array.from({ length: 60 }, (_, i) => ({
-        id: `rec_${i}`,
-        cameraId: 'cam-1',
-        startTime: new Date(),
-        duration: 30,
-        status: 'completed' as const,
-        localPath: `/mock/rec_${i}.mp4`,
-      }));
+      const mockHistory: RecordingInfo[] = Array.from(
+        { length: 60 },
+        (_, i) => ({
+          id: `rec_${i}`,
+          cameraId: 'cam-1',
+          startTime: new Date(),
+          duration: 30,
+          status: 'completed' as const,
+          localPath: `/mock/rec_${i}.mp4`,
+        }),
+      );
 
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+        exists: true,
+      });
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
-        JSON.stringify(mockHistory)
+        JSON.stringify(mockHistory),
       );
       (FileSystem.writeAsStringAsync as jest.Mock).mockResolvedValue(undefined);
 
@@ -368,17 +408,22 @@ describe('Recording Service', () => {
     });
 
     it('should not delete if under limit', async () => {
-      const mockHistory: RecordingInfo[] = Array.from({ length: 10 }, (_, i) => ({
-        id: `rec_${i}`,
-        cameraId: 'cam-1',
-        startTime: new Date(),
-        duration: 30,
-        status: 'completed' as const,
-      }));
+      const mockHistory: RecordingInfo[] = Array.from(
+        { length: 10 },
+        (_, i) => ({
+          id: `rec_${i}`,
+          cameraId: 'cam-1',
+          startTime: new Date(),
+          duration: 30,
+          status: 'completed' as const,
+        }),
+      );
 
-      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({ exists: true });
+      (FileSystem.getInfoAsync as jest.Mock).mockResolvedValue({
+        exists: true,
+      });
       (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
-        JSON.stringify(mockHistory)
+        JSON.stringify(mockHistory),
       );
 
       await service.initialize();
@@ -388,5 +433,142 @@ describe('Recording Service', () => {
       expect(deleted).toBe(0);
     });
   });
-});
 
+  // =========================================================================
+  // enforceStorageCap
+  // =========================================================================
+  describe('enforceStorageCap', () => {
+    const MB = 1024 * 1024;
+    const FUTURE = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000);
+
+    beforeEach(() => {
+      const { useSubscriptionStore } = require('@/stores/subscriptionStore');
+      // Default to free (1 GB cap). Individual tests override as needed.
+      useSubscriptionStore.setState({ currentTier: 'free', expiresAt: null });
+    });
+
+    afterEach(() => {
+      const { useSubscriptionStore } = require('@/stores/subscriptionStore');
+      useSubscriptionStore.setState({ currentTier: 'free', expiresAt: null });
+    });
+
+    it('trims oldest recordings until the free-tier cap is met', async () => {
+      const now = Date.now();
+      // 3 x 500 MB = 1.5 GB > 1 GB free cap. Oldest is rec_0.
+      const mockHistory: RecordingInfo[] = [
+        {
+          id: 'rec_0',
+          cameraId: 'cam-1',
+          startTime: new Date(now - 3000),
+          duration: 30,
+          status: 'completed',
+          localPath: '/mock/rec_0.mp4',
+        },
+        {
+          id: 'rec_1',
+          cameraId: 'cam-1',
+          startTime: new Date(now - 2000),
+          duration: 30,
+          status: 'completed',
+          localPath: '/mock/rec_1.mp4',
+        },
+        {
+          id: 'rec_2',
+          cameraId: 'cam-1',
+          startTime: new Date(now - 1000),
+          duration: 30,
+          status: 'completed',
+          localPath: '/mock/rec_2.mp4',
+        },
+      ];
+
+      (FileSystem.getInfoAsync as jest.Mock)
+        .mockResolvedValueOnce({ exists: true }) // directory
+        .mockResolvedValueOnce({ exists: true }) // history file
+        .mockResolvedValue({ exists: true, size: 500 * MB });
+      (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
+        JSON.stringify(mockHistory),
+      );
+      (FileSystem.deleteAsync as jest.Mock).mockResolvedValue(undefined);
+      (FileSystem.writeAsStringAsync as jest.Mock).mockResolvedValue(undefined);
+
+      await service.initialize();
+
+      const deleted = await service.enforceStorageCap();
+
+      // 1.5 GB - 500 MB = 1 GB, exactly at the cap -> one removal.
+      expect(deleted).toBe(1);
+      expect(FileSystem.deleteAsync).toHaveBeenCalledWith(
+        '/mock/rec_0.mp4',
+        expect.objectContaining({ idempotent: true }),
+      );
+      const remaining = service.getRecordingHistory().map((r) => r.id);
+      expect(remaining).toEqual(['rec_1', 'rec_2']);
+    });
+
+    it('deletes nothing when under the cap', async () => {
+      const now = Date.now();
+      const mockHistory: RecordingInfo[] = [
+        {
+          id: 'rec_0',
+          cameraId: 'cam-1',
+          startTime: new Date(now),
+          duration: 30,
+          status: 'completed',
+          localPath: '/mock/rec_0.mp4',
+        },
+      ];
+
+      (FileSystem.getInfoAsync as jest.Mock)
+        .mockResolvedValueOnce({ exists: true })
+        .mockResolvedValueOnce({ exists: true })
+        .mockResolvedValue({ exists: true, size: 100 * MB });
+      (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
+        JSON.stringify(mockHistory),
+      );
+
+      await service.initialize();
+
+      const deleted = await service.enforceStorageCap();
+
+      expect(deleted).toBe(0);
+      expect(FileSystem.deleteAsync).not.toHaveBeenCalled();
+    });
+
+    it('treats an unlimited (business) plan as no cap', async () => {
+      const { useSubscriptionStore } = require('@/stores/subscriptionStore');
+      useSubscriptionStore.setState({
+        currentTier: 'business',
+        expiresAt: FUTURE,
+      });
+
+      const now = Date.now();
+      const mockHistory: RecordingInfo[] = Array.from(
+        { length: 5 },
+        (_, i) => ({
+          id: `rec_${i}`,
+          cameraId: 'cam-1',
+          startTime: new Date(now - (5 - i) * 1000),
+          duration: 30,
+          status: 'completed' as const,
+          localPath: `/mock/rec_${i}.mp4`,
+        }),
+      );
+
+      (FileSystem.getInfoAsync as jest.Mock)
+        .mockResolvedValueOnce({ exists: true })
+        .mockResolvedValueOnce({ exists: true })
+        .mockResolvedValue({ exists: true, size: 5 * 1024 * MB }); // 5 GB each
+      (FileSystem.readAsStringAsync as jest.Mock).mockResolvedValueOnce(
+        JSON.stringify(mockHistory),
+      );
+
+      await service.initialize();
+
+      const deleted = await service.enforceStorageCap();
+
+      expect(deleted).toBe(0);
+      expect(FileSystem.deleteAsync).not.toHaveBeenCalled();
+    });
+  });
+});

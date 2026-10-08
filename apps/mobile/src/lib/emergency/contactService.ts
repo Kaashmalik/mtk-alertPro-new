@@ -68,7 +68,7 @@ export async function listContacts(): Promise<EmergencyContact[]> {
 export async function addContact(
   name: string,
   phone: string,
-  alwaysNotify = false
+  alwaysNotify = false,
 ): Promise<EmergencyContact | null> {
   const trimmedName = name.trim();
   const trimmedPhone = phone.trim();
@@ -101,7 +101,7 @@ export async function addContact(
 
 export async function updateContact(
   contactId: string,
-  changes: { name?: string; phone?: string; alwaysNotify?: boolean }
+  changes: { name?: string; phone?: string; alwaysNotify?: boolean },
 ): Promise<EmergencyContact | null> {
   const update: Record<string, unknown> = {};
   if (changes.name !== undefined) {
@@ -117,7 +117,8 @@ export async function updateContact(
     }
     update.phone = trimmed;
   }
-  if (changes.alwaysNotify !== undefined) update.always_notify = changes.alwaysNotify;
+  if (changes.alwaysNotify !== undefined)
+    update.always_notify = changes.alwaysNotify;
 
   if (Object.keys(update).length === 0) return null;
 
@@ -136,7 +137,10 @@ export async function updateContact(
 }
 
 export async function deleteContact(contactId: string): Promise<boolean> {
-  const { error } = await supabase.from('emergency_contacts').delete().eq('id', contactId);
+  const { error } = await supabase
+    .from('emergency_contacts')
+    .delete()
+    .eq('id', contactId);
   if (error) {
     logError(error, 'contactService.deleteContact');
     return false;

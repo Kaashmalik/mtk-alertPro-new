@@ -8,8 +8,8 @@
  * - User-friendly error messages
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import { Platform, Alert, Linking } from 'react-native';
+import { useCallback, useEffect, useState } from 'react';
+import { Alert, Platform } from 'react-native';
 import type { PermissionStatus as RnPermissionStatus } from 'react-native-permissions';
 
 let request: any;
@@ -26,7 +26,7 @@ if (Platform.OS !== 'web') {
     RESULTS = rnPermissions.RESULTS;
     check = rnPermissions.check;
     openSettings = rnPermissions.openSettings;
-  } catch (e) {
+  } catch (_e) {
     console.log('[Permissions] react-native-permissions not available');
   }
 } else {
@@ -83,11 +83,8 @@ export function useCameraPermissions(): CameraPermissionsState & {
     try {
       setState((prev) => ({ ...prev, isChecking: true }));
 
-      let hasPermission = false;
-
       if (Platform.OS === 'ios') {
         const result = await check(PERMISSIONS.IOS.CAMERA);
-        hasPermission = result === RESULTS.GRANTED;
 
         setState({
           status:
@@ -112,7 +109,6 @@ export function useCameraPermissions(): CameraPermissionsState & {
       } else {
         // Android
         const result = await check(PERMISSIONS.ANDROID.CAMERA);
-        hasPermission = result === RESULTS.GRANTED;
 
         setState({
           status:
@@ -239,15 +235,15 @@ export function useCameraPermissions(): CameraPermissionsState & {
     }
   }, []);
 
-  // 🔒 HELPER: Open settings from state
-  const openSettings = useCallback(async () => {
-    await openAppSettings();
-  }, [openAppSettings]);
-
   return {
     ...state,
     requestPermission,
-    openSettings,
+    // Returned directly rather than re-wrapped in a local `openSettings`.
+    // A local const of the same name shadows the module-level native binding
+    // for the whole hook body, so openAppSettings() ended up calling the
+    // wrapper, which called openAppSettings() again -- infinite recursion, and
+    // the real native openSettings() was never reached.
+    openSettings: openAppSettings,
   };
 }
 
@@ -263,10 +259,9 @@ export async function checkCameraPermission(): Promise<boolean> {
     if (Platform.OS === 'ios') {
       const result = await check(PERMISSIONS.IOS.CAMERA);
       return result === RESULTS.GRANTED;
-    } else {
-      const result = await check(PERMISSIONS.ANDROID.CAMERA);
-      return result === RESULTS.GRANTED;
     }
+    const result = await check(PERMISSIONS.ANDROID.CAMERA);
+    return result === RESULTS.GRANTED;
   } catch (error) {
     logError(error, 'checkCameraPermission');
     return false;
@@ -282,21 +277,20 @@ export async function requestCameraPermission(
   try {
     if (Platform.OS === 'ios') {
       return (await request(PERMISSIONS.IOS.CAMERA)) === RESULTS.GRANTED;
-    } else {
-      // Android requires a rationale object, not a string
-      const rationaleObj = rationale
-        ? {
-            title: 'Camera Permission',
-            message: rationale,
-            buttonPositive: 'OK',
-            buttonNegative: 'Cancel',
-          }
-        : undefined;
-      return (
-        (await request(PERMISSIONS.ANDROID.CAMERA, rationaleObj)) ===
-        RESULTS.GRANTED
-      );
     }
+    // Android requires a rationale object, not a string
+    const rationaleObj = rationale
+      ? {
+          title: 'Camera Permission',
+          message: rationale,
+          buttonPositive: 'OK',
+          buttonNegative: 'Cancel',
+        }
+      : undefined;
+    return (
+      (await request(PERMISSIONS.ANDROID.CAMERA, rationaleObj)) ===
+      RESULTS.GRANTED
+    );
   } catch (error) {
     logError(error, 'requestCameraPermission');
     return false;

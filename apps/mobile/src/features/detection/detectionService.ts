@@ -7,19 +7,22 @@ import { Platform } from 'react-native';
 
 let decodeJpeg: any;
 if (Platform.OS !== 'web') {
-    try {
-        const tfjsRn = require('@tensorflow/tfjs-react-native');
-        decodeJpeg = tfjsRn.decodeJpeg;
-    } catch (e) {
-        console.log('[DetectionService] tfjs-react-native not available');
-    }
+  try {
+    const tfjsRn = require('@tensorflow/tfjs-react-native');
+    decodeJpeg = tfjsRn.decodeJpeg;
+  } catch (_e) {
+    console.log('[DetectionService] tfjs-react-native not available');
+  }
 }
-import * as FileSystem from 'expo-file-system/legacy';
-import { File as ExpoFile } from 'expo-file-system';
-import NetInfo from '@react-native-community/netinfo';
 import { logError } from '@/lib/utils/errorHandler';
 import type { DetectionResult } from '@/types';
-import { COCO_DETECTION_CLASSES, mapCocoClassToDetectionType } from './cocoClasses';
+import NetInfo from '@react-native-community/netinfo';
+import { File as ExpoFile } from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
+import {
+  COCO_DETECTION_CLASSES,
+  mapCocoClassToDetectionType,
+} from './cocoClasses';
 
 export { mapCocoClassToDetectionType };
 
@@ -40,6 +43,28 @@ const DETECTION_CONFIG = {
 } as const;
 
 const DETECTION_CLASSES = COCO_DETECTION_CLASSES;
+
+/**
+ * Reject with `message` if `promise` has not settled within `ms`.
+ *
+ * The timer handle is retained and cleared once the race settles. Racing a bare
+ * `new Promise((_, reject) => setTimeout(...))` left the handle armed for the
+ * full duration even after the model loaded, so every successful init stranded
+ * an 8s timer (and, under jest, kept the worker process alive).
+ */
+function withTimeout<T>(
+  promise: Promise<T>,
+  ms: number,
+  message: string,
+): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(message)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => {
+    if (timer !== undefined) clearTimeout(timer);
+  });
+}
 
 class DetectionService {
   private model: tf.GraphModel | null = null;
@@ -103,27 +128,36 @@ class DetectionService {
 
       // Load model with timeout and fallback
       try {
-        const timeoutPromise = new Promise((_, reject) =>
-          setTimeout(() => reject(new Error('Model loading timed out')), 8000)
-        );
         const loadPromise = tf.loadGraphModel(
           'https://tfhub.dev/tensorflow/tfjs-model/ssd_mobilenet_v2/1/default/1',
           { fromTFHub: true },
         );
-        this.model = (await Promise.race([loadPromise, timeoutPromise])) as tf.GraphModel;
+        this.model = (await withTimeout(
+          loadPromise,
+          8000,
+          'Model loading timed out',
+        )) as tf.GraphModel;
         this.isFallbackMode = false;
         this._syncInputSize(this.model);
-        console.log('[DetectionService] SSD MobileNet model loaded successfully');
+        console.log(
+          '[DetectionService] SSD MobileNet model loaded successfully',
+        );
         this._stopModelRetryWatcher();
       } catch (loadError) {
-        console.warn('[DetectionService] Remote model load failed or offline, operating in intelligent fallback mode:', loadError);
+        console.warn(
+          '[DetectionService] Remote model load failed or offline, operating in intelligent fallback mode:',
+          loadError,
+        );
         this.isFallbackMode = true;
         this._startModelRetryWatcher();
       }
 
       this.isReady = true;
     } catch (error) {
-      console.warn('[DetectionService] TensorFlow initialization notice:', error);
+      console.warn(
+        '[DetectionService] TensorFlow initialization notice:',
+        error,
+      );
       logError(error, 'DetectionService.initialize');
       // Fallback enabled so app functions regardless
       this.isFallbackMode = true;
@@ -172,14 +206,15 @@ class DetectionService {
     try {
       console.log('[DetectionService] Retrying model load...');
       await tf.ready();
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Model loading timed out')), 8000)
-      );
       const loadPromise = tf.loadGraphModel(
         'https://tfhub.dev/tensorflow/tfjs-model/ssd_mobilenet_v2/1/default/1',
         { fromTFHub: true },
       );
-      this.model = (await Promise.race([loadPromise, timeoutPromise])) as tf.GraphModel;
+      this.model = (await withTimeout(
+        loadPromise,
+        8000,
+        'Model loading timed out',
+      )) as tf.GraphModel;
       this.isFallbackMode = false;
       this._syncInputSize(this.model);
       console.log('[DetectionService] Model loaded successfully on retry');
@@ -205,7 +240,10 @@ class DetectionService {
         }
       });
     } catch (error) {
-      console.warn('[DetectionService] NetInfo unavailable for model retry:', error);
+      console.warn(
+        '[DetectionService] NetInfo unavailable for model retry:',
+        error,
+      );
     }
     this._scheduleModelRetry();
   }
@@ -274,9 +312,7 @@ class DetectionService {
 
       // MobileNet feature extractors expect [-1, 1]. A plain /255 maps into
       // [0, 1], which biases activations and measurably lowers confidence.
-      const normalized = resized
-        .div(DETECTION_CONFIG.pixelScale)
-        .sub(1);
+      const normalized = resized.div(DETECTION_CONFIG.pixelScale).sub(1);
       resized.dispose();
 
       const batched = normalized.expandDims(0);

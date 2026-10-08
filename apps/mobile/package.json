@@ -11,8 +11,9 @@
     "build:android:prod": "powershell -ExecutionPolicy Bypass -File scripts/build-android.ps1 -Profile production",
     "lint": "eslint . --ext .ts,.tsx",
     "typecheck": "tsc --noEmit",
-    "test": "jest --forceExit",
+    "test": "jest",
     "test:watch": "jest --watch",
+    "test:leaks": "jest --detectOpenHandles --runInBand",
     "test:coverage": "jest --coverage",
     "test:ci": "jest --ci --coverage --maxWorkers=2",
     "eas-build-pre-build": "sed -i 's/gradle-[0-9\\.]*-all\\.zip/gradle-8.13-all.zip/g' android/gradle/wrapper/gradle-wrapper.properties || true"

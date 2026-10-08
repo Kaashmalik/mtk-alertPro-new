@@ -1,7 +1,7 @@
 /**
  * Error Handling Utilities
  * Provides standardized error handling across the app
- * 
+ *
  * @module lib/utils/errorHandler
  */
 
@@ -14,28 +14,28 @@ export const ErrorCodes = {
   // Network errors
   NETWORK_ERROR: 'NETWORK_ERROR',
   TIMEOUT_ERROR: 'TIMEOUT_ERROR',
-  
+
   // Authentication errors
   AUTH_ERROR: 'AUTH_ERROR',
   SESSION_EXPIRED: 'SESSION_EXPIRED',
-  
+
   // Camera errors
   CAMERA_ERROR: 'CAMERA_ERROR',
   CAMERA_OFFLINE: 'CAMERA_OFFLINE',
   CAMERA_AUTH_FAILED: 'CAMERA_AUTH_FAILED',
-  
+
   // Streaming errors
   STREAM_ERROR: 'STREAM_ERROR',
   STREAM_UNAVAILABLE: 'STREAM_UNAVAILABLE',
-  
+
   // Detection errors
   DETECTION_ERROR: 'DETECTION_ERROR',
   MODEL_LOAD_ERROR: 'MODEL_LOAD_ERROR',
-  
+
   // Storage errors
   STORAGE_ERROR: 'STORAGE_ERROR',
   QUOTA_EXCEEDED: 'QUOTA_EXCEEDED',
-  
+
   // General errors
   UNKNOWN_ERROR: 'UNKNOWN_ERROR',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
@@ -65,13 +65,16 @@ export interface AppError {
  * Default user-friendly messages for each error code
  */
 const DEFAULT_USER_MESSAGES: Record<ErrorCode, string> = {
-  NETWORK_ERROR: 'Unable to connect. Please check your internet connection and try again.',
+  NETWORK_ERROR:
+    'Unable to connect. Please check your internet connection and try again.',
   TIMEOUT_ERROR: 'The request took too long. Please try again.',
   AUTH_ERROR: 'Authentication failed. Please check your credentials.',
   SESSION_EXPIRED: 'Your session has expired. Please sign in again.',
   CAMERA_ERROR: 'Camera connection failed. Please verify your camera settings.',
-  CAMERA_OFFLINE: 'Camera is offline. Please check if it\'s powered on and connected.',
-  CAMERA_AUTH_FAILED: 'Camera authentication failed. Please check username and password.',
+  CAMERA_OFFLINE:
+    "Camera is offline. Please check if it's powered on and connected.",
+  CAMERA_AUTH_FAILED:
+    'Camera authentication failed. Please check username and password.',
   STREAM_ERROR: 'Video stream unavailable. Please try again.',
   STREAM_UNAVAILABLE: 'Stream is not available. Camera may be offline.',
   DETECTION_ERROR: 'Detection service temporarily unavailable.',
@@ -96,12 +99,12 @@ const RECOVERABLE_ERRORS: ErrorCode[] = [
 
 /**
  * Create a standardized AppError
- * 
+ *
  * @param code - Error code
  * @param message - Technical message
  * @param options - Additional options
  * @returns AppError object
- * 
+ *
  * @example
  * ```ts
  * throw createAppError('NETWORK_ERROR', 'Failed to fetch cameras');
@@ -114,7 +117,7 @@ export function createAppError(
     userMessage?: string;
     originalError?: Error;
     context?: Record<string, unknown>;
-  }
+  },
 ): AppError {
   return {
     code,
@@ -128,14 +131,14 @@ export function createAppError(
 
 /**
  * Parse an unknown error into an AppError
- * 
+ *
  * @param error - Any error type
  * @param fallbackCode - Code to use if error type is unknown
  * @returns AppError object
  */
 export function parseError(
   error: unknown,
-  fallbackCode: ErrorCode = 'UNKNOWN_ERROR'
+  fallbackCode: ErrorCode = 'UNKNOWN_ERROR',
 ): AppError {
   // Already an AppError
   if (isAppError(error)) {
@@ -146,24 +149,38 @@ export function parseError(
   if (error instanceof Error) {
     // Check for common error patterns
     const message = error.message.toLowerCase();
-    
+
     if (message.includes('network') || message.includes('fetch')) {
-      return createAppError('NETWORK_ERROR', error.message, { originalError: error });
+      return createAppError('NETWORK_ERROR', error.message, {
+        originalError: error,
+      });
     }
-    
+
     if (message.includes('timeout') || message.includes('timed out')) {
-      return createAppError('TIMEOUT_ERROR', error.message, { originalError: error });
+      return createAppError('TIMEOUT_ERROR', error.message, {
+        originalError: error,
+      });
     }
-    
-    if (message.includes('auth') || message.includes('unauthorized') || message.includes('401')) {
-      return createAppError('AUTH_ERROR', error.message, { originalError: error });
+
+    if (
+      message.includes('auth') ||
+      message.includes('unauthorized') ||
+      message.includes('401')
+    ) {
+      return createAppError('AUTH_ERROR', error.message, {
+        originalError: error,
+      });
     }
-    
+
     if (message.includes('session') || message.includes('expired')) {
-      return createAppError('SESSION_EXPIRED', error.message, { originalError: error });
+      return createAppError('SESSION_EXPIRED', error.message, {
+        originalError: error,
+      });
     }
-    
-    return createAppError(fallbackCode, error.message, { originalError: error });
+
+    return createAppError(fallbackCode, error.message, {
+      originalError: error,
+    });
   }
 
   // String error
@@ -178,7 +195,11 @@ export function parseError(
     'message' in error &&
     typeof (error as { message: unknown }).message === 'string'
   ) {
-    const errorObj = error as { message: string; code?: string; details?: unknown };
+    const errorObj = error as {
+      message: string;
+      code?: string;
+      details?: unknown;
+    };
     return createAppError(fallbackCode, errorObj.message, {
       context: error as Record<string, unknown>,
     });
@@ -204,29 +225,31 @@ export function isAppError(error: unknown): error is AppError {
 
 /**
  * Log an error with consistent formatting
- * 
+ *
  * @param error - The error to log
  * @param context - Additional context for debugging
  */
 export function logError(error: AppError | unknown, context?: string): void {
   const appError = isAppError(error) ? error : parseError(error);
-  
+
   const logMessage = [
     `[Error] ${context || 'Application Error'}`,
     `Code: ${appError.code}`,
     `Message: ${appError.message}`,
     appError.context ? `Context: ${JSON.stringify(appError.context)}` : null,
-    appError.originalError?.stack ? `Stack: ${appError.originalError.stack}` : null,
+    appError.originalError?.stack
+      ? `Stack: ${appError.originalError.stack}`
+      : null,
   ]
     .filter(Boolean)
     .join('\n');
-  
+
   console.error(logMessage);
 }
 
 /**
  * Show an error alert to the user
- * 
+ *
  * @param error - The error to display
  * @param options - Alert options
  */
@@ -236,10 +259,10 @@ export function showErrorAlert(
     title?: string;
     onRetry?: () => void;
     onDismiss?: () => void;
-  }
+  },
 ): void {
   const appError = isAppError(error) ? error : parseError(error);
-  
+
   const buttons: Array<{
     text: string;
     style?: 'cancel' | 'default' | 'destructive';
@@ -266,20 +289,16 @@ export function showErrorAlert(
     });
   }
 
-  Alert.alert(
-    options?.title || 'Error',
-    appError.userMessage,
-    buttons
-  );
+  Alert.alert(options?.title || 'Error', appError.userMessage, buttons);
 }
 
 /**
  * Retry a function with exponential backoff
- * 
+ *
  * @param fn - The async function to retry
  * @param options - Retry options
  * @returns The function result
- * 
+ *
  * @example
  * ```ts
  * const result = await withRetry(
@@ -295,7 +314,7 @@ export async function withRetry<T>(
     delayMs?: number;
     backoffMultiplier?: number;
     onRetry?: (attempt: number, error: Error) => void;
-  }
+  },
 ): Promise<T> {
   const {
     maxRetries = 3,
@@ -305,33 +324,33 @@ export async function withRetry<T>(
   } = options || {};
 
   let lastError: Error | undefined;
-  
+
   for (let attempt = 1; attempt <= maxRetries; attempt++) {
     try {
       return await fn();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      
+
       if (attempt < maxRetries) {
-        const delay = delayMs * Math.pow(backoffMultiplier, attempt - 1);
-        
+        const delay = delayMs * backoffMultiplier ** (attempt - 1);
+
         onRetry?.(attempt, lastError);
-        
-        await new Promise(resolve => setTimeout(resolve, delay));
+
+        await new Promise((resolve) => setTimeout(resolve, delay));
       }
     }
   }
-  
+
   throw lastError || new Error('Retry failed');
 }
 
 /**
  * Wrap an async function with error handling
- * 
+ *
  * @param fn - The async function to wrap
  * @param errorCode - Default error code for failures
  * @returns A wrapped function that returns a result or error
- * 
+ *
  * @example
  * ```ts
  * const [data, error] = await safeAsync(fetchCameras)();
@@ -344,7 +363,7 @@ export async function withRetry<T>(
  */
 export function safeAsync<T, Args extends unknown[]>(
   fn: (...args: Args) => Promise<T>,
-  errorCode: ErrorCode = 'UNKNOWN_ERROR'
+  errorCode: ErrorCode = 'UNKNOWN_ERROR',
 ): (...args: Args) => Promise<[T, null] | [null, AppError]> {
   return async (...args: Args): Promise<[T, null] | [null, AppError]> => {
     try {
@@ -376,7 +395,7 @@ export async function isOnline(): Promise<boolean> {
 
 /**
  * Handle and log error, returning user-friendly message
- * 
+ *
  * @param error - The error to handle
  * @param context - Context string for logging
  * @returns User-friendly error message
@@ -392,4 +411,3 @@ export function handleError(error: unknown, context?: string): string {
  * Alias for withRetry for backwards compatibility
  */
 export const retryAsync = withRetry;
-

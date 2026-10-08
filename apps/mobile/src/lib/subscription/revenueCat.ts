@@ -24,7 +24,10 @@ export type RevenueCatPlan = 'pro' | 'business';
  * mirror that. Adjust the product ids here to match whatever is configured in
  * the Play Console.
  */
-const PRODUCT_ENTITLEMENTS: Record<RevenueCatPlan, { productId: string; tier: RevenueCatPlan }> = {
+const PRODUCT_ENTITLEMENTS: Record<
+  RevenueCatPlan,
+  { productId: string; tier: RevenueCatPlan }
+> = {
   pro: { productId: 'pro_monthly', tier: 'pro' },
   business: { productId: 'business_monthly', tier: 'business' },
 };
@@ -35,7 +38,6 @@ let availableProductIds: string[] = [];
 // Dynamic require so Expo Go (no native module) and web both still bundle.
 function loadPurchases(): any | null {
   try {
-    // eslint-disable-next-line @typescript-eslint/no-require-imports
     const mod = require('react-native-purchases');
     return mod?.default ?? mod ?? null;
   } catch {
@@ -51,13 +53,17 @@ export async function initRevenueCat(appUserId?: string): Promise<boolean> {
   if (configured) return true;
 
   if (!API_KEY || API_KEY.includes('your-revenuecat')) {
-    console.log('[RevenueCat] Skipped - API key not configured; manual payment methods remain available');
+    console.log(
+      '[RevenueCat] Skipped - API key not configured; manual payment methods remain available',
+    );
     return false;
   }
 
   const Purchases = loadPurchases();
   if (!Purchases) {
-    console.warn('[RevenueCat] Native module unavailable (Expo Go or not rebuilt)');
+    console.warn(
+      '[RevenueCat] Native module unavailable (Expo Go or not rebuilt)',
+    );
     return false;
   }
 
@@ -127,7 +133,7 @@ export function getAlreadyPurchasedProductIds(): string[] {
  *          treat `userCancelled` as a non-error.
  */
 export async function purchasePlan(
-  planId: RevenueCatPlan
+  planId: RevenueCatPlan,
 ): Promise<
   | { status: 'success'; tier: string; transactionId: string }
   | { status: 'cancelled' }
@@ -160,14 +166,20 @@ export async function purchasePlan(
       };
     }
 
-    const { customerInfo, userCancelled } = await Purchases.purchasePackage(match);
+    const { customerInfo, userCancelled } =
+      await Purchases.purchasePackage(match);
     if (userCancelled) return { status: 'cancelled' };
 
     const entitlementIds: string[] = customerInfo?.entitlements?.active ?? [];
-    const active = entitlementIds.includes('pro') || match.productIdentifier === entitlement.productId;
+    const active =
+      entitlementIds.includes('pro') ||
+      match.productIdentifier === entitlement.productId;
 
     if (!active) {
-      return { status: 'error', message: 'Purchase completed but entitlement is not active' };
+      return {
+        status: 'error',
+        message: 'Purchase completed but entitlement is not active',
+      };
     }
 
     return {
@@ -203,25 +215,23 @@ export async function purchasePlan(
 export async function recordPendingPurchase(
   userId: string,
   tier: string,
-  transactionId: string
+  transactionId: string,
 ): Promise<boolean> {
   try {
     const { supabase } = await import('@/lib/supabase/client');
-    const { error } = await supabase
-      .from('subscriptions')
-      .upsert(
-        {
-          user_id: userId,
-          plan_id: tier,
-          payment_provider: 'google_play',
-          external_id: transactionId,
-          // RLS pins client inserts to 'pending'.
-          status: 'pending',
-          updated_at: new Date().toISOString(),
-        },
-        // Must match the unique index on (user_id, payment_provider).
-        { onConflict: 'user_id,payment_provider' }
-      );
+    const { error } = await supabase.from('subscriptions').upsert(
+      {
+        user_id: userId,
+        plan_id: tier,
+        payment_provider: 'google_play',
+        external_id: transactionId,
+        // RLS pins client inserts to 'pending'.
+        status: 'pending',
+        updated_at: new Date().toISOString(),
+      },
+      // Must match the unique index on (user_id, payment_provider).
+      { onConflict: 'user_id,payment_provider' },
+    );
     if (error) throw error;
     return true;
   } catch (e) {

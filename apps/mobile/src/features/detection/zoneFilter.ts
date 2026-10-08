@@ -23,7 +23,7 @@ const DEFAULT_SENSITIVITY = 0.6;
 function pointInPolygon(
   px: number,
   py: number,
-  polygon: { x: number; y: number }[]
+  polygon: { x: number; y: number }[],
 ): boolean {
   let inside = false;
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
@@ -49,7 +49,7 @@ function pointInPolygon(
  */
 export function isDetectionInZones(
   box: BoundingBox | undefined,
-  zones: DetectionZone[] | null | undefined
+  zones: DetectionZone[] | null | undefined,
 ): boolean {
   if (!zones || zones.length === 0) return true;
   if (!box) return true;
@@ -62,7 +62,8 @@ export function isDetectionInZones(
 
   return active.some((z) => {
     if (!pointInPolygon(cx, cy, z.polygon)) return false;
-    const threshold = typeof z.sensitivity === 'number' ? z.sensitivity : DEFAULT_SENSITIVITY;
+    const threshold =
+      typeof z.sensitivity === 'number' ? z.sensitivity : DEFAULT_SENSITIVITY;
     return box.confidence >= threshold;
   });
 }

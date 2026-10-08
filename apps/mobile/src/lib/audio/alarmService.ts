@@ -16,10 +16,10 @@
  *    stopped reliably instead of racing the player.
  */
 
+import type { AlarmSoundType } from '@/types';
 import { Audio, InterruptionModeAndroid, InterruptionModeIOS } from 'expo-av';
 import { Vibration } from 'react-native';
 import { getSound } from './soundGenerator';
-import type { AlarmSoundType } from '@/types';
 
 export interface AlarmSound {
   id: AlarmSoundType;
@@ -70,7 +70,9 @@ export const ALARM_SOUNDS: AlarmSound[] = [
     id: 'sos',
     name: 'Emergency SOS',
     description: 'Distress pattern for manual emergency alerts',
-    vibrationPattern: [0, 200, 100, 200, 100, 200, 200, 500, 200, 500, 200, 500],
+    vibrationPattern: [
+      0, 200, 100, 200, 100, 200, 200, 500, 200, 500, 200, 500,
+    ],
   },
   {
     id: 'custom',
@@ -111,7 +113,7 @@ const REPEAT_GAP_MS = 250;
  */
 async function resolveAudioSource(
   soundType: AlarmSoundType,
-  generated: string
+  generated: string,
 ): Promise<string> {
   if (soundType !== 'custom') return generated;
 
@@ -126,7 +128,9 @@ async function resolveAudioSource(
     console.warn('[AlarmService] Custom sound unavailable:', error);
   }
 
-  console.warn('[AlarmService] No custom sound set - falling back to standard alert');
+  console.warn(
+    '[AlarmService] No custom sound set - falling back to standard alert',
+  );
   return getSound('alert');
 }
 
@@ -172,7 +176,10 @@ class AlarmService {
       });
       this.initialized = true;
     } catch (error) {
-      console.error('[AlarmService] Failed to initialize audio session:', error);
+      console.error(
+        '[AlarmService] Failed to initialize audio session:',
+        error,
+      );
     }
   }
 
@@ -181,9 +188,14 @@ class AlarmService {
    */
   async playAlarm(
     soundType: AlarmSoundType = 'alert',
-    options: PlayAlarmOptions = {}
+    options: PlayAlarmOptions = {},
   ): Promise<void> {
-    const { volume = 0.8, repeat = false, repeatCount = 3, vibrate = true } = options;
+    const {
+      volume = 0.8,
+      repeat = false,
+      repeatCount = 3,
+      vibrate = true,
+    } = options;
 
     await this.initialize();
 
@@ -212,7 +224,7 @@ class AlarmService {
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUri },
-        { volume: this.currentVolume, shouldPlay: true }
+        { volume: this.currentVolume, shouldPlay: true },
       );
 
       // A newer call may have started while we awaited creation. Unload our
@@ -276,8 +288,8 @@ class AlarmService {
    */
   async previewSound(
     soundType: AlarmSoundType,
-    volume: number = 0.5,
-    vibrate = false
+    volume = 0.5,
+    vibrate = false,
   ): Promise<void> {
     await this.initialize();
 
@@ -301,7 +313,7 @@ class AlarmService {
 
       const { sound } = await Audio.Sound.createAsync(
         { uri: audioUri },
-        { volume: clampVolume(volume), shouldPlay: true }
+        { volume: clampVolume(volume), shouldPlay: true },
       );
 
       // Superseded while creating, or an alarm started meanwhile: discard.

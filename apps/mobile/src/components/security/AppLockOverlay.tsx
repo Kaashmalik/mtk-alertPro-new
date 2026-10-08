@@ -1,11 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { AppState, AppStateStatus, Pressable, StyleSheet, Text, View } from 'react-native';
 import * as LocalAuthentication from 'expo-local-authentication';
 import { Fingerprint, Lock, ScanFace } from 'lucide-react-native';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import {
+  AppState,
+  type AppStateStatus,
+  Pressable,
+  StyleSheet,
+  Text,
+  View,
+} from 'react-native';
 
-import { designSystem } from '@/theme/design-system';
-import { useAuthStore } from '@/stores';
 import { isBiometricEnabled } from '@/lib/biometric';
+import { useAuthStore } from '@/stores';
+import { designSystem } from '@/theme/design-system';
 
 /**
  * Full-screen lock shown when the app returns to the foreground and the user
@@ -58,6 +65,7 @@ export function AppLockOverlay() {
   }, [isAuthenticated]);
 
   // Drive the system prompt while locked. Re-runs on every retry attempt.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only or stable store refs
   useEffect(() => {
     if (!locked || promptingRef.current) return;
     promptingRef.current = true;
@@ -108,7 +116,11 @@ export function AppLockOverlay() {
     <View style={styles.overlay} accessibilityRole="alert">
       <View style={styles.content}>
         <View style={styles.iconWrap}>
-          <Icon size={44} color={designSystem.colors.text.primary} strokeWidth={1.6} />
+          <Icon
+            size={44}
+            color={designSystem.colors.text.primary}
+            strokeWidth={1.6}
+          />
         </View>
 
         <Text style={styles.title}>MTK AlertPro is locked</Text>
@@ -120,7 +132,10 @@ export function AppLockOverlay() {
 
         <Pressable
           onPress={retry}
-          style={({ pressed }) => [styles.button, pressed && styles.buttonPressed]}
+          style={({ pressed }) => [
+            styles.button,
+            pressed && styles.buttonPressed,
+          ]}
           accessibilityRole="button"
           accessibilityLabel="Unlock the app"
         >

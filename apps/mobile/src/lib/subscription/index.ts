@@ -6,4 +6,3 @@ export {
   type SubscriptionStatus,
   type UpgradePromptConfig,
 } from './subscriptionService';
-

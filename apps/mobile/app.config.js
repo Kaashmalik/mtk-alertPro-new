@@ -14,12 +14,26 @@
 const ADMOB_TEST_ANDROID_APP_ID = 'ca-app-pub-3940256099942544~3347511713';
 const ADMOB_TEST_IOS_APP_ID = 'ca-app-pub-3940256099942544~1458002511';
 
+const { assertBuildInputs } = require('./plugins/verifyBuildInputs');
+
 module.exports = ({ config }) => {
+  // Fail the build here rather than shipping an APK that crashes on the splash
+  // screen. See plugins/verifyBuildInputs.js for the two silent failure modes.
+  assertBuildInputs(__dirname);
+
   const androidAdmobId = process.env.ADMOB_ANDROID_APP_ID;
   const iosAdmobId = process.env.ADMOB_IOS_APP_ID;
 
+  // Drop dependency-injected permissions the app never uses (SYSTEM_ALERT_WINDOW
+  // and legacy storage grants). app.json can only add permissions, so this has
+  // to be a manifest-level opt-out. See plugins/withTrimmedPermissions.js.
+  const withLocalPlugins = ['./plugins/withTrimmedPermissions'];
+
   const plugins = (config.plugins || []).map((plugin) => {
-    if (Array.isArray(plugin) && plugin[0] === 'react-native-google-mobile-ads') {
+    if (
+      Array.isArray(plugin) &&
+      plugin[0] === 'react-native-google-mobile-ads'
+    ) {
       return [
         plugin[0],
         {
@@ -44,12 +58,12 @@ module.exports = ({ config }) => {
               'This app uses your advertising ID to show you relevant ads. You can opt out in settings.',
           },
         ]
-      : plugin
+      : plugin,
   );
 
   return {
     ...config,
-    plugins: normalizedPlugins,
+    plugins: [...withLocalPlugins, ...normalizedPlugins],
     android: {
       ...config.android,
       // Google Play requires new apps and updates to target API 36 from 2026-08-31.

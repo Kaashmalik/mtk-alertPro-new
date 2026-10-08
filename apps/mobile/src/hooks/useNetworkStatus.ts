@@ -1,12 +1,16 @@
 /**
  * Network Status Hook
  * Provides reactive network connectivity status
- * 
+ *
  * @module hooks/useNetworkStatus
  */
 
-import { useState, useEffect, useCallback } from 'react';
-import NetInfo, { NetInfoState, NetInfoStateType } from '@react-native-community/netinfo';
+import { resolveEffectiveQuality } from '@/lib/subscription/planLimits';
+import NetInfo, {
+  type NetInfoState,
+  NetInfoStateType,
+} from '@react-native-community/netinfo';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * Network status information
@@ -40,18 +44,18 @@ const DEFAULT_STATUS: NetworkStatus = {
 
 /**
  * Hook to monitor network connectivity status
- * 
+ *
  * @returns NetworkStatus object with current network state
- * 
+ *
  * @example
  * ```tsx
  * function MyComponent() {
  *   const { isConnected, isWifi } = useNetworkStatus();
- *   
+ *
  *   if (!isConnected) {
  *     return <OfflineMessage />;
  *   }
- *   
+ *
  *   return <Content streamQuality={isWifi ? 'high' : 'low'} />;
  * }
  * ```
@@ -89,9 +93,10 @@ function mapNetInfoState(state: NetInfoState): NetworkStatus {
     type: state.type,
     isExpensive: Boolean(
       state.details &&
-      typeof state.details === 'object' &&
-      'isConnectionExpensive' in state.details &&
-      (state.details as { isConnectionExpensive?: boolean }).isConnectionExpensive
+        typeof state.details === 'object' &&
+        'isConnectionExpensive' in state.details &&
+        (state.details as { isConnectionExpensive?: boolean })
+          .isConnectionExpensive,
     ),
     isLoading: false,
   };
@@ -99,11 +104,13 @@ function mapNetInfoState(state: NetInfoState): NetworkStatus {
 
 /**
  * Hook to get network status with automatic refresh
- * 
+ *
  * @param refreshIntervalMs - How often to refresh the status (default: 30000ms)
  * @returns NetworkStatus with refresh function
  */
-export function useNetworkStatusWithRefresh(refreshIntervalMs: number = 30000): NetworkStatus & {
+export function useNetworkStatusWithRefresh(
+  refreshIntervalMs = 30000,
+): NetworkStatus & {
   refresh: () => Promise<void>;
 } {
   const [status, setStatus] = useState<NetworkStatus>(DEFAULT_STATUS);
@@ -140,39 +147,39 @@ export function useNetworkStatusWithRefresh(refreshIntervalMs: number = 30000): 
 
 /**
  * Wait for network to become available
- * 
+ *
  * @param timeoutMs - Maximum time to wait (default: 30000ms)
  * @returns Promise that resolves when network is available
  * @throws Error if timeout is reached
  */
-export async function waitForNetwork(timeoutMs: number = 30000): Promise<void> {
+export async function waitForNetwork(timeoutMs = 30000): Promise<void> {
   const startTime = Date.now();
-  
+
   return new Promise((resolve, reject) => {
     const checkConnection = async () => {
       const state = await NetInfo.fetch();
-      
+
       if (state.isConnected) {
         resolve();
         return;
       }
-      
+
       if (Date.now() - startTime >= timeoutMs) {
         reject(new Error('Network timeout - no connection available'));
         return;
       }
-      
+
       // Check again in 1 second
       setTimeout(checkConnection, 1000);
     };
-    
+
     checkConnection();
   });
 }
 
 /**
  * Check if streaming should use high quality based on network
- * 
+ *
  * @param status - Current network status
  * @returns Whether to use high quality streaming
  */
@@ -183,27 +190,50 @@ export function shouldUseHighQuality(status: NetworkStatus): boolean {
 
 /**
  * Get recommended stream quality based on network
- * 
+ *
  * @param status - Current network status
  * @returns Recommended quality setting
  */
-export function getRecommendedQuality(status: NetworkStatus): '1080p' | '720p' | '480p' | '360p' {
+export function getRecommendedQuality(
+  status: NetworkStatus,
+): '1080p' | '720p' | '480p' | '360p' {
   if (!status.isConnected) {
     return '360p';
   }
-  
+
   if (status.isWifi && !status.isExpensive) {
     return '1080p';
   }
-  
+
   if (status.isWifi) {
     return '720p';
   }
-  
+
   if (status.isCellular) {
     return '480p';
   }
-  
+
   return '720p';
 }
 
+/**
+ * Network recommendation clamped to the caller's plan ceiling.
+ *
+ * getRecommendedQuality() only knows about the connection, so on Wi-Fi it always
+ * answered 1080p — the plan's streamQuality limit (clampStreamQuality) had no
+ * call site anywhere, meaning a free account could pull the resolution the
+ * Pro tier pays for. Pass the tier to cap it.
+ */
+export function getEffectiveQuality(
+  status: NetworkStatus,
+  tier?: unknown,
+): '1080p' | '720p' | '480p' | '360p' {
+  const recommended = getRecommendedQuality(status);
+  // No tier supplied (e.g. pre-hydration) → fall back to the network answer.
+  if (tier === undefined) return recommended;
+  return resolveEffectiveQuality(tier, recommended) as
+    | '1080p'
+    | '720p'
+    | '480p'
+    | '360p';
+}

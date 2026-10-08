@@ -1,38 +1,38 @@
 /**
  * Recordings and Storage Playback Modal
  * Allows browsing, playing, and managing camera video recordings and clips
- * 
+ *
  * @module components/camera/RecordingsModal
  */
 
-import React, { useState, useEffect, useCallback } from 'react';
 import {
-  View,
-  Text,
-  Modal,
-  StyleSheet,
-  TouchableOpacity,
-  FlatList,
-  Alert,
-  ActivityIndicator,
-} from 'react-native';
-import { SafeAreaView } from 'react-native-safe-area-context';
-import { Video, ResizeMode } from 'expo-av';
+  type RecordingInfo,
+  recordingService,
+} from '@/lib/recording/recordingService';
+import { formatDateLabel, formatTimeOfDay } from '@/lib/utils/date';
+import { designSystem } from '@/theme/design-system';
+import { ResizeMode, Video } from 'expo-av';
 import * as Sharing from 'expo-sharing';
 import {
-  X,
-  Play,
-  Pause,
-  Trash2,
-  Share2,
-  HardDrive,
-  Film,
-  Calendar,
   Clock,
-  CheckCircle,
+  Film,
+  HardDrive,
+  Play,
+  Share2,
+  Trash2,
+  X,
 } from 'lucide-react-native';
-import { recordingService, RecordingInfo } from '@/lib/recording/recordingService';
-import { designSystem } from '@/theme/design-system';
+import { useCallback, useEffect, useState } from 'react';
+import {
+  Alert,
+  FlatList,
+  Modal,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 
 interface RecordingsModalProps {
   visible: boolean;
@@ -49,8 +49,12 @@ export function RecordingsModal({
 }: RecordingsModalProps) {
   const [recordings, setRecordings] = useState<RecordingInfo[]>([]);
   const [activeClip, setActiveClip] = useState<RecordingInfo | null>(null);
-  const [isPlaying, setIsPlaying] = useState(false);
+  const [, setIsPlaying] = useState(false);
   const [totalStorageMB, setTotalStorageMB] = useState(0);
+
+  // A failed recording lands in history with no media at all, so resolve the
+  // playable source once and let the render guard on it.
+  const activeClipUri = activeClip?.localPath || activeClip?.cloudUrl || null;
 
   const loadRecordings = useCallback(async () => {
     try {
@@ -62,7 +66,9 @@ export function RecordingsModal({
       setRecordings(allRecordings);
 
       const usage = await recordingService.getStorageUsage();
-      setTotalStorageMB(Math.round((usage.localBytes / (1024 * 1024)) * 10) / 10);
+      setTotalStorageMB(
+        Math.round((usage.localBytes / (1024 * 1024)) * 10) / 10,
+      );
     } catch (err) {
       console.warn('[RecordingsModal] Failed to load recordings:', err);
     }
@@ -95,7 +101,7 @@ export function RecordingsModal({
             await loadRecordings();
           },
         },
-      ]
+      ],
     );
   };
 
@@ -154,16 +160,21 @@ export function RecordingsModal({
           <View style={styles.storageInfo}>
             <Text style={styles.storageTitle}>Local Storage</Text>
             <Text style={styles.storageSubtitle}>
-              {recordings.length} clip{recordings.length !== 1 ? 's' : ''} • {totalStorageMB} MB used
+              {recordings.length} clip{recordings.length !== 1 ? 's' : ''} •{' '}
+              {totalStorageMB} MB used
             </Text>
           </View>
         </View>
 
-        {/* Video Player Preview if active clip selected */}
-        {activeClip && (
+        {/* Video Player Preview if active clip selected.
+            recordingService pushes a history entry even when the recording
+            failed, and those rows have neither localPath nor cloudUrl, so an
+            empty uri would reach expo-av. Only mount the player when a real
+            source resolves. */}
+        {activeClip && activeClipUri && (
           <View style={styles.playerContainer}>
             <Video
-              source={{ uri: activeClip.localPath || activeClip.cloudUrl || '' }}
+              source={{ uri: activeClipUri }}
               style={styles.videoPlayer}
               useNativeControls
               resizeMode={ResizeMode.CONTAIN}
@@ -177,7 +188,8 @@ export function RecordingsModal({
             />
             <View style={styles.playerMetaRow}>
               <Text style={styles.playerMetaText}>
-                {new Date(activeClip.startTime).toLocaleTimeString()} ({formatDuration(activeClip.duration)})
+                {formatTimeOfDay(activeClip.startTime)} (
+                {formatDuration(activeClip.duration)})
               </Text>
               <TouchableOpacity
                 onPress={() => setActiveClip(null)}
@@ -195,7 +207,8 @@ export function RecordingsModal({
             <Film size={48} color={designSystem.colors.text.muted} />
             <Text style={styles.emptyTitle}>No Recorded Clips</Text>
             <Text style={styles.emptyDesc}>
-              Tap the record button while viewing the live stream to capture security footage.
+              Tap the record button while viewing the live stream to capture
+              security footage.
             </Text>
           </View>
         ) : (
@@ -207,10 +220,7 @@ export function RecordingsModal({
               const isSelected = activeClip?.id === item.id;
               return (
                 <View
-                  style={[
-                    styles.clipCard,
-                    isSelected && styles.clipCardActive,
-                  ]}
+                  style={[styles.clipCard, isSelected && styles.clipCardActive]}
                 >
                   <TouchableOpacity
                     style={styles.clipLeft}
@@ -223,14 +233,14 @@ export function RecordingsModal({
                     </View>
                     <View style={styles.clipDetails}>
                       <Text style={styles.clipDate}>
-                        {new Date(item.startTime).toLocaleDateString()} at{' '}
-                        {new Date(item.startTime).toLocaleTimeString([], {
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
+                        {formatDateLabel(item.startTime)} at{' '}
+                        {formatTimeOfDay(item.startTime)}
                       </Text>
                       <View style={styles.clipMetaRow}>
-                        <Clock size={12} color={designSystem.colors.text.muted} />
+                        <Clock
+                          size={12}
+                          color={designSystem.colors.text.muted}
+                        />
                         <Text style={styles.clipMeta}>
                           {formatDuration(item.duration)}
                         </Text>
@@ -247,13 +257,19 @@ export function RecordingsModal({
                       onPress={() => handleShare(item)}
                       style={styles.actionBtn}
                     >
-                      <Share2 size={18} color={designSystem.colors.text.secondary} />
+                      <Share2
+                        size={18}
+                        color={designSystem.colors.text.secondary}
+                      />
                     </TouchableOpacity>
                     <TouchableOpacity
                       onPress={() => handleDelete(item)}
                       style={styles.actionBtn}
                     >
-                      <Trash2 size={18} color={designSystem.colors.status.danger} />
+                      <Trash2
+                        size={18}
+                        color={designSystem.colors.status.danger}
+                      />
                     </TouchableOpacity>
                   </View>
                 </View>

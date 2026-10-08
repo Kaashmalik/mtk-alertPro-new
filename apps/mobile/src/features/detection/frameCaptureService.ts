@@ -1,13 +1,13 @@
 /**
  * Frame Capture Service
  * Captures frames from camera streams for AI detection
- * 
+ *
  * @module features/detection/frameCaptureService
  */
 
-import * as FileSystem from 'expo-file-system/legacy';
 import { streamingService } from '@/lib/streaming/streamingService';
 import { logError } from '@/lib/utils/errorHandler';
+import * as FileSystem from 'expo-file-system/legacy';
 
 // ============================================================================
 // Configuration
@@ -65,15 +65,15 @@ class FrameCaptureService {
       // Create frame cache directory
       const dirInfo = await FileSystem.getInfoAsync(FRAME_CACHE_DIR);
       if (!dirInfo.exists) {
-        await FileSystem.makeDirectoryAsync(FRAME_CACHE_DIR, { 
-          intermediates: true 
+        await FileSystem.makeDirectoryAsync(FRAME_CACHE_DIR, {
+          intermediates: true,
         });
       }
 
       // Start cleanup interval
       this.cleanupIntervalId = setInterval(
         () => this.cleanupOldFrames(),
-        30000 // Every 30 seconds
+        30000, // Every 30 seconds
       );
 
       this.isInitialized = true;
@@ -87,7 +87,7 @@ class FrameCaptureService {
 
   /**
    * Capture a single frame from a camera stream
-   * 
+   *
    * @param cameraId - Camera to capture from
    * @returns Local path to the captured frame, or null if failed
    */
@@ -95,7 +95,7 @@ class FrameCaptureService {
     try {
       // Request snapshot from media server
       const snapshotUrl = await streamingService.captureSnapshot(cameraId);
-      
+
       if (!snapshotUrl) {
         console.warn('[FrameCaptureService] No snapshot URL returned');
         return null;
@@ -106,10 +106,16 @@ class FrameCaptureService {
       const localPath = `${FRAME_CACHE_DIR}${cameraId}_${timestamp}.jpg`;
 
       // Download snapshot to local cache
-      const downloadResult = await FileSystem.downloadAsync(snapshotUrl, localPath);
-      
+      const downloadResult = await FileSystem.downloadAsync(
+        snapshotUrl,
+        localPath,
+      );
+
       if (downloadResult.status !== 200) {
-        console.warn('[FrameCaptureService] Download failed:', downloadResult.status);
+        console.warn(
+          '[FrameCaptureService] Download failed:',
+          downloadResult.status,
+        );
         return null;
       }
 
@@ -130,7 +136,7 @@ class FrameCaptureService {
 
   /**
    * Start periodic frame capture for a camera
-   * 
+   *
    * @param cameraId - Camera to capture from
    * @param intervalMs - Capture interval in milliseconds
    * @param callback - Callback called with each captured frame
@@ -138,14 +144,16 @@ class FrameCaptureService {
   startPeriodicCapture(
     cameraId: string,
     intervalMs: number,
-    callback: FrameCallback
+    callback: FrameCallback,
   ): void {
     // Stop existing session for this camera
     if (this.activeSessions.has(cameraId)) {
       this.stopPeriodicCapture(cameraId);
     }
 
-    console.log(`[FrameCaptureService] Starting capture for camera ${cameraId} every ${intervalMs}ms`);
+    console.log(
+      `[FrameCaptureService] Starting capture for camera ${cameraId} every ${intervalMs}ms`,
+    );
 
     const session: CaptureSession = {
       cameraId,
@@ -158,17 +166,20 @@ class FrameCaptureService {
 
         try {
           const framePath = await this.captureFrame(cameraId);
-          
+
           if (framePath) {
             const now = new Date();
             currentSession.captureCount++;
             currentSession.lastCapture = now;
-            
+
             // Call the callback with the frame
             callback(framePath, now);
           }
         } catch (error) {
-          console.error(`[FrameCaptureService] Capture error for camera ${cameraId}:`, error);
+          console.error(
+            `[FrameCaptureService] Capture error for camera ${cameraId}:`,
+            error,
+          );
           logError(error, `FrameCaptureService.periodicCapture.${cameraId}`);
         }
       }, intervalMs),
@@ -179,16 +190,18 @@ class FrameCaptureService {
 
   /**
    * Stop periodic capture for a specific camera
-   * 
+   *
    * @param cameraId - Camera to stop capturing
    */
   stopPeriodicCapture(cameraId: string): void {
     const session = this.activeSessions.get(cameraId);
-    
+
     if (session) {
       clearInterval(session.intervalId);
       this.activeSessions.delete(cameraId);
-      console.log(`[FrameCaptureService] Stopped capture for camera ${cameraId} (${session.captureCount} frames captured)`);
+      console.log(
+        `[FrameCaptureService] Stopped capture for camera ${cameraId} (${session.captureCount} frames captured)`,
+      );
     }
   }
 
@@ -212,12 +225,12 @@ class FrameCaptureService {
   /**
    * Get capture statistics for a camera
    */
-  getCaptureStats(cameraId: string): { 
-    captureCount: number; 
-    lastCapture: Date | null 
+  getCaptureStats(cameraId: string): {
+    captureCount: number;
+    lastCapture: Date | null;
   } | null {
     const session = this.activeSessions.get(cameraId);
-    
+
     if (!session) {
       return null;
     }
@@ -239,25 +252,27 @@ class FrameCaptureService {
 
       for (const file of files) {
         const filePath = `${FRAME_CACHE_DIR}${file}`;
-        
+
         try {
           const info = await FileSystem.getInfoAsync(filePath);
-          
+
           if (info.exists && info.modificationTime) {
-            const age = now - (info.modificationTime * 1000);
-            
+            const age = now - info.modificationTime * 1000;
+
             if (age > MAX_FRAME_AGE_MS) {
               await FileSystem.deleteAsync(filePath, { idempotent: true });
               deletedCount++;
             }
           }
-        } catch (fileError) {
+        } catch (_fileError) {
           // Continue with other files
         }
       }
 
       if (deletedCount > 0) {
-        console.log(`[FrameCaptureService] Cleaned up ${deletedCount} old frames`);
+        console.log(
+          `[FrameCaptureService] Cleaned up ${deletedCount} old frames`,
+        );
       }
     } catch (error) {
       console.error('[FrameCaptureService] Cleanup failed:', error);
@@ -271,7 +286,7 @@ class FrameCaptureService {
     try {
       await FileSystem.deleteAsync(framePath, { idempotent: true });
       return true;
-    } catch (error) {
+    } catch (_error) {
       return false;
     }
   }
@@ -292,7 +307,7 @@ class FrameCaptureService {
       }
 
       return { bytes: totalBytes, fileCount: files.length };
-    } catch (error) {
+    } catch (_error) {
       return { bytes: 0, fileCount: 0 };
     }
   }
@@ -303,7 +318,9 @@ class FrameCaptureService {
   async clearCache(): Promise<void> {
     try {
       await FileSystem.deleteAsync(FRAME_CACHE_DIR, { idempotent: true });
-      await FileSystem.makeDirectoryAsync(FRAME_CACHE_DIR, { intermediates: true });
+      await FileSystem.makeDirectoryAsync(FRAME_CACHE_DIR, {
+        intermediates: true,
+      });
       console.log('[FrameCaptureService] Cache cleared');
     } catch (error) {
       console.error('[FrameCaptureService] Failed to clear cache:', error);
@@ -333,4 +350,3 @@ export const frameCaptureService = new FrameCaptureService();
 
 // Export class for testing
 export { FrameCaptureService };
-

@@ -1,15 +1,14 @@
 /**
  * Skeleton Loader Component
- * 
+ *
  * Beautiful skeleton loading states for better perceived performance
  */
 
-import React, { useEffect, useRef } from 'react';
-import { View, StyleSheet, Animated, ViewStyle, Dimensions } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
-import { colors, borderRadius, spacing } from '@/lib/theme';
+import { useEffect, useRef } from 'react';
+import { Animated, StyleSheet, View, type ViewStyle } from 'react-native';
 
-const { width: SCREEN_WIDTH } = Dimensions.get('window');
+import { borderRadius, colors, spacing } from '@/lib/theme';
+import { useLayout } from '@/theme/design-system';
 
 // ============================================================================
 // Types
@@ -51,7 +50,7 @@ export function Skeleton({
           duration: 1000,
           useNativeDriver: true,
         }),
-      ])
+      ]),
     );
     animation.start();
 
@@ -63,7 +62,8 @@ export function Skeleton({
     outputRange: [0.3, 0.7],
   });
 
-  const widthValue = typeof width === 'number' ? width : parseFloat(String(width)) || 0;
+  const widthValue =
+    typeof width === 'number' ? width : Number.parseFloat(String(width)) || 0;
 
   return (
     <Animated.View
@@ -143,13 +143,21 @@ export function SkeletonAlertCard({ style }: SkeletonCardProps) {
 // ============================================================================
 
 export function SkeletonStatsGrid() {
-  const cardWidth = (SCREEN_WIDTH - spacing.xl * 2 - spacing.md) / 2;
+  // Reactive: the previous module-level Dimensions.get('window') snapshot went
+  // stale on rotation/tablet/resize, leaving tiles sized for the boot width.
+  const { width } = useLayout();
+  const cardWidth = (width - spacing.xl * 2 - spacing.md) / 2;
 
   return (
     <View style={styles.statsGrid}>
       {[1, 2, 3, 4].map((i) => (
         <View key={i} style={[styles.statCard, { width: cardWidth }]}>
-          <Skeleton width={40} height={40} borderRadius={12} style={{ marginBottom: 12 }} />
+          <Skeleton
+            width={40}
+            height={40}
+            borderRadius={12}
+            style={{ marginBottom: 12 }}
+          />
           <Skeleton width={60} height={32} style={{ marginBottom: 8 }} />
           <Skeleton width="80%" height={14} />
         </View>
@@ -176,7 +184,7 @@ export function SkeletonDashboard() {
 
       {/* Red Alert Card */}
       <Skeleton
-        width={SCREEN_WIDTH - spacing.xl * 2}
+        width="100%"
         height={80}
         borderRadius={borderRadius['2xl']}
         style={{ marginHorizontal: spacing.xl, marginBottom: spacing.xl }}
@@ -187,7 +195,7 @@ export function SkeletonDashboard() {
 
       {/* System Status */}
       <Skeleton
-        width={SCREEN_WIDTH - spacing.xl * 2}
+        width="100%"
         height={60}
         borderRadius={borderRadius.xl}
         style={{ marginHorizontal: spacing.xl, marginTop: spacing.xl }}
@@ -217,11 +225,16 @@ interface SkeletonListProps {
   gap?: number;
 }
 
-export function SkeletonList({ count = 5, itemHeight = 72, gap = spacing.md }: SkeletonListProps) {
+export function SkeletonList({
+  count = 5,
+  itemHeight = 72,
+  gap = spacing.md,
+}: SkeletonListProps) {
   return (
     <View>
       {Array.from({ length: count }).map((_, i) => (
         <Skeleton
+          // biome-ignore lint/suspicious/noArrayIndexKey: skeleton placeholders are positional
           key={i}
           width="100%"
           height={itemHeight}
@@ -240,7 +253,12 @@ export function SkeletonList({ count = 5, itemHeight = 72, gap = spacing.md }: S
 export function SkeletonProfile() {
   return (
     <View style={styles.profile}>
-      <Skeleton width={80} height={80} borderRadius={40} style={{ marginBottom: 16 }} />
+      <Skeleton
+        width={80}
+        height={80}
+        borderRadius={40}
+        style={{ marginBottom: 16 }}
+      />
       <Skeleton width={150} height={24} style={{ marginBottom: 8 }} />
       <Skeleton width={200} height={16} style={{ marginBottom: 24 }} />
 
@@ -280,7 +298,12 @@ export function SkeletonSubscriptionCard() {
         ))}
       </View>
 
-      <Skeleton width="100%" height={48} borderRadius={borderRadius.xl} style={{ marginTop: 16 }} />
+      <Skeleton
+        width="100%"
+        height={48}
+        borderRadius={borderRadius.xl}
+        style={{ marginTop: 16 }}
+      />
     </View>
   );
 }
@@ -397,4 +420,3 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
 });
-
