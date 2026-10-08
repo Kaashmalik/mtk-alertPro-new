@@ -212,6 +212,12 @@ export async function uploadAvatar(uri: string): Promise<string | null> {
 
 /**
  * Delete user account
+ *
+ * Deletion goes through the delete_account() RPC rather than a direct DELETE on
+ * profiles: profiles has no DELETE policy, so that statement was rejected by RLS
+ * and the old flow reported success while deleting nothing. The RPC removes the
+ * auth.users row, which cascades to the profile and every row beneath it, plus
+ * the caller's uploads in storage.
  */
 export async function deleteAccount(): Promise<boolean> {
   try {
@@ -220,22 +226,29 @@ export async function deleteAccount(): Promise<boolean> {
     } = await supabase.auth.getUser();
     if (!user) throw new Error('Not authenticated');
 
-    // Delete profile data first
-    const { error: profileError } = await supabase
-      .from('profiles')
-      .delete()
-      .eq('id', user.id);
+    const { data, error } = await supabase.rpc('delete_account');
 
-    if (profileError) {
-      console.warn('[ProfileService] Profile delete warning:', profileError);
+    if (error) {
+      console.error('[ProfileService] Delete account error:', error);
+      logError(error, 'ProfileService.deleteAccount');
+      return false;
     }
 
-    // Note: Actual user deletion requires admin API
-    // Sign out through the auth store so the shared-device cleanup runs
-    // (auth state + camera cache wiped) — not just the remote session.
+    const result = data as { success?: boolean; error?: string } | null;
+    if (!result?.success) {
+      console.warn('[ProfileService] delete_account refused:', result?.error);
+      logError(
+        new Error(result?.error ?? 'delete_account_failed'),
+        'ProfileService.deleteAccount',
+      );
+      return false;
+    }
+
+    // The session is already gone server-side. Sign out through the auth store
+    // so the shared-device cleanup runs (auth state + camera cache wiped).
     await useAuthStore.getState().signOut();
 
-    console.log('[ProfileService] Account deletion initiated');
+    console.log('[ProfileService] Account deleted');
     return true;
   } catch (error) {
     console.error('[ProfileService] Delete account error:', error);

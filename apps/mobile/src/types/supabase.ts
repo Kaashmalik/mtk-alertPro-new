@@ -427,7 +427,9 @@ export type Database = {
           email: string;
           fcm_token: string | null;
           id: string;
+          is_admin: boolean;
           last_payment_date: string | null;
+          phone: string | null;
           subscription_auto_renew: boolean | null;
           subscription_expires_at: string | null;
           subscription_payment_method: string | null;
@@ -441,7 +443,9 @@ export type Database = {
           email: string;
           fcm_token?: string | null;
           id: string;
+          is_admin?: boolean;
           last_payment_date?: string | null;
+          phone?: string | null;
           subscription_auto_renew?: boolean | null;
           subscription_expires_at?: string | null;
           subscription_payment_method?: string | null;
@@ -455,7 +459,9 @@ export type Database = {
           email?: string;
           fcm_token?: string | null;
           id?: string;
+          is_admin?: boolean;
           last_payment_date?: string | null;
+          phone?: string | null;
           subscription_auto_renew?: boolean | null;
           subscription_expires_at?: string | null;
           subscription_payment_method?: string | null;
@@ -540,11 +546,39 @@ export type Database = {
       [_ in never]: never;
     };
     Functions: {
+      admin_confirm_payment: {
+        Args: { p_payment_request_id: string; p_transaction_id?: string };
+        Returns: Json;
+      };
+      admin_reject_payment: {
+        Args: { p_payment_request_id: string; p_reason?: string };
+        Returns: Json;
+      };
+      admin_set_subscription: {
+        Args: { p_months?: number; p_tier: string; p_user_id: string };
+        Returns: Json;
+      };
+      apply_play_subscription: {
+        Args: {
+          p_expires_at: string;
+          p_external_id?: string;
+          p_plan: string;
+          p_product_id?: string;
+          p_user_id: string;
+        };
+        Returns: Json;
+      };
       confirm_payment: {
         Args: { p_payment_request_id: string; p_transaction_id?: string };
         Returns: Json;
       };
+      delete_account: { Args: never; Returns: Json };
       downgrade_subscription: { Args: never; Returns: Json };
+      effective_tier: { Args: { p_user_id: string }; Returns: string };
+      expire_play_subscription: {
+        Args: { p_external_id?: string; p_user_id: string };
+        Returns: Json;
+      };
     };
     Enums: {
       [_ in never]: never;

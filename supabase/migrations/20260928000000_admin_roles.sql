@@ -26,7 +26,14 @@ ALTER TABLE public.profiles
 -- ---------------------------------------------------------------------------
 -- 2. Admin-check helper (private schema, SECURITY DEFINER, no RLS recursion)
 -- ---------------------------------------------------------------------------
+-- The schema itself must be reachable by the roles that are allowed to call the
+-- helper. A brand-new schema grants USAGE to its owner only, so without this
+-- every policy and admin RPC below fails with "permission denied for schema
+-- private" the moment it is reached from a client request.
 CREATE SCHEMA IF NOT EXISTS private;
+
+REVOKE ALL ON SCHEMA private FROM PUBLIC, anon;
+GRANT USAGE ON SCHEMA private TO authenticated, service_role;
 
 CREATE OR REPLACE FUNCTION private.is_admin()
 RETURNS boolean

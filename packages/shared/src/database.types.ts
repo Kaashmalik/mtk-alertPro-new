@@ -12,65 +12,46 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       alerts: {
         Row: {
-          camera_id: string
+          camera_id: string | null
           confidence: number
           created_at: string | null
+          emergency_reason: string | null
           id: string
           is_read: boolean | null
           metadata: Json | null
+          resolved_at: string | null
           snapshot_url: string | null
           type: string
           user_id: string
           video_clip_url: string | null
         }
         Insert: {
-          camera_id: string
+          camera_id?: string | null
           confidence: number
           created_at?: string | null
+          emergency_reason?: string | null
           id?: string
           is_read?: boolean | null
           metadata?: Json | null
+          resolved_at?: string | null
           snapshot_url?: string | null
           type: string
           user_id: string
           video_clip_url?: string | null
         }
         Update: {
-          camera_id?: string
+          camera_id?: string | null
           confidence?: number
           created_at?: string | null
+          emergency_reason?: string | null
           id?: string
           is_read?: boolean | null
           metadata?: Json | null
+          resolved_at?: string | null
           snapshot_url?: string | null
           type?: string
           user_id?: string
@@ -209,6 +190,70 @@ export type Database = {
           },
         ]
       }
+      detection_events: {
+        Row: {
+          bounding_box: Json | null
+          camera_id: string
+          confidence: number
+          created_at: string
+          id: string
+          kind: string
+          metadata: Json
+          occurred_at: string
+          type: string
+          user_id: string
+          zone_id: string | null
+        }
+        Insert: {
+          bounding_box?: Json | null
+          camera_id: string
+          confidence: number
+          created_at?: string
+          id?: string
+          kind?: string
+          metadata?: Json
+          occurred_at?: string
+          type: string
+          user_id: string
+          zone_id?: string | null
+        }
+        Update: {
+          bounding_box?: Json | null
+          camera_id?: string
+          confidence?: number
+          created_at?: string
+          id?: string
+          kind?: string
+          metadata?: Json
+          occurred_at?: string
+          type?: string
+          user_id?: string
+          zone_id?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "detection_events_camera_id_fkey"
+            columns: ["camera_id"]
+            isOneToOne: false
+            referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "detection_events_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "detection_events_zone_id_fkey"
+            columns: ["zone_id"]
+            isOneToOne: false
+            referencedRelation: "detection_zones"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       detection_zones: {
         Row: {
           camera_id: string
@@ -217,6 +262,7 @@ export type Database = {
           is_active: boolean | null
           name: string
           polygon: Json
+          sensitivity: number
         }
         Insert: {
           camera_id: string
@@ -225,6 +271,7 @@ export type Database = {
           is_active?: boolean | null
           name: string
           polygon: Json
+          sensitivity?: number
         }
         Update: {
           camera_id?: string
@@ -233,6 +280,7 @@ export type Database = {
           is_active?: boolean | null
           name?: string
           polygon?: Json
+          sensitivity?: number
         }
         Relationships: [
           {
@@ -240,6 +288,41 @@ export type Database = {
             columns: ["camera_id"]
             isOneToOne: false
             referencedRelation: "cameras"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      emergency_contacts: {
+        Row: {
+          always_notify: boolean | null
+          created_at: string | null
+          id: string
+          name: string
+          phone: string
+          user_id: string
+        }
+        Insert: {
+          always_notify?: boolean | null
+          created_at?: string | null
+          id?: string
+          name: string
+          phone: string
+          user_id?: string
+        }
+        Update: {
+          always_notify?: boolean | null
+          created_at?: string | null
+          id?: string
+          name?: string
+          phone?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "emergency_contacts_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
             referencedColumns: ["id"]
           },
         ]
@@ -346,6 +429,7 @@ export type Database = {
           id: string
           is_admin: boolean
           last_payment_date: string | null
+          phone: string | null
           subscription_auto_renew: boolean | null
           subscription_expires_at: string | null
           subscription_payment_method: string | null
@@ -361,6 +445,7 @@ export type Database = {
           id: string
           is_admin?: boolean
           last_payment_date?: string | null
+          phone?: string | null
           subscription_auto_renew?: boolean | null
           subscription_expires_at?: string | null
           subscription_payment_method?: string | null
@@ -376,6 +461,7 @@ export type Database = {
           id?: string
           is_admin?: boolean
           last_payment_date?: string | null
+          phone?: string | null
           subscription_auto_renew?: boolean | null
           subscription_expires_at?: string | null
           subscription_payment_method?: string | null
@@ -408,15 +494,58 @@ export type Database = {
         }
         Relationships: []
       }
+      subscriptions: {
+        Row: {
+          created_at: string
+          expires_at: string | null
+          external_id: string | null
+          id: string
+          payment_provider: string
+          plan_id: string
+          started_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expires_at?: string | null
+          external_id?: string | null
+          id?: string
+          payment_provider: string
+          plan_id: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expires_at?: string | null
+          external_id?: string | null
+          id?: string
+          payment_provider?: string
+          plan_id?: string
+          started_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "subscriptions_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "profiles"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
     }
     Views: {
       [_ in never]: never
     }
     Functions: {
-      confirm_payment: {
-        Args: { p_payment_request_id: string; p_transaction_id?: string }
-        Returns: Json
-      }
       admin_confirm_payment: {
         Args: { p_payment_request_id: string; p_transaction_id?: string }
         Returns: Json
@@ -426,7 +555,28 @@ export type Database = {
         Returns: Json
       }
       admin_set_subscription: {
-        Args: { p_user_id: string; p_tier: string; p_months?: number }
+        Args: { p_months?: number; p_tier: string; p_user_id: string }
+        Returns: Json
+      }
+      apply_play_subscription: {
+        Args: {
+          p_expires_at: string
+          p_external_id?: string
+          p_plan: string
+          p_product_id?: string
+          p_user_id: string
+        }
+        Returns: Json
+      }
+      confirm_payment: {
+        Args: { p_payment_request_id: string; p_transaction_id?: string }
+        Returns: Json
+      }
+      delete_account: { Args: never; Returns: Json }
+      downgrade_subscription: { Args: never; Returns: Json }
+      effective_tier: { Args: { p_user_id: string }; Returns: string }
+      expire_play_subscription: {
+        Args: { p_external_id?: string; p_user_id: string }
         Returns: Json
       }
     }
@@ -476,11 +626,11 @@ export type TablesInsert<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"])
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -501,11 +651,11 @@ export type TablesUpdate<
   DefaultSchemaTableNameOrOptions extends
     | keyof DefaultSchema["Tables"]
     | { schema: keyof DatabaseWithoutInternals },
-  TableName extends (DefaultSchemaTableNameOrOptions extends {
+  TableName extends DefaultSchemaTableNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"]
-    : never) = never,
+    ? keyof (DatabaseWithoutInternals[DefaultSchemaTableNameOrOptions["schema"]]["Tables"])
+    : never = never,
 > = DefaultSchemaTableNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -526,11 +676,11 @@ export type Enums<
   DefaultSchemaEnumNameOrOptions extends
     | keyof DefaultSchema["Enums"]
     | { schema: keyof DatabaseWithoutInternals },
-  EnumName extends (DefaultSchemaEnumNameOrOptions extends {
+  EnumName extends DefaultSchemaEnumNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
     ? keyof DatabaseWithoutInternals[DefaultSchemaEnumNameOrOptions["schema"]]["Enums"]
-    : never) = never,
+    : never = never,
 > = DefaultSchemaEnumNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -543,11 +693,11 @@ export type CompositeTypes<
   PublicCompositeTypeNameOrOptions extends
     | keyof DefaultSchema["CompositeTypes"]
     | { schema: keyof DatabaseWithoutInternals },
-  CompositeTypeName extends (PublicCompositeTypeNameOrOptions extends {
+  CompositeTypeName extends PublicCompositeTypeNameOrOptions extends {
     schema: keyof DatabaseWithoutInternals
   }
-    ? keyof DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"]
-    : never) = never,
+    ? keyof (DatabaseWithoutInternals[PublicCompositeTypeNameOrOptions["schema"]]["CompositeTypes"])
+    : never = never,
 > = PublicCompositeTypeNameOrOptions extends {
   schema: keyof DatabaseWithoutInternals
 }
@@ -557,9 +707,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {},
   },
