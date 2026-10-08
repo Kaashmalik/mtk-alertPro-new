@@ -284,7 +284,7 @@ export default function SettingsScreen() {
                 icon={Shield}
                 color={'#10B981'}
                 label="Admin Console"
-                onPress={() => router.push('/admin')}
+                onPress={() => router.push('/admin' as any)}
               />
             </SettingSection>
           )}
