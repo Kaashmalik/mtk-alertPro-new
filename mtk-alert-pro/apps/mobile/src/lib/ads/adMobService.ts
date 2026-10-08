@@ -13,28 +13,36 @@ import { RNMobileAds, RNMaxAdContentRating as MaxAdContentRating } from './admob
 const mobileAds = RNMobileAds ? () => RNMobileAds : null;
 
 // Ad Unit IDs Configuration
-// IMPORTANT: Replace these with your actual AdMob Ad Unit IDs from console.firebase.google.com
+//
+// Production unit IDs come from EXPO_PUBLIC_ADMOB_* env vars so real IDs can be
+// set per build (eas.json / .env) without editing source or committing them.
+// When an env var is missing the value stays a placeholder, which getAdUnitId()
+// detects and safely falls back to Google's test unit — so a misconfigured
+// build shows test ads rather than silently serving nothing (a Play policy risk
+// is serving live ads before review; this keeps it safe by default).
+const PLACEHOLDER = 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX';
+const envUnit = (key: string): string => process.env[key] || PLACEHOLDER;
 
 const PRODUCTION_AD_UNITS = {
     banner: {
-        ios: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your iOS Banner ID
-        android: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your Android Banner ID
+        ios: envUnit('EXPO_PUBLIC_ADMOB_BANNER_IOS'),
+        android: envUnit('EXPO_PUBLIC_ADMOB_BANNER_ANDROID'),
     },
     interstitial: {
-        ios: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your iOS Interstitial ID
-        android: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your Android Interstitial ID
+        ios: envUnit('EXPO_PUBLIC_ADMOB_INTERSTITIAL_IOS'),
+        android: envUnit('EXPO_PUBLIC_ADMOB_INTERSTITIAL_ANDROID'),
     },
     rewarded: {
-        ios: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your iOS Rewarded ID
-        android: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your Android Rewarded ID
+        ios: envUnit('EXPO_PUBLIC_ADMOB_REWARDED_IOS'),
+        android: envUnit('EXPO_PUBLIC_ADMOB_REWARDED_ANDROID'),
     },
     native: {
-        ios: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your iOS Native ID
-        android: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your Android Native ID
+        ios: envUnit('EXPO_PUBLIC_ADMOB_NATIVE_IOS'),
+        android: envUnit('EXPO_PUBLIC_ADMOB_NATIVE_ANDROID'),
     },
     appOpen: {
-        ios: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your iOS App Open ID
-        android: 'ca-app-pub-XXXXXXXXXX/XXXXXXXXXX', // Replace with your Android App Open ID
+        ios: envUnit('EXPO_PUBLIC_ADMOB_APPOPEN_IOS'),
+        android: envUnit('EXPO_PUBLIC_ADMOB_APPOPEN_ANDROID'),
     },
 } as const;
 
