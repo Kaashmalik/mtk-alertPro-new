@@ -353,11 +353,17 @@ function HlsCameraStreamPlayer({
   };
 
   const handleRetry = async () => {
-    setRetryCount(prev => prev + 1);
-    updateState('connecting');
+    const attempt = retryCount + 1;
+    setRetryCount(attempt);
+    updateState(attempt > 1 ? 'reconnecting' : 'connecting');
 
     await streamingService.unregisterCamera(cameraId);
-    await new Promise(resolve => setTimeout(resolve, 2000));
+    // Exponential backoff (2s ??? 4s ??? 8s, capped at 10s). A flaky camera or
+    // Wi-Fi hiccup gets progressively more breathing room instead of being
+    // hammered on a fixed 2s loop, which is both gentler and more likely to
+    // reconnect cleanly.
+    const delay = Math.min(RETRY_DELAY * 2 ** (attempt - 1), 10000);
+    await new Promise(resolve => setTimeout(resolve, delay));
     await initializeStream();
   };
 

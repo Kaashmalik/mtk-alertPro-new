@@ -54,16 +54,23 @@ describe('sceneProfiles', () => {
     expect(settings.sceneProfile).toBe('custom');
   });
 
-  it('marks parking/warehouse/construction/school as advanced', () => {
-    expect(isAdvancedSceneProfile('home')).toBe(false);
-    expect(isAdvancedSceneProfile('farm')).toBe(false);
-    expect(isAdvancedSceneProfile('shop')).toBe(false);
-    expect(isAdvancedSceneProfile('parking')).toBe(true);
-    expect(isAdvancedSceneProfile('warehouse')).toBe(true);
-    expect(isAdvancedSceneProfile('construction')).toBe(true);
-    expect(isAdvancedSceneProfile('school')).toBe(true);
-    expect(FREE_SCENE_PROFILES).toContain('farm');
-    expect(FREE_SCENE_PROFILES).not.toContain('school');
+  it('treats every scene mode as universal (no Pro gating)', () => {
+    // Scene detection presets are a core safety feature, not a paywall lever ???
+    // every mode is available on every tier.
+    const allModes = [
+      'home',
+      'farm',
+      'shop',
+      'parking',
+      'warehouse',
+      'construction',
+      'school',
+      'custom',
+    ] as const;
+    for (const mode of allModes) {
+      expect(isAdvancedSceneProfile(mode)).toBe(false);
+      expect(FREE_SCENE_PROFILES).toContain(mode);
+    }
   });
 
   it('getSceneProfile falls back to home', () => {

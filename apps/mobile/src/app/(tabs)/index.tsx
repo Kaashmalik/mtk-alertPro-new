@@ -53,7 +53,7 @@ import {
 } from '@/stores';
 import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
 import { designSystem } from '@/theme/design-system';
-import { AlertCard } from '@/components/animated';
+import { AlertCard, PressableScale } from '@/components/animated';
 import { EmergencyButton } from '@/components/emergency/EmergencyButton';
 import { RecordingsModal } from '@/components/camera/RecordingsModal';
 import { LiveCameraGrid } from '@/components/camera/LiveCameraGrid';
@@ -361,10 +361,10 @@ export default function HomeScreen() {
           <Animated.View entering={FadeInDown.delay(300).duration(600)} style={styles.section}>
             <Text style={styles.sectionTitle}>Quick Surveillance Actions</Text>
             <View style={styles.quickActions}>
-              <TouchableOpacity
+              <PressableScale
                 style={styles.actionButton}
                 onPress={() => router.push('/cameras/add')}
-                activeOpacity={0.8}
+                accessibilityLabel="Add camera"
               >
                 <LinearGradient
                   colors={[designSystem.colors.primary[500], designSystem.colors.primary[600]]}
@@ -373,40 +373,40 @@ export default function HomeScreen() {
                   <Plus size={20} color="white" />
                 </LinearGradient>
                 <Text style={styles.actionLabel}>Add Camera</Text>
-              </TouchableOpacity>
+              </PressableScale>
 
-              <TouchableOpacity
+              <PressableScale
                 style={styles.actionButton}
                 onPress={() => router.push('/(tabs)/cameras')}
-                activeOpacity={0.8}
+                accessibilityLabel="View live feeds"
               >
                 <View style={[styles.actionIcon, { backgroundColor: 'rgba(59, 130, 246, 0.15)' }]}>
                   <Camera size={20} color={designSystem.colors.status.info} />
                 </View>
                 <Text style={styles.actionLabel}>Live Feeds</Text>
-              </TouchableOpacity>
+              </PressableScale>
 
-              <TouchableOpacity
+              <PressableScale
                 style={styles.actionButton}
                 onPress={() => setShowRecordingsModal(true)}
-                activeOpacity={0.8}
+                accessibilityLabel="Open clips and storage"
               >
                 <View style={[styles.actionIcon, { backgroundColor: 'rgba(56, 189, 248, 0.15)' }]}>
                   <HardDrive size={20} color="#38BDF8" />
                 </View>
                 <Text style={styles.actionLabel}>Clips & Storage</Text>
-              </TouchableOpacity>
+              </PressableScale>
 
-              <TouchableOpacity
+              <PressableScale
                 style={styles.actionButton}
                 onPress={() => router.push('/subscription')}
-                activeOpacity={0.8}
+                accessibilityLabel={isPremium ? 'Pro active' : 'Upgrade to Pro'}
               >
                 <View style={[styles.actionIcon, { backgroundColor: 'rgba(245, 158, 11, 0.15)' }]}>
                   <Crown size={20} color={designSystem.colors.status.warning} />
                 </View>
                 <Text style={styles.actionLabel}>{isPremium ? 'PRO Active' : 'Upgrade'}</Text>
-              </TouchableOpacity>
+              </PressableScale>
             </View>
           </Animated.View>
 

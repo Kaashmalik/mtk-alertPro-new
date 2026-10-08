@@ -170,7 +170,8 @@ import { useDetectionCoordinator } from '@/hooks/useDetectionCoordinator';
 import { useAutomationStore } from '@/stores/automationStore';
 import { refreshMediaEdgeHealth } from '@/lib/streaming/mediaServerHealth';
 import { initializeEncryption } from '@/lib/crypto';
-import { ensureNotificationChannels } from '@/lib/notifications/service';
+import { ensureNotificationChannels, registerAndSavePushToken } from '@/lib/notifications/service';
+import { initializeBackgroundTasks } from '@/lib/background';
 
 function DetectionWatcher() {
   useDetectionCoordinator();
@@ -198,6 +199,7 @@ function AutomationWatcher() {
 export default function RootLayout() {
   const initialize = useAuthStore((state) => state.initialize);
   const isAuthenticated = useAuthStore((state) => state.isAuthenticated);
+  const userId = useAuthStore((state) => state.user?.id);
   const subscribeToAlerts = useAlertStore((state) => state.subscribeToAlerts);
   const [appReady, setAppReady] = useState(false);
   const [appState, setAppState] = useState<AppStateStatus>(AppState.currentState);
@@ -310,6 +312,20 @@ export default function RootLayout() {
       };
     }
   }, [isAuthenticated, appReady, subscribeToAlerts]);
+
+  // Once signed in, register this device for push + start background monitoring.
+  //
+  // This is what makes the app work when you're AWAY from home: the Expo push
+  // token is saved to the user's profile so the `push-on-alert` edge function
+  // can reach this device while the app is closed, and background monitoring
+  // surfaces camera-offline events. Fire-and-forget ??? never block the UI, and
+  // never crash startup if the device/network can't provide a token.
+  useEffect(() => {
+    if (!isAuthenticated || !appReady || !userId) return;
+
+    void registerAndSavePushToken(userId);
+    void initializeBackgroundTasks();
+  }, [isAuthenticated, appReady, userId]);
 
   // Show loading screen ONLY during initial app load
   // Do NOT depend on isLoading from auth store - that causes blinking

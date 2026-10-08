@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, Switch, TouchableOpacity, ScrollView, Alert, StyleSheet, StatusBar } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { router } from 'expo-router';
@@ -23,6 +23,7 @@ import Animated, { FadeInDown } from 'react-native-reanimated';
 import { useAuthStore, useSettingsStore, useSubscriptionStore, useIsPremium } from '@/stores';
 import { profileService } from '@/lib/profile/profileService';
 import { enableBiometricAuth, disableBiometricAuth } from '@/lib/biometric';
+import { fetchIsAdmin } from '@/lib/admin/adminService';
 import { designSystem } from '@/theme/design-system';
 
 export default function SettingsScreen() {
@@ -40,6 +41,20 @@ export default function SettingsScreen() {
   const { currentTier } = useSubscriptionStore();
   const isPremium = useIsPremium();
   const [isLoading, setIsLoading] = useState(false);
+  const [isAdmin, setIsAdmin] = useState(false);
+
+  // Surface the admin console only to admin accounts. Server RPCs re-check
+  // admin status, so this is a UI convenience, not the security boundary.
+  useEffect(() => {
+    let active = true;
+    if (!user?.id) return;
+    fetchIsAdmin(user.id).then((admin) => {
+      if (active) setIsAdmin(admin);
+    });
+    return () => {
+      active = false;
+    };
+  }, [user?.id]);
 
   const handleBiometricToggle = async (v: boolean) => {
     if (v) {
@@ -261,6 +276,18 @@ export default function SettingsScreen() {
               onToggle={handleBiometricToggle}
             />
           </SettingSection>
+
+          {/* Admin (admins only) */}
+          {isAdmin && (
+            <SettingSection title="Admin" delay={450}>
+              <SettingItem
+                icon={Shield}
+                color={'#10B981'}
+                label="Admin Console"
+                onPress={() => router.push('/admin')}
+              />
+            </SettingSection>
+          )}
 
           {/* Support */}
           <SettingSection title="Support" delay={500}>

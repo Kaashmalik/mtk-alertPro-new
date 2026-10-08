@@ -117,8 +117,10 @@ describe('Streaming Service', () => {
       expect(service.isRegistered('camera-123')).toBe(false);
     });
 
-    it('should handle network error', async () => {
-      (global.fetch as jest.Mock).mockRejectedValueOnce(new Error('Connection failed'));
+    it('should handle network error (after exhausting retries)', async () => {
+      // registerCamera retries transient failures, so a persistent network
+      // error must keep failing on every attempt before it surfaces.
+      (global.fetch as jest.Mock).mockRejectedValue(new Error('Connection failed'));
 
       const result = await service.registerCamera(
         'camera-123',
