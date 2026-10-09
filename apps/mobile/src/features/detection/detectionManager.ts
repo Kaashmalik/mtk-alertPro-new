@@ -563,6 +563,23 @@ class DetectionManager {
             )) || undefined;
         }
 
+        // Also insert a durable analytics event (unaffected by alert pruning)
+        const { error: eventError } = await supabase.from('detection_events').insert({
+          camera_id: event.cameraId,
+          user_id: userId,
+          type: event.type === 'unknown' ? 'motion' : event.type,
+          confidence: event.confidence,
+          bounding_box: event.boundingBox || null,
+          metadata: {
+            personName: event.personName,
+            processedAt: toIsoString(event.timestamp) ?? undefined,
+          },
+        });
+
+        if (eventError) {
+          console.error('[DetectionManager] Failed to record detection_event:', eventError);
+        }
+
         const { error } = await supabase.from('alerts').insert({
           camera_id: event.cameraId,
           user_id: userId,

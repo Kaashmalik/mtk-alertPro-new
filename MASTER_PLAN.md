@@ -156,7 +156,7 @@ a publish path. Pro feature, with a mic-level permission and a clear privacy not
 Ring's core "scare them off" interaction. We have alarm sounds; a *camera-side*
 deterrent (via relay) is different. Pro feature.
 
-### P1.4 `detection_events` table → analytics **[migration written, not yet applied]**
+### P1.4 `detection_events` table → analytics **[applied]**
 Today an alert is a row, and `alerts` is trimmed to 7–30 days, so **there is no
 durable event history to analyse** — which is why people counting, heatmaps and
 insights are impossible today.
@@ -266,7 +266,6 @@ cost. Only after P1.4 exists.
 
 | Blocker | Owner | Impact |
 |---|---|---|
-| `20261001000100_detection_events.sql` not yet applied | You / next deploy | Analytics groundwork is inert until applied |
 | RevenueCat dashboard not yet pointed at the webhook | You | **No purchase can ever grant premium.** Backend is live and verified. |
 | Play product IDs (`pro_monthly`, `business_monthly`) | You | Products must exist to be sold |
 | Release upload keystore | You | Debug-signed APK cannot be uploaded to Play |
